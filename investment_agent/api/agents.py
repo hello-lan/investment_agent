@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from db import get_db
+from ..db import get_db
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 

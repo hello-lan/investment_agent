@@ -9,7 +9,7 @@
 <nav class="navbar">
   <span class="brand">📈 投研 Agent</span>
   <a href="/">对话</a><a href="/agents">Agent 配置</a>
-  <a href="/settings" class="active">设置</a><a href="/history">历史</a><a href="/observability">观测</a>
+  <a href="/skills">Skills</a><a href="/settings" class="active">设置</a><a href="/history">历史</a><a href="/observability">观测</a>
 </nav>
 <div class="container">
 
@@ -93,6 +93,20 @@
     <div class="card-footer">
       <span class="inline-msg" id="compressMsg"></span>
       <button class="btn-save-inline" onclick="saveCompress()">保存</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3>Skills 目录</h3></div>
+    <div class="card-body">
+      <div class="form-row">
+        <label>Skills Directory</label>
+        <input type="text" id="skillsDirectory" placeholder="如：skills 或 /opt/app/skills">
+      </div>
+    </div>
+    <div class="card-footer">
+      <span class="inline-msg" id="skillsMsg"></span>
+      <button class="btn-save-inline" onclick="saveSkillsDirectory()">保存</button>
     </div>
   </div>
 

@@ -1,5 +1,5 @@
-from core.engine import AgentEngine
-from core.models import get_provider
+from .engine import AgentEngine
+from .models import get_provider
 
 _engines: dict[str, AgentEngine] = {}
 

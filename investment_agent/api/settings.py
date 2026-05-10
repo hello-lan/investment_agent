@@ -2,8 +2,9 @@ import uuid
 from datetime import datetime
 from fastapi import APIRouter
 from pydantic import BaseModel
-from config import get_settings, save_settings
-from db import get_db
+from ..config import get_settings, save_settings
+from ..skills.loader import reload_skills
+from ..db import get_db
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -100,7 +101,7 @@ class TestModelRequest(BaseModel):
 @router.post("/models/test")
 async def test_model(body: TestModelRequest):
     try:
-        from core.models import get_provider
+        from ..core.models import get_provider
         provider = await get_provider(body.model_id)
         resp = await provider.chat(
             messages=[{"role": "user", "content": "reply with the single word: ok"}],
@@ -155,6 +156,21 @@ async def update_compress(body: CompressSettings):
         "total_budget_chars": max(2000, body.total_budget_chars),
     }
     save_settings(s)
+    return {"success": True}
+
+
+class SkillsSettings(BaseModel):
+    directory: str = "skills"
+
+
+@router.put("/skills")
+async def update_skills(body: SkillsSettings):
+    s = get_settings()
+    s["skills"] = {
+        "directory": (body.directory or "skills").strip() or "skills",
+    }
+    save_settings(s)
+    reload_skills()
     return {"success": True}
 
 

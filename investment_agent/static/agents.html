@@ -21,6 +21,7 @@
   <span class="brand">📈 投研 Agent</span>
   <a href="/">对话</a>
   <a href="/agents" class="active">Agent 配置</a>
+  <a href="/skills">Skills</a>
   <a href="/settings">设置</a>
   <a href="/history">历史</a>
   <a href="/observability">观测</a>
@@ -55,6 +56,11 @@
       <label>模型</label>
       <select id="agentModel"></select>
       <div class="hint">在<a href="/settings" style="color:#1a1a2e">设置页</a>管理可用模型</div>
+    </div>
+    <div class="form-row">
+      <label>挂载 Skills</label>
+      <div id="agentSkills" style="display:flex;flex-wrap:wrap;gap:8px;border:1px solid #ddd;border-radius:6px;padding:10px;min-height:42px;background:#fafafa;"></div>
+      <div class="hint">仅会在该 Agent 下注册并可调用已勾选的 skills</div>
     </div>
     <div class="form-row">
       <label>Temperature</label>

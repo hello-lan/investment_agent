@@ -2,7 +2,7 @@ import json
 import uuid
 from datetime import datetime
 
-from db import get_db
+from ..db import get_db
 
 
 def _safe_detail(detail: dict | None) -> str:

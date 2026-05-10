@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from db import get_db
+from ..db import get_db
 
 
 def _estimate_cost_usd(input_tokens: int, output_tokens: int) -> float:

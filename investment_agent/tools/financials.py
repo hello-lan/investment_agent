@@ -1,6 +1,6 @@
 import asyncio
 import json
-from tools.base import BaseTool
+from .base import BaseTool
 
 
 def _run_sync(func, *args, **kwargs):

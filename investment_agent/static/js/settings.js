@@ -31,6 +31,9 @@ async function loadAll() {
   const tools = s.tools || {};
   document.getElementById('tushareToken').placeholder = tools.tushare_token ? '已设置（输入新值覆盖）' : '留空则只使用 AKShare';
 
+  const skills = s.skills || {};
+  document.getElementById('skillsDirectory').value = skills.directory || 'skills';
+
   const compress = s.compress || {};
   document.getElementById('compressEnabled').value = String(compress.enabled ?? true);
   document.getElementById('compressRecentKeep').value = compress.recent_keep ?? 6;
@@ -173,6 +176,14 @@ async function saveEngine() {
     method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
   });
   showMsg('engineMsg', res.ok, res.ok ? '已保存' : '保存失败');
+}
+
+async function saveSkillsDirectory() {
+  const body = {directory: document.getElementById('skillsDirectory').value.trim() || 'skills'};
+  const res = await fetch('/api/settings/skills', {
+    method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+  });
+  showMsg('skillsMsg', res.ok, res.ok ? '已保存' : '保存失败');
 }
 
 async function saveTools() {

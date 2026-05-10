@@ -1,7 +1,7 @@
 import asyncio
 import json
 from functools import lru_cache
-from tools.base import BaseTool
+from .base import BaseTool
 
 
 def _run_sync(func, *args, **kwargs):

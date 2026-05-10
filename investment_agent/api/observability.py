@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from db import get_db
+from ..db import get_db
 
 router = APIRouter(prefix="/api/observability", tags=["observability"])
 

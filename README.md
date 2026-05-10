@@ -11,7 +11,7 @@
 pip install -r requirements.txt
 
 # 启动服务
-uvicorn main:app --reload --port 8000
+uvicorn investment_agent:app --reload --port 8000
 ```
 
 启动后访问 `http://localhost:8000`，先到「设置」页填入 API Key，然后在对话页输入分析请求即可。

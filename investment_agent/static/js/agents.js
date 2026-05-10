@@ -1,6 +1,7 @@
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 let availableModels = [];
+let availableSkills = [];
 
 function modelNameById(id) {
   const m = availableModels.find(x => x.id === id);
@@ -13,8 +14,13 @@ async function loadModels() {
   return availableModels;
 }
 
+async function loadSkillsCatalog() {
+  availableSkills = await fetch('/api/skills').then(r => r.json());
+  return availableSkills;
+}
+
 async function loadAgents(){
-  await loadModels();
+  await Promise.all([loadModels(), loadSkillsCatalog()]);
   const agents = await fetch('/api/agents').then(r => r.json());
   const grid = document.getElementById('agentGrid');
   if(!agents.length){
@@ -43,6 +49,26 @@ function buildModelOptions(selectedId) {
   ).join('');
 }
 
+function renderSkillOptions(selected = []) {
+  const box = document.getElementById('agentSkills');
+  if (!availableSkills.length) {
+    box.innerHTML = '<span class="hint">暂无可挂载 Skill</span>';
+    return;
+  }
+  const selectedSet = new Set(selected || []);
+  box.innerHTML = availableSkills.map(s => {
+    const checked = selectedSet.has(s.name) ? 'checked' : '';
+    return `<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;padding:2px 6px;border:1px solid #e4e4e4;border-radius:999px;background:#fff;">
+      <input type="checkbox" name="agentSkill" value="${esc(s.name)}" ${checked}>
+      <span>${esc(s.name)}</span>
+    </label>`;
+  }).join('');
+}
+
+function selectedSkills() {
+  return Array.from(document.querySelectorAll('input[name="agentSkill"]:checked')).map(i => i.value);
+}
+
 function openModal(agent){
   document.getElementById('modalTitle').textContent = agent ? '编辑 Agent' : '新建 Agent';
   document.getElementById('agentId').value = agent?.id || '';
@@ -52,6 +78,7 @@ function openModal(agent){
   document.getElementById('agentModel').innerHTML = buildModelOptions(agent?.model_id || '');
   document.getElementById('agentTemp').value = agent?.temperature ?? 0.7;
   document.getElementById('agentMaxTokens').value = agent?.max_tokens || 4096;
+  renderSkillOptions(agent?.skills || []);
   document.getElementById('modalOverlay').classList.add('open');
 }
 
@@ -61,6 +88,11 @@ function closeModal(){
 
 async function editAgent(id){
   const agent = await fetch(`/api/agents/${id}`).then(r => r.json());
+  try {
+    agent.skills = JSON.parse(agent.skills || '[]');
+  } catch {
+    agent.skills = [];
+  }
   openModal(agent);
 }
 
@@ -82,7 +114,7 @@ async function saveAgent(){
     model_id: document.getElementById('agentModel').value,
     temperature: parseFloat(document.getElementById('agentTemp').value),
     max_tokens: parseInt(document.getElementById('agentMaxTokens').value),
-    skills: [],
+    skills: selectedSkills(),
   };
 
   const url = id ? `/api/agents/${id}` : '/api/agents';

@@ -5,8 +5,8 @@ from collections import Counter
 from datetime import datetime
 from typing import AsyncGenerator, Callable
 
-from config import get_settings
-from core.models import ModelProvider, LLMResponse, ToolCall
+from ..config import get_settings
+from .models import ModelProvider, LLMResponse, ToolCall
 
 
 class AgentEngine:

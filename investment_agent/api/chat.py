@@ -6,13 +6,14 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from core.session import create_engine, get_engine, interrupt_engine, remove_engine
-from context.compressor import compress_messages
-from config import get_settings
-from observability.cost_tracker import log_cost
-from observability.trace import log_trace
-from db import get_db
-from tools.registry import get_schemas, get_tool
+from ..core.session import create_engine, get_engine, interrupt_engine, remove_engine
+from ..context.compressor import compress_messages
+from ..config import get_settings
+from ..observability.cost_tracker import log_cost
+from ..observability.trace import log_trace
+from ..db import get_db
+from ..tools.registry import get_schemas, get_tool
+from ..skills.loader import get_schemas as get_skill_schemas, get_skill
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -52,10 +53,11 @@ async def start_chat(req: ChatRequest):
 
     system_prompt = DEFAULT_SYSTEM_PROMPT
     model_id = None
+    enabled_skill_names: list[str] = []
     if req.agent_id:
         async with get_db() as db:
             row = await db.execute(
-                "SELECT system_prompt, model_id FROM agents WHERE id = ?", (req.agent_id,)
+                "SELECT system_prompt, model_id, skills FROM agents WHERE id = ?", (req.agent_id,)
             )
             agent = await row.fetchone()
             if agent:
@@ -63,6 +65,10 @@ async def start_chat(req: ChatRequest):
                     system_prompt = agent["system_prompt"]
                 if agent["model_id"]:
                     model_id = agent["model_id"]
+                try:
+                    enabled_skill_names = json.loads(agent["skills"] or "[]")
+                except Exception:
+                    enabled_skill_names = []
 
     engine = await create_engine(session_id=session_id, system_prompt=system_prompt, provider_name=model_id)
 
@@ -70,6 +76,13 @@ async def start_chat(req: ChatRequest):
         t = get_tool(tool["name"])
         if t:
             engine.register_tool(tool, t.run)
+
+    for skill_schema in get_skill_schemas(enabled_skill_names):
+        schema_name = skill_schema["name"]
+        skill_name = schema_name.replace("skill_", "", 1)
+        skill = get_skill(skill_name)
+        if skill:
+            engine.register_tool(skill_schema, skill.run)
 
     return {"task_id": engine.task_id, "session_id": session_id}
 

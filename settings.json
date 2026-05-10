@@ -11,6 +11,9 @@
     "max_chars_per_msg": 2000,
     "total_budget_chars": 100000
   },
+  "skills": {
+    "directory": "./skills"
+  },
   "tools": {
     "tushare_token": ""
   }
