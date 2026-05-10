@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Agent 配置 — 投研 Agent</title>
+<link rel="stylesheet" href="/static/css/settings.css">
+<style>
+.top-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;}
+.top-bar h2{font-size:18px;}
+.agent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;}
+.agent-card{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:18px;}
+.agent-card h3{font-size:15px;margin-bottom:6px;}
+.agent-card .desc{font-size:13px;color:#666;margin-bottom:10px;min-height:36px;}
+.agent-card .meta{font-size:12px;color:#999;margin-bottom:12px;}
+.agent-card .actions{display:flex;gap:8px;}
+.btn-success{background:#e8f5e9;color:#2e7d32;border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;}
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <span class="brand">📈 投研 Agent</span>
+  <a href="/">对话</a>
+  <a href="/agents" class="active">Agent 配置</a>
+  <a href="/settings">设置</a>
+  <a href="/history">历史</a>
+</nav>
+<div class="container">
+  <div class="top-bar">
+    <h2>Agent 配置</h2>
+    <button class="btn btn-primary" onclick="openModal()">+ 新建 Agent</button>
+  </div>
+  <div class="agent-grid" id="agentGrid">
+    <div class="empty">暂无 Agent，点击右上角新建</div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-title" id="modalTitle">新建 Agent</div>
+    <input type="hidden" id="agentId">
+    <div class="form-row">
+      <label>名称 *</label>
+      <input type="text" id="agentName" placeholder="如：A股基本面分析师">
+    </div>
+    <div class="form-row">
+      <label>描述</label>
+      <input type="text" id="agentDesc" placeholder="简短描述这个 Agent 的用途">
+    </div>
+    <div class="form-row">
+      <label>系统提示词</label>
+      <textarea id="agentPrompt" rows="6" style="width:100%;border:1px solid #ddd;border-radius:6px;padding:9px 12px;font-size:14px;outline:none;font-family:inherit;resize:vertical;" placeholder="定义 Agent 的角色、能力和行为规范..."></textarea>
+    </div>
+    <div class="form-row">
+      <label>模型</label>
+      <select id="agentModel"></select>
+      <div class="hint">在<a href="/settings" style="color:#1a1a2e">设置页</a>管理可用模型</div>
+    </div>
+    <div class="form-row">
+      <label>Temperature</label>
+      <input type="number" id="agentTemp" value="0.7" min="0" max="1" step="0.1">
+    </div>
+    <div class="form-row">
+      <label>Max Tokens</label>
+      <input type="number" id="agentMaxTokens" value="4096" min="512" max="32000" step="512">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveAgent()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/agents.js"></script>
+</body>
+</html>

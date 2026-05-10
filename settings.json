@@ -1,0 +1,11 @@
+{
+    "engine": {
+        "max_steps": 30,
+        "slow_think_interval": 3,
+        "token_budget": 100000,
+        "loop_detection_threshold": 3
+    },
+    "tools": {
+        "tushare_token": ""
+    }
+}

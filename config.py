@@ -1,0 +1,22 @@
+import json
+from pathlib import Path
+from functools import lru_cache
+
+SETTINGS_PATH = Path(__file__).parent / "settings.json"
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> dict:
+    with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def reload_settings() -> dict:
+    get_settings.cache_clear()
+    return get_settings()
+
+
+def save_settings(data: dict) -> None:
+    with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    get_settings.cache_clear()
