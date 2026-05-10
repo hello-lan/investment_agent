@@ -76,6 +76,16 @@ async def init_db() -> None:
                 cost_usd      REAL DEFAULT 0,
                 created_at    TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS trace_log (
+                id         TEXT PRIMARY KEY,
+                session_id TEXT,
+                task_id    TEXT,
+                step       INTEGER,
+                event_type TEXT,
+                detail     TEXT,
+                created_at TEXT
+            );
         """)
         await db.commit()
 

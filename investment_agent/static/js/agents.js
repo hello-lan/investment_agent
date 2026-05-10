@@ -2,6 +2,11 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 
 let availableModels = [];
 
+function modelNameById(id) {
+  const m = availableModels.find(x => x.id === id);
+  return m ? m.name : (id || '未设置模型');
+}
+
 async function loadModels() {
   const data = await fetch('/api/settings/models').then(r => r.json());
   availableModels = data.list || [];
@@ -20,7 +25,7 @@ async function loadAgents(){
     <div class="agent-card">
       <h3>${esc(a.name)}</h3>
       <div class="desc">${esc(a.description||'暂无描述')}</div>
-      <div class="meta">${esc(a.model_provider||'')} · ${esc(a.model_name||'')}</div>
+      <div class="meta">模型：${esc(modelNameById(a.model_id))}</div>
       <div class="actions">
         <button class="btn btn-primary btn-sm" onclick="editAgent('${a.id}')">编辑</button>
         <button class="btn btn-danger btn-sm" onclick="deleteAgent('${a.id}')">删除</button>
@@ -44,7 +49,7 @@ function openModal(agent){
   document.getElementById('agentName').value = agent?.name || '';
   document.getElementById('agentDesc').value = agent?.description || '';
   document.getElementById('agentPrompt').value = agent?.system_prompt || '';
-  document.getElementById('agentModel').innerHTML = buildModelOptions(agent?.model_name || '');
+  document.getElementById('agentModel').innerHTML = buildModelOptions(agent?.model_id || '');
   document.getElementById('agentTemp').value = agent?.temperature ?? 0.7;
   document.getElementById('agentMaxTokens').value = agent?.max_tokens || 4096;
   document.getElementById('modalOverlay').classList.add('open');
@@ -70,15 +75,11 @@ async function saveAgent(){
   const name = document.getElementById('agentName').value.trim();
   if(!name){alert('请输入 Agent 名称'); return;}
 
-  const selectedModelId = document.getElementById('agentModel').value;
-  const selectedModel = availableModels.find(m => m.id === selectedModelId);
-
   const body = {
     name,
     description: document.getElementById('agentDesc').value,
     system_prompt: document.getElementById('agentPrompt').value,
-    model_provider: selectedModel?.type || 'anthropic',
-    model_name: selectedModelId,
+    model_id: document.getElementById('agentModel').value,
     temperature: parseFloat(document.getElementById('agentTemp').value),
     max_tokens: parseInt(document.getElementById('agentMaxTokens').value),
     skills: [],

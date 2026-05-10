@@ -1,14 +1,84 @@
-let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0;
+let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,currentAgentId=null;
 
 function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
+function _safeUrl(url){
+  const u = String(url || '').trim();
+  if (!u) return '#';
+  if (u.startsWith('/')) return u;
+  try {
+    const p = new URL(u, window.location.origin);
+    if (['http:', 'https:', 'mailto:'].includes(p.protocol)) return p.href;
+  } catch (_) {}
+  return '#';
+}
+
+function _normalizeLinkArgs(args){
+  if (args.length === 1 && args[0] && typeof args[0] === 'object') {
+    return {
+      href: args[0].href || '',
+      title: args[0].title || '',
+      text: args[0].text || '',
+    };
+  }
+  return {
+    href: args[0] || '',
+    title: args[1] || '',
+    text: args[2] || '',
+  };
+}
+
+function _normalizeImageArgs(args){
+  if (args.length === 1 && args[0] && typeof args[0] === 'object') {
+    return {
+      href: args[0].href || '',
+      title: args[0].title || '',
+      text: args[0].text || '',
+    };
+  }
+  return {
+    href: args[0] || '',
+    title: args[1] || '',
+    text: args[2] || '',
+  };
+}
+
 function renderMarkdown(t){
-  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/```([\s\S]*?)```/g,'<pre><code>$1</code></pre>')
-    .replace(/`([^`]+)`/g,'<code>$1</code>')
-    .replace(/^### (.+)$/gm,'<h3>$1</h3>').replace(/^## (.+)$/gm,'<h2>$1</h2>').replace(/^# (.+)$/gm,'<h1>$1</h1>')
-    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>')
-    .replace(/^- (.+)$/gm,'<li>$1</li>').replace(/\n\n/g,'<br><br>');
+  const src = String(t || '');
+
+  if (!window.marked || !window.DOMPurify) {
+    return escapeHtml(src).replace(/\n/g, '<br>');
+  }
+
+  try {
+    marked.setOptions({
+      gfm: true,
+      breaks: false,
+      headerIds: false,
+      mangle: false,
+    });
+
+    const renderer = new marked.Renderer();
+    renderer.link = function(...args){
+      const { href, title, text } = _normalizeLinkArgs(args);
+      const safe = _safeUrl(href);
+      const tAttr = title ? ` title="${escapeHtml(title)}"` : '';
+      return `<a href="${safe}" target="_blank" rel="noopener noreferrer"${tAttr}>${text}</a>`;
+    };
+    renderer.image = function(...args){
+      const { href, title, text } = _normalizeImageArgs(args);
+      const safe = _safeUrl(href);
+      const tAttr = title ? ` title="${escapeHtml(title)}"` : '';
+      return `<img src="${safe}" alt="${escapeHtml(text || '')}" loading="lazy"${tAttr}>`;
+    };
+
+    const raw = marked.parse(src, { renderer });
+    return DOMPurify.sanitize(raw, {
+      USE_PROFILES: { html: true },
+    });
+  } catch (_) {
+    return escapeHtml(src).replace(/\n/g, '<br>');
+  }
 }
 
 async function loadSessions(){
@@ -103,7 +173,7 @@ async function sendMessage(){
 
   const data=await fetch('/api/chat',{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({session_id:currentSessionId,message:text}),
+    body:JSON.stringify({session_id:currentSessionId,message:text,agent_id:currentAgentId}),
   }).then(r=>r.json());
 
   currentTaskId=data.task_id;
@@ -142,7 +212,16 @@ function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMe
 function autoResize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,120)+'px';}
 
 window.addEventListener('DOMContentLoaded',()=>{
-  const sid=new URLSearchParams(location.search).get('session');
+  const params = new URLSearchParams(location.search);
+  const sid = params.get('session');
+  currentAgentId = params.get('agent');
   if(sid)loadSession(sid);
+  if(currentAgentId){
+    const banner = document.createElement('div');
+    banner.style.cssText = 'font-size:12px;color:#666;padding:8px 20px;background:#fff;border-bottom:1px solid #eee;';
+    banner.textContent = `当前Agent: ${currentAgentId}`;
+    const main = document.querySelector('.main');
+    main.insertBefore(banner, document.getElementById('messages'));
+  }
   loadSessions();
 });

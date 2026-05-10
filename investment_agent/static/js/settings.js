@@ -30,6 +30,12 @@ async function loadAll() {
 
   const tools = s.tools || {};
   document.getElementById('tushareToken').placeholder = tools.tushare_token ? '已设置（输入新值覆盖）' : '留空则只使用 AKShare';
+
+  const compress = s.compress || {};
+  document.getElementById('compressEnabled').value = String(compress.enabled ?? true);
+  document.getElementById('compressRecentKeep').value = compress.recent_keep ?? 6;
+  document.getElementById('compressMaxChars').value = compress.max_chars_per_msg ?? 2000;
+  document.getElementById('compressTotalBudget').value = compress.total_budget_chars ?? 20000;
 }
 
 function renderDefaultSelect() {
@@ -175,6 +181,19 @@ async function saveTools() {
     method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
   });
   showMsg('toolsMsg', res.ok, res.ok ? '已保存' : '保存失败');
+}
+
+async function saveCompress() {
+  const body = {
+    enabled: document.getElementById('compressEnabled').value === 'true',
+    recent_keep: parseInt(document.getElementById('compressRecentKeep').value || '6'),
+    max_chars_per_msg: parseInt(document.getElementById('compressMaxChars').value || '2000'),
+    total_budget_chars: parseInt(document.getElementById('compressTotalBudget').value || '20000'),
+  };
+  const res = await fetch('/api/settings/compress', {
+    method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+  });
+  showMsg('compressMsg', res.ok, res.ok ? '已保存' : '保存失败');
 }
 
 function showMsg(id, ok, text) {

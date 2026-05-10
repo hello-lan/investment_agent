@@ -138,6 +138,26 @@ class ToolsSettings(BaseModel):
     tushare_token: str = ""
 
 
+class CompressSettings(BaseModel):
+    enabled: bool = True
+    recent_keep: int = 6
+    max_chars_per_msg: int = 2000
+    total_budget_chars: int = 20000
+
+
+@router.put("/compress")
+async def update_compress(body: CompressSettings):
+    s = get_settings()
+    s["compress"] = {
+        "enabled": bool(body.enabled),
+        "recent_keep": max(0, body.recent_keep),
+        "max_chars_per_msg": max(200, body.max_chars_per_msg),
+        "total_budget_chars": max(2000, body.total_budget_chars),
+    }
+    save_settings(s)
+    return {"success": True}
+
+
 @router.put("/tools")
 async def update_tools(body: ToolsSettings):
     s = get_settings()

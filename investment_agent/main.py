@@ -8,6 +8,7 @@ from api.chat import router as chat_router
 from api.sessions import router as sessions_router
 from api.settings import router as settings_router
 from api.agents import router as agents_router
+from api.observability import router as observability_router
 
 
 @asynccontextmanager
@@ -25,6 +26,7 @@ app.include_router(chat_router)
 app.include_router(sessions_router)
 app.include_router(settings_router)
 app.include_router(agents_router)
+app.include_router(observability_router)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -47,6 +49,11 @@ async def settings_page():
 @app.get("/history")
 async def history_page():
     return FileResponse("static/history.html")
+
+
+@app.get("/observability")
+async def observability_page():
+    return FileResponse("static/observability.html")
 
 
 @app.get("/health")

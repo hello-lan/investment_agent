@@ -7,6 +7,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from core.session import create_engine, get_engine, interrupt_engine, remove_engine
+from context.compressor import compress_messages
+from config import get_settings
+from observability.cost_tracker import log_cost
+from observability.trace import log_trace
 from db import get_db
 from tools.registry import get_schemas, get_tool
 
@@ -90,12 +94,45 @@ async def stream_chat(task_id: str):
         if r["role"] in ("user", "assistant"):
             messages.append({"role": r["role"], "content": r["content"] or ""})
 
+    compress_cfg = get_settings().get("compress", {})
+    messages_for_engine = compress_messages(messages, compress_cfg)
+
     async def event_stream():
         assistant_content = ""
+        model_name = getattr(engine.provider, "model", "unknown")
+        last_step = 0
+        cost_logged = False
         try:
-            async for event in engine.run(messages):
-                if event["type"] == "text_delta":
+            async for event in engine.run(messages_for_engine):
+                event_type = event.get("type", "unknown")
+                step = event.get("step")
+                if isinstance(step, int):
+                    last_step = step
+
+                trace_detail = {}
+                if event_type == "tool_call":
+                    trace_detail = {"tool": event.get("tool"), "input": event.get("input")}
+                elif event_type == "tool_result":
+                    trace_detail = {"tool": event.get("tool"), "output": str(event.get("output", ""))[:500]}
+                elif event_type in ("error", "slow_think"):
+                    trace_detail = {"message": event.get("message") or event.get("content")}
+                await log_trace(engine.session_id, task_id, last_step or None, event_type, trace_detail)
+
+                if event_type == "text_delta":
                     assistant_content += event["content"]
+                elif event_type in ("done", "error", "interrupted") and not cost_logged:
+                    usage = event.get("usage", {}) if isinstance(event, dict) else {}
+                    input_tokens = usage.get("input_tokens", engine.total_input_tokens)
+                    output_tokens = usage.get("output_tokens", engine.total_output_tokens)
+                    await log_cost(
+                        session_id=engine.session_id,
+                        task_id=task_id,
+                        model=model_name,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                    )
+                    cost_logged = True
+
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
             if assistant_content:
