@@ -2,8 +2,8 @@ import uuid
 from datetime import datetime
 from fastapi import APIRouter
 from pydantic import BaseModel
-from ..config import get_settings, save_settings
-from ..skills.loader import reload_skills
+from ...config import get_settings, save_settings
+from ...agent.skills.loader import reload_skills
 from ..db import get_db
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -101,7 +101,7 @@ class TestModelRequest(BaseModel):
 @router.post("/models/test")
 async def test_model(body: TestModelRequest):
     try:
-        from ..core.models import get_provider
+        from ...agent.core.models import get_provider
         provider = await get_provider(body.model_id)
         resp = await provider.chat(
             messages=[{"role": "user", "content": "reply with the single word: ok"}],

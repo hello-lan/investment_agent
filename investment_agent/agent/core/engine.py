@@ -5,7 +5,7 @@ from collections import Counter
 from datetime import datetime
 from typing import AsyncGenerator, Callable
 
-from ..config import get_settings
+from ...config import get_settings
 from .models import ModelProvider, LLMResponse, ToolCall
 
 

@@ -22,38 +22,43 @@ uvicorn investment_agent:app --reload --port 8000
 
 ```
 investment_agent/
+├── __init__.py
 ├── main.py                  # FastAPI 入口，路由注册，DB 初始化
 ├── config.py                # settings.json 读写（带缓存）
 ├── settings.json            # 用户配置（模型、API Key、引擎参数）
-├── requirements.txt
 │
-├── core/                    # 第一层：核心执行引擎
-│   ├── engine.py            # 双循环执行引擎
-│   ├── models.py            # 多模型抽象层
-│   └── session.py           # 并发任务隔离
+├── app/                     # 应用层（接口/静态资源/观测/持久化）
+│   ├── __init__.py
+│   ├── db.py                # SQLite 初始化与访问
+│   ├── api/                 # FastAPI 路由
+│   │   ├── chat.py          # 对话接口（SSE 流式）
+│   │   ├── sessions.py      # 会话管理
+│   │   ├── agents.py        # Agent 配置管理
+│   │   ├── skills.py        # Skills 列表
+│   │   ├── observability.py # 观测数据接口
+│   │   └── settings.py      # 配置读写
+│   ├── observability/       # 成本与链路追踪
+│   └── static/              # 前端（原生 HTML/JS）
+│       ├── index.html       # 主对话页
+│       ├── agents.html      # Agent 配置页
+│       ├── skills.html      # Skills 页
+│       ├── settings.html    # 系统设置页
+│       ├── history.html     # 历史会话页
+│       ├── observability.html
+│       ├── css/main.css
+│       └── js/
+│           ├── chat.js      # SSE 流式接收 + Markdown 渲染
+│           ├── agents.js    # Agent 配置逻辑
+│           ├── skills.js    # Skills 页逻辑
+│           ├── observability.js
+│           └── settings.js  # 设置页逻辑
 │
-├── tools/                   # 第二层：工具系统
-│   ├── base.py              # 工具基类
-│   ├── registry.py          # 工具注册表
-│   ├── market_data.py       # 行情数据工具（AKShare）
-│   └── financials.py        # 财务数据工具（AKShare）
-│
-├── api/                     # FastAPI 路由
-│   ├── chat.py              # 对话接口（SSE 流式）
-│   ├── sessions.py          # 会话管理
-│   ├── agents.py            # Agent 配置管理
-│   └── settings.py          # 配置读写
-│
-├── static/                  # 前端（原生 HTML/JS）
-│   ├── index.html           # 主对话页
-│   ├── agents.html          # Agent 配置页
-│   ├── settings.html        # 系统设置页
-│   ├── history.html         # 历史会话页
-│   ├── css/main.css
-│   └── js/
-│       ├── chat.js          # SSE 流式接收 + Markdown 渲染
-│       ├── agents.js        # Agent 配置逻辑
-│       └── settings.js      # 设置页逻辑
+├── agent/                   # 执行层（上下文/引擎/技能/工具）
+│   ├── __init__.py
+│   ├── context/
+│   ├── core/
+│   ├── skills/
+│   └── tools/
 │
 └── output/                  # 输出目录（自动创建）
     ├── reports/             # 导出的 Markdown 研报
@@ -64,7 +69,7 @@ investment_agent/
 
 ## 核心模块说明
 
-### 执行引擎（core/engine.py）
+### 执行引擎（agent/core/engine.py）
 
 实现双循环架构：
 
@@ -77,7 +82,7 @@ investment_agent/
 - **Token 预算**：单次任务超出预算自动中止（默认 100,000 tokens）
 - **优雅中断**：通过 `asyncio.Event` 支持用户随时停止任务
 
-### 多模型抽象层（core/models.py）
+### 多模型抽象层（agent/core/models.py）
 
 统一接口，底层可切换：
 
@@ -89,7 +94,7 @@ investment_agent/
 
 路由规则在 `settings.json` 中配置，支持按任务复杂度自动选择模型。
 
-### 工具系统（tools/）
+### 工具系统（agent/tools/）
 
 所有工具按风险等级分类，当前实现均为 L0（只读，无副作用）：
 
@@ -108,7 +113,7 @@ investment_agent/
 
 数据来源：AKShare（免费，覆盖全 A 股）
 
-### 并发任务隔离（core/session.py）
+### 并发任务隔离（agent/core/session.py）
 
 每个任务分配独立的 `AgentEngine` 实例，通过 `task_id → engine` 字典管理，避免多用户并发时上下文互相干扰。
 

@@ -6,14 +6,14 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ..core.session import create_engine, get_engine, interrupt_engine, remove_engine
-from ..context.compressor import compress_messages
-from ..config import get_settings
+from ...agent.core.session import create_engine, get_engine, interrupt_engine, remove_engine
+from ...agent.context.compressor import compress_messages
+from ...config import get_settings
 from ..observability.cost_tracker import log_cost
 from ..observability.trace import log_trace
 from ..db import get_db
-from ..tools.registry import get_schemas, get_tool
-from ..skills.loader import get_schemas as get_skill_schemas, get_skill
+from ...agent.tools.registry import get_schemas, get_tool
+from ...agent.skills.loader import get_schemas as get_skill_schemas, get_skill
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 

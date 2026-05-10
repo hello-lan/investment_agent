@@ -5,16 +5,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 
-from .db import init_db
-from .api.chat import router as chat_router
-from .api.sessions import router as sessions_router
-from .api.settings import router as settings_router
-from .api.agents import router as agents_router
-from .api.skills import router as skills_router
-from .api.observability import router as observability_router
+from .app.db import init_db
+from .app.api.chat import router as chat_router
+from .app.api.sessions import router as sessions_router
+from .app.api.settings import router as settings_router
+from .app.api.agents import router as agents_router
+from .app.api.skills import router as skills_router
+from .app.api.observability import router as observability_router
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-STATIC_DIR = PROJECT_ROOT / "investment_agent" / "static"
+STATIC_DIR = PROJECT_ROOT / "investment_agent" / "app" / "static"
 OUTPUT_DIR = PROJECT_ROOT / "output"
 
 

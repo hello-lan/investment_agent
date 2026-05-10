@@ -4,27 +4,22 @@ import aiosqlite
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-LEGACY_DB_PATH = Path(__file__).resolve().parent / "investment_agent.db"
-DB_PATH = PROJECT_ROOT / "investment_agent.db"
+from ..config import get_settings, PROJECT_ROOT
 
 
-def _migrate_legacy_db_if_needed() -> None:
-    if DB_PATH.exists() or not LEGACY_DB_PATH.exists():
-        return
-    shutil.move(str(LEGACY_DB_PATH), str(DB_PATH))
+
+DB_PATH = PROJECT_ROOT / Path(get_settings().get("db", {}).get("sqlite_path", "./data/agent.db")).resolve()
+
 
 
 @asynccontextmanager
 async def get_db():
-    _migrate_legacy_db_if_needed()
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         yield db
 
 
 async def init_db() -> None:
-    _migrate_legacy_db_if_needed()
     async with get_db() as db:
         await db.executescript("""
             CREATE TABLE IF NOT EXISTS models (

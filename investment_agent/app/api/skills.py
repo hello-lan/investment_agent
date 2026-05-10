@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from ..skills.loader import get_all_skills
+from ...agent.skills.loader import get_all_skills
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
 

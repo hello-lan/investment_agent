@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ..config import get_settings, PROJECT_ROOT
+from ...config import get_settings, PROJECT_ROOT
 from .base import BaseSkill
 from .markdown_parser import parse_skill_markdown
 from .markdown_skill import MarkdownSkill

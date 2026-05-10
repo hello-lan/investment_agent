@@ -122,7 +122,7 @@ class OpenAICompatProvider(ModelProvider):
 
 
 async def get_provider(model_id: str | None = None) -> ModelProvider:
-    from db import get_db
+    from ...app.db import get_db
     async with get_db() as db:
         if model_id:
             row = await db.execute("SELECT * FROM models WHERE id = ?", (model_id,))
