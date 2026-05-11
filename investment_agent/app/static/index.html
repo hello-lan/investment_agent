@@ -32,8 +32,16 @@
       </div>
     </div>
     <div class="input-area">
-      <textarea id="inputBox" rows="1" placeholder="输入分析请求，Shift+Enter 换行，Enter 发送..."
-        onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+      <div class="input-left">
+        <div class="upload-row">
+          <input type="file" id="fileInput" style="display:none" onchange="onFileSelected(event)">
+          <button class="btn-upload" type="button" onclick="triggerFileSelect()">上传文件</button>
+          <span class="file-chip" id="fileNameChip" style="display:none"></span>
+          <button class="btn-clear-file" id="btnClearFile" type="button" style="display:none" onclick="clearFile()">移除</button>
+        </div>
+        <textarea id="inputBox" rows="1" placeholder="输入分析请求，Shift+Enter 换行，Enter 发送..."
+          onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+      </div>
       <button class="btn-stop" id="btnStop" onclick="stopTask()">停止</button>
       <button class="btn-send" id="btnSend" onclick="sendMessage()">发送</button>
     </div>

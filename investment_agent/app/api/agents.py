@@ -18,13 +18,14 @@ class AgentEntry(BaseModel):
     temperature: float = 0.7
     max_tokens: int = 4096
     skills: list[str] = []
+    compress_config: dict | None = None
 
 
 @router.get("")
 async def list_agents():
     async with get_db() as db:
         cursor = await db.execute(
-            "SELECT id, name, description, system_prompt, model_id, temperature, max_tokens, skills, created_at, updated_at FROM agents ORDER BY created_at"
+            "SELECT id, name, description, system_prompt, model_id, temperature, max_tokens, skills, compress_config, created_at, updated_at FROM agents ORDER BY created_at"
         )
         rows = await cursor.fetchall()
     return [dict(r) for r in rows]
@@ -36,9 +37,20 @@ async def create_agent(body: AgentEntry):
     now = datetime.utcnow().isoformat()
     async with get_db() as db:
         await db.execute(
-            "INSERT INTO agents (id, name, description, system_prompt, model_id, temperature, max_tokens, skills, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (agent_id, body.name, body.description, body.system_prompt, body.model_id,
-             body.temperature, body.max_tokens, json.dumps(body.skills), now, now),
+            "INSERT INTO agents (id, name, description, system_prompt, model_id, temperature, max_tokens, skills, compress_config, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                agent_id,
+                body.name,
+                body.description,
+                body.system_prompt,
+                body.model_id,
+                body.temperature,
+                body.max_tokens,
+                json.dumps(body.skills),
+                json.dumps(body.compress_config) if body.compress_config is not None else None,
+                now,
+                now,
+            ),
         )
         await db.commit()
     return {"id": agent_id}
@@ -62,9 +74,19 @@ async def update_agent(agent_id: str, body: AgentEntry):
         if not await row.fetchone():
             return {"error": "Agent not found"}
         await db.execute(
-            "UPDATE agents SET name=?, description=?, system_prompt=?, model_id=?, temperature=?, max_tokens=?, skills=?, updated_at=? WHERE id=?",
-            (body.name, body.description, body.system_prompt, body.model_id,
-             body.temperature, body.max_tokens, json.dumps(body.skills), now, agent_id),
+            "UPDATE agents SET name=?, description=?, system_prompt=?, model_id=?, temperature=?, max_tokens=?, skills=?, compress_config=?, updated_at=? WHERE id=?",
+            (
+                body.name,
+                body.description,
+                body.system_prompt,
+                body.model_id,
+                body.temperature,
+                body.max_tokens,
+                json.dumps(body.skills),
+                json.dumps(body.compress_config) if body.compress_config is not None else None,
+                now,
+                agent_id,
+            ),
         )
         await db.commit()
     return {"success": True}

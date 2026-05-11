@@ -69,7 +69,49 @@ function selectedSkills() {
   return Array.from(document.querySelectorAll('input[name="agentSkill"]:checked')).map(i => i.value);
 }
 
+function toNullableInt(value) {
+  if (value === '' || value == null) return null;
+  const n = parseInt(value, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeCompressConfig(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return raw;
+}
+
+function fillCompressFields(cfg) {
+  const enabled = document.getElementById('agentCompressEnabled');
+  const recentKeep = document.getElementById('agentCompressRecentKeep');
+  const maxChars = document.getElementById('agentCompressMaxChars');
+  const totalBudget = document.getElementById('agentCompressTotalBudget');
+
+  if (!cfg) {
+    enabled.value = 'inherit';
+    recentKeep.value = '';
+    maxChars.value = '';
+    totalBudget.value = '';
+    return;
+  }
+
+  if (cfg.enabled === true) enabled.value = 'true';
+  else if (cfg.enabled === false) enabled.value = 'false';
+  else enabled.value = 'inherit';
+
+  recentKeep.value = cfg.recent_keep ?? '';
+  maxChars.value = cfg.max_chars_per_msg ?? '';
+  totalBudget.value = cfg.total_budget_chars ?? '';
+}
+
 function openModal(agent){
+  const compressConfig = normalizeCompressConfig(agent?.compress_config);
   document.getElementById('modalTitle').textContent = agent ? '编辑 Agent' : '新建 Agent';
   document.getElementById('agentId').value = agent?.id || '';
   document.getElementById('agentName').value = agent?.name || '';
@@ -78,6 +120,7 @@ function openModal(agent){
   document.getElementById('agentModel').innerHTML = buildModelOptions(agent?.model_id || '');
   document.getElementById('agentTemp').value = agent?.temperature ?? 0.7;
   document.getElementById('agentMaxTokens').value = agent?.max_tokens || 4096;
+  fillCompressFields(compressConfig);
   renderSkillOptions(agent?.skills || []);
   document.getElementById('modalOverlay').classList.add('open');
 }
@@ -107,6 +150,33 @@ async function saveAgent(){
   const name = document.getElementById('agentName').value.trim();
   if(!name){alert('请输入 Agent 名称'); return;}
 
+  const compressEnabled = document.getElementById('agentCompressEnabled').value;
+  const compressRecentKeep = toNullableInt(document.getElementById('agentCompressRecentKeep').value);
+  const compressMaxChars = toNullableInt(document.getElementById('agentCompressMaxChars').value);
+  const compressTotalBudget = toNullableInt(document.getElementById('agentCompressTotalBudget').value);
+
+  let compressConfig = null;
+  if (
+    compressEnabled !== 'inherit' ||
+    compressRecentKeep !== null ||
+    compressMaxChars !== null ||
+    compressTotalBudget !== null
+  ) {
+    compressConfig = {};
+    if (compressEnabled !== 'inherit') {
+      compressConfig.enabled = compressEnabled === 'true';
+    }
+    if (compressRecentKeep !== null) {
+      compressConfig.recent_keep = compressRecentKeep;
+    }
+    if (compressMaxChars !== null) {
+      compressConfig.max_chars_per_msg = compressMaxChars;
+    }
+    if (compressTotalBudget !== null) {
+      compressConfig.total_budget_chars = compressTotalBudget;
+    }
+  }
+
   const body = {
     name,
     description: document.getElementById('agentDesc').value,
@@ -115,6 +185,7 @@ async function saveAgent(){
     temperature: parseFloat(document.getElementById('agentTemp').value),
     max_tokens: parseInt(document.getElementById('agentMaxTokens').value),
     skills: selectedSkills(),
+    compress_config: compressConfig,
   };
 
   const url = id ? `/api/agents/${id}` : '/api/agents';

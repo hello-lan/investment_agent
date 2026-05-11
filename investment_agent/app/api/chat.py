@@ -1,19 +1,27 @@
 import json
+import re
 import uuid
 from datetime import datetime
+from io import BytesIO
+from pathlib import Path
 
-from fastapi import APIRouter
+import pdfplumber
+import xlrd
+from docx import Document
+from fastapi import APIRouter, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
+from openpyxl import load_workbook
 from pydantic import BaseModel
 
-from ...agent.core.session import create_engine, get_engine, interrupt_engine, remove_engine
 from ...agent.context.compressor import compress_messages
+from ...agent.core.session import create_engine, get_engine, interrupt_engine, remove_engine
+from ...agent.skills.loader import get_schemas as get_skill_schemas
+from ...agent.skills.loader import get_skill
+from ...agent.tools.registry import get_schemas, get_tool
 from ...config import get_settings
+from ..db import get_db
 from ..observability.cost_tracker import log_cost
 from ..observability.trace import log_trace
-from ..db import get_db
-from ...agent.tools.registry import get_schemas, get_tool
-from ...agent.skills.loader import get_schemas as get_skill_schemas, get_skill
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -29,9 +37,156 @@ class ChatRequest(BaseModel):
     agent_id: str | None = None
 
 
+ALLOWED_EXTS = {".txt", ".md", ".pdf", ".xlsx", ".xls", ".docx", ".doc"}
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_FILE_TEXT_CHARS = 50000
+
+
+def _normalize_name(name: str | None) -> str:
+    raw = (name or "uploaded_file").strip()
+    safe = re.sub(r"[^\w\-.一-鿿]", "_", raw)
+    return safe[:120] or "uploaded_file"
+
+
+def _clip_text(text: str, max_chars: int = MAX_FILE_TEXT_CHARS) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "\n...[文件内容已截断]"
+
+
+def _extract_pdf_text(content: bytes) -> str:
+    parts: list[str] = []
+    with pdfplumber.open(BytesIO(content)) as pdf:
+        for i, page in enumerate(pdf.pages, start=1):
+            txt = page.extract_text() or ""
+            if txt.strip():
+                parts.append(f"## Page {i}\n{txt.strip()}")
+    return "\n\n".join(parts)
+
+
+def _extract_xlsx_text(content: bytes) -> str:
+    wb = load_workbook(filename=BytesIO(content), read_only=True, data_only=True)
+    sections: list[str] = []
+    for ws in wb.worksheets:
+        rows: list[str] = []
+        for row in ws.iter_rows(values_only=True):
+            values = ["" if v is None else str(v) for v in row]
+            line = "\t".join(values).strip()
+            if line:
+                rows.append(line)
+        if rows:
+            sections.append(f"## Sheet: {ws.title}\n" + "\n".join(rows))
+    return "\n\n".join(sections)
+
+
+def _extract_xls_text(content: bytes) -> str:
+    wb = xlrd.open_workbook(file_contents=content)
+    sections: list[str] = []
+    for sheet in wb.sheets():
+        rows: list[str] = []
+        for r in range(sheet.nrows):
+            values = [str(sheet.cell_value(r, c)) for c in range(sheet.ncols)]
+            line = "\t".join(values).strip()
+            if line:
+                rows.append(line)
+        if rows:
+            sections.append(f"## Sheet: {sheet.name}\n" + "\n".join(rows))
+    return "\n\n".join(sections)
+
+
+def _extract_docx_text(content: bytes) -> str:
+    doc = Document(BytesIO(content))
+    parts = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
+    return "\n".join(parts)
+
+
+def _extract_doc_text(content: bytes) -> str:
+    for enc in ("utf-8", "gb18030", "latin-1"):
+        try:
+            return content.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("无法解析 .doc 文件内容")
+
+
+def _extract_file_text(filename: str, ext: str, content: bytes) -> str:
+    if ext in {".txt", ".md"}:
+        for enc in ("utf-8", "gb18030", "latin-1"):
+            try:
+                return content.decode(enc)
+            except UnicodeDecodeError:
+                continue
+        raise ValueError(f"文件 {filename} 编码无法识别")
+    if ext == ".pdf":
+        return _extract_pdf_text(content)
+    if ext == ".xlsx":
+        return _extract_xlsx_text(content)
+    if ext == ".xls":
+        return _extract_xls_text(content)
+    if ext == ".docx":
+        return _extract_docx_text(content)
+    if ext == ".doc":
+        return _extract_doc_text(content)
+    raise ValueError(f"不支持的文件类型: {ext}")
+
+
+def _build_user_message(message: str, filename: str | None, file_text: str | None) -> str:
+    text = (message or "").strip()
+    if not filename or not file_text:
+        return text
+    clipped = _clip_text(file_text.strip())
+    file_block = f"[用户上传文件]\n文件名: {filename}\n\n{clipped}\n[/用户上传文件]"
+    return file_block if not text else f"{file_block}\n\n用户问题：{text}"
+
+
+async def _parse_request_payload(request: Request) -> tuple[str | None, str, str | None, str | None, str | None]:
+    content_type = request.headers.get("content-type", "")
+
+    if "application/json" in content_type:
+        body = ChatRequest.model_validate(await request.json())
+        return body.session_id, body.message, body.agent_id, None, None
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        session_id = (form.get("session_id") or "").strip() or None
+        message = str(form.get("message") or "").strip()
+        agent_id = (form.get("agent_id") or "").strip() or None
+        upload = form.get("file")
+
+        filename_attr = getattr(upload, "filename", None)
+        if not upload or not filename_attr:
+            return session_id, message, agent_id, None, None
+
+        filename = _normalize_name(str(filename_attr))
+        ext = Path(filename).suffix.lower()
+        if ext not in ALLOWED_EXTS:
+            raise HTTPException(status_code=400, detail=f"不支持的文件类型: {ext or 'unknown'}")
+
+        content = await upload.read()
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=400, detail="文件过大，最大支持 10MB")
+
+        try:
+            file_text = _extract_file_text(filename, ext, content)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"文件解析失败: {e}")
+
+        if not file_text.strip():
+            raise HTTPException(status_code=400, detail="文件内容为空或不可提取")
+
+        return session_id, message, agent_id, filename, file_text
+
+    raise HTTPException(status_code=415, detail="仅支持 application/json 或 multipart/form-data")
+
+
 @router.post("")
-async def start_chat(req: ChatRequest):
-    session_id = req.session_id or str(uuid.uuid4())
+async def start_chat(request: Request):
+    session_id, message, agent_id, filename, file_text = await _parse_request_payload(request)
+    final_message = _build_user_message(message, filename, file_text)
+    if not final_message.strip():
+        raise HTTPException(status_code=400, detail="消息和文件不能同时为空")
+
+    session_id = session_id or str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
 
     async with get_db() as db:
@@ -40,24 +195,24 @@ async def start_chat(req: ChatRequest):
         if not exists:
             await db.execute(
                 "INSERT INTO sessions (id, agent_id, title, status, created_at) VALUES (?, ?, ?, 'active', ?)",
-                (session_id, req.agent_id, req.message[:50], now),
+                (session_id, agent_id, final_message[:50], now),
             )
             await db.commit()
 
         msg_id = str(uuid.uuid4())
         await db.execute(
             "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
-            (msg_id, session_id, req.message, now),
+            (msg_id, session_id, final_message, now),
         )
         await db.commit()
 
     system_prompt = DEFAULT_SYSTEM_PROMPT
     model_id = None
     enabled_skill_names: list[str] = []
-    if req.agent_id:
+    if agent_id:
         async with get_db() as db:
             row = await db.execute(
-                "SELECT system_prompt, model_id, skills FROM agents WHERE id = ?", (req.agent_id,)
+                "SELECT system_prompt, model_id, skills FROM agents WHERE id = ?", (agent_id,)
             )
             agent = await row.fetchone()
             if agent:
@@ -101,13 +256,30 @@ async def stream_chat(task_id: str):
             (engine.session_id,),
         )
         rows = await cursor.fetchall()
+        session_row = await db.execute("SELECT agent_id FROM sessions WHERE id = ?", (engine.session_id,))
+        session = await session_row.fetchone()
 
     messages = []
     for r in rows:
         if r["role"] in ("user", "assistant"):
             messages.append({"role": r["role"], "content": r["content"] or ""})
 
-    compress_cfg = get_settings().get("compress", {})
+    agent_compress_cfg = None
+    if session and session["agent_id"]:
+        async with get_db() as db:
+            row = await db.execute("SELECT compress_config FROM agents WHERE id = ?", (session["agent_id"],))
+            agent = await row.fetchone()
+            if agent:
+                try:
+                    raw_compress = agent["compress_config"]
+                    if isinstance(raw_compress, str) and raw_compress.strip():
+                        agent_compress_cfg = json.loads(raw_compress)
+                    elif isinstance(raw_compress, dict):
+                        agent_compress_cfg = raw_compress
+                except Exception:
+                    agent_compress_cfg = None
+
+    compress_cfg = agent_compress_cfg or get_settings().get("compress", {})
     messages_for_engine = compress_messages(messages, compress_cfg)
 
     async def event_stream():

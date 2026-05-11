@@ -70,6 +70,27 @@
       <label>Max Tokens</label>
       <input type="number" id="agentMaxTokens" value="4096" min="512" max="32000" step="512">
     </div>
+    <div class="form-row">
+      <label>上下文压缩</label>
+      <select id="agentCompressEnabled">
+        <option value="inherit">继承全局设置</option>
+        <option value="true">开启</option>
+        <option value="false">关闭</option>
+      </select>
+      <div class="hint">不覆盖时使用设置页的全局压缩参数</div>
+    </div>
+    <div class="form-row">
+      <label>保留最近消息条数</label>
+      <input type="number" id="agentCompressRecentKeep" min="0" step="1" placeholder="留空=继承全局">
+    </div>
+    <div class="form-row">
+      <label>单条消息最大字符</label>
+      <input type="number" id="agentCompressMaxChars" min="200" step="100" placeholder="留空=继承全局">
+    </div>
+    <div class="form-row">
+      <label>上下文总字符预算</label>
+      <input type="number" id="agentCompressTotalBudget" min="2000" step="1000" placeholder="留空=继承全局">
+    </div>
     <div class="modal-footer">
       <button class="btn btn-cancel" onclick="closeModal()">取消</button>
       <button class="btn btn-primary" onclick="saveAgent()">保存</button>

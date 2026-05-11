@@ -1,4 +1,7 @@
-let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,currentAgentId=null;
+let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,currentAgentId=null,currentFile=null;
+
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const ALLOWED_EXTS = new Set(['.txt','.md','.pdf','.xlsx','.xls','.docx','.doc']);
 
 function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
@@ -119,6 +122,47 @@ function _append(html){
   return d;
 }
 
+function _fileExt(name){
+  const i = String(name || '').lastIndexOf('.');
+  return i >= 0 ? String(name).slice(i).toLowerCase() : '';
+}
+
+function triggerFileSelect(){
+  const el = document.getElementById('fileInput');
+  if (el) el.click();
+}
+
+function onFileSelected(e){
+  const file = e?.target?.files?.[0] || null;
+  if(!file){ clearFile(); return; }
+  const ext = _fileExt(file.name);
+  if(!ALLOWED_EXTS.has(ext)){
+    alert('不支持的文件类型，仅支持 txt/md/pdf/xlsx/xls/docx/doc');
+    clearFile();
+    return;
+  }
+  if(file.size > MAX_UPLOAD_BYTES){
+    alert('文件过大，最大支持 10MB');
+    clearFile();
+    return;
+  }
+  currentFile = file;
+  const chip = document.getElementById('fileNameChip');
+  const btnClear = document.getElementById('btnClearFile');
+  if(chip){ chip.textContent = `${file.name} (${Math.ceil(file.size/1024)}KB)`; chip.style.display = 'inline-block'; }
+  if(btnClear){ btnClear.style.display = 'inline-block'; }
+}
+
+function clearFile(){
+  currentFile = null;
+  const el = document.getElementById('fileInput');
+  if(el) el.value = '';
+  const chip = document.getElementById('fileNameChip');
+  const btnClear = document.getElementById('btnClearFile');
+  if(chip){ chip.textContent = ''; chip.style.display = 'none'; }
+  if(btnClear){ btnClear.style.display = 'none'; }
+}
+
 function appendUserMsg(text){
   const w=document.getElementById('welcome');if(w)w.remove();
   _append(`<div class="msg user"><div class="msg-bubble">${escapeHtml(text)}</div></div>`);
@@ -167,15 +211,40 @@ function stopTask(){
 
 async function sendMessage(){
   const input=document.getElementById('inputBox');
-  const text=input.value.trim();if(!text)return;
+  const text=input.value.trim();
+  if(!text && !currentFile) return;
+
+  const displayText = currentFile ? `${text || '(无文本问题)'}\n\n[已上传文件] ${currentFile.name}` : text;
   input.value='';autoResize(input);
-  appendUserMsg(text);showThinking();setRunning(true);
+  appendUserMsg(displayText);
+  showThinking();setRunning(true);
 
-  const data=await fetch('/api/chat',{
-    method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({session_id:currentSessionId,message:text,agent_id:currentAgentId}),
-  }).then(r=>r.json());
+  let data;
+  if(currentFile){
+    const fd = new FormData();
+    if(currentSessionId) fd.append('session_id', currentSessionId);
+    if(currentAgentId) fd.append('agent_id', currentAgentId);
+    fd.append('message', text);
+    fd.append('file', currentFile);
+    const res = await fetch('/api/chat',{ method:'POST', body:fd });
+    data = await res.json();
+  }else{
+    const res = await fetch('/api/chat',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({session_id:currentSessionId,message:text,agent_id:currentAgentId}),
+    });
+    data = await res.json();
+  }
 
+  if(!data?.task_id){
+    removeThinking();
+    const msg = data?.detail || data?.error || '请求失败';
+    _append(`<div style="text-align:center;color:#e53935;font-size:12px;padding:8px">${escapeHtml(msg)}</div>`);
+    setRunning(false);
+    return;
+  }
+
+  clearFile();
   currentTaskId=data.task_id;
   currentSessionId=data.session_id;
 
