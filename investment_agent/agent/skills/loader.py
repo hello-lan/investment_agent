@@ -34,12 +34,11 @@ def _discover_markdown_files(base_dir: Path) -> list[Path]:
     for child in base_dir.iterdir():
         if not child.is_dir() or child.name.startswith("."):
             continue
-        skill_md = child / "skill.md"
-        readme_md = child / "README.md"
-        if skill_md.exists() and skill_md.is_file():
+
+        files = {p.name: p for p in child.iterdir() if p.is_file()}
+        skill_md = files.get("SKILL.md")
+        if skill_md:
             found.append(skill_md)
-        elif readme_md.exists() and readme_md.is_file():
-            found.append(readme_md)
     return found
 
 
@@ -58,6 +57,7 @@ reload_skills()
 
 
 def get_all_skills() -> list[BaseSkill]:
+    reload_skills()
     return list(_registry.values())
 
 

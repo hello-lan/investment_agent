@@ -8,9 +8,10 @@ class ParsedSkill:
     description: str
     tools: list[str]
     schema: dict
-    entry: str
+    entry: str | None
     skill_dir: Path
     main_md_path: Path
+    body: str
 
 
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -86,7 +87,7 @@ def _default_schema(name: str, description: str) -> dict:
 
 def parse_skill_markdown(md_path: Path) -> ParsedSkill:
     content = md_path.read_text(encoding="utf-8")
-    meta, _ = _parse_frontmatter(content)
+    meta, body = _parse_frontmatter(content)
 
     name = str(meta.get("name", "")).strip()
     description = str(meta.get("description", "")).strip()
@@ -118,9 +119,8 @@ def parse_skill_markdown(md_path: Path) -> ParsedSkill:
             "required": [],
         }
 
-    entry = str(meta.get("entry", "")).strip()
-    if not entry:
-        raise ValueError(f"entry is required for executable skill: {md_path}")
+    entry_raw = str(meta.get("entry", "")).strip()
+    entry = entry_raw or None
 
     return ParsedSkill(
         name=name,
@@ -130,4 +130,5 @@ def parse_skill_markdown(md_path: Path) -> ParsedSkill:
         entry=entry,
         skill_dir=md_path.parent,
         main_md_path=md_path,
+        body=body,
     )
