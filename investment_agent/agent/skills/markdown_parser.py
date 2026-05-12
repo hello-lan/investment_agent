@@ -4,17 +4,19 @@ from pathlib import Path
 
 @dataclass
 class ParsedSkill:
+    """SKILL.md 解析结果"""
     name: str
     description: str
     tools: list[str]
     schema: dict
-    entry: str | None
+    entry: str | None  # 入口脚本路径（相对于 skill 目录）
     skill_dir: Path
     main_md_path: Path
-    body: str
+    body: str  # Markdown 正文（不含 frontmatter）
 
 
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
+    """解析 YAML frontmatter：--- 开头的元数据块 + 后面的 Markdown 正文"""
     if not text.startswith("---"):
         return {}, text
 
@@ -22,6 +24,7 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
     if not lines:
         return {}, text
 
+    # 找到闭合的 ---
     end_index = None
     for i in range(1, len(lines)):
         if lines[i].strip() == "---":
@@ -34,6 +37,7 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
     header_lines = lines[1:end_index]
     body = "\n".join(lines[end_index + 1:])
 
+    # 简易 YAML 解析：支持 key: value、key: [list]、子列表
     data: dict = {}
     current_key: str | None = None
 
@@ -74,6 +78,7 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
 
 
 def _default_schema(name: str, description: str) -> dict:
+    """生成默认的 Anthropic tool schema"""
     return {
         "name": f"skill_{name}",
         "description": description,
@@ -86,6 +91,7 @@ def _default_schema(name: str, description: str) -> dict:
 
 
 def parse_skill_markdown(md_path: Path) -> ParsedSkill:
+    """解析 SKILL.md 文件，返回 ParsedSkill 数据结构"""
     content = md_path.read_text(encoding="utf-8")
     meta, body = _parse_frontmatter(content)
 

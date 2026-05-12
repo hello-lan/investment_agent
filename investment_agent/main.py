@@ -13,6 +13,7 @@ from .app.api.agents import router as agents_router
 from .app.api.skills import router as skills_router
 from .app.api.observability import router as observability_router
 
+# 项目根目录（investment_agent/ 的上一级）
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = PROJECT_ROOT / "investment_agent" / "app" / "static"
 OUTPUT_DIR = PROJECT_ROOT / "output"
@@ -20,6 +21,7 @@ OUTPUT_DIR = PROJECT_ROOT / "output"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """应用生命周期：启动时初始化数据库和输出目录"""
     await init_db()
     (OUTPUT_DIR / "reports").mkdir(parents=True, exist_ok=True)
     (OUTPUT_DIR / "charts").mkdir(parents=True, exist_ok=True)
@@ -28,6 +30,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Investment Agent", lifespan=lifespan)
 
+# —— 注册 API 路由 ——
 app.include_router(chat_router)
 app.include_router(sessions_router)
 app.include_router(settings_router)
@@ -35,6 +38,7 @@ app.include_router(agents_router)
 app.include_router(skills_router)
 app.include_router(observability_router)
 
+# —— 静态文件（前端 HTML/JS/CSS）——
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 

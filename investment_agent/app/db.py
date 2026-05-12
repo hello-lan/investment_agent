@@ -7,21 +7,23 @@ from pathlib import Path
 from ..config import get_settings, PROJECT_ROOT
 
 
-
-DB_PATH = PROJECT_ROOT / Path(get_settings().get("db", {}).get("sqlite_path", "./data/agent.db")).resolve()
-
+# SQLite 数据库文件路径
+DB_PATH = (PROJECT_ROOT / get_settings().get("db", {}).get("sqlite_path", "./data/agent.db")).resolve()
 
 
 @asynccontextmanager
 async def get_db():
+    """异步 SQLite 上下文管理器：自动开启/关闭连接，Row 工厂返回字典行"""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         yield db
 
 
 async def init_db() -> None:
+    """初始化数据库：建表 + 执行旧结构迁移"""
     async with get_db() as db:
         await db.executescript("""
+            -- LLM 模型配置（支持 Anthropic 和 OpenAI 兼容接口）
             CREATE TABLE IF NOT EXISTS models (
                 id          TEXT PRIMARY KEY,
                 name        TEXT NOT NULL,
@@ -33,6 +35,7 @@ async def init_db() -> None:
                 created_at  TEXT
             );
 
+            -- 自定义 Agent 配置（绑定模型、Skills、压缩参数）
             CREATE TABLE IF NOT EXISTS agents (
                 id            TEXT PRIMARY KEY,
                 name          TEXT NOT NULL,
@@ -47,6 +50,7 @@ async def init_db() -> None:
                 updated_at    TEXT
             );
 
+            -- 对话会话
             CREATE TABLE IF NOT EXISTS sessions (
                 id         TEXT PRIMARY KEY,
                 agent_id   TEXT,
@@ -55,6 +59,7 @@ async def init_db() -> None:
                 created_at TEXT
             );
 
+            -- 会话消息（role/content/tool_calls/token_usage）
             CREATE TABLE IF NOT EXISTS messages (
                 id          TEXT PRIMARY KEY,
                 session_id  TEXT NOT NULL,
@@ -65,6 +70,7 @@ async def init_db() -> None:
                 created_at  TEXT
             );
 
+            -- 断点续跑状态（Phase 2 启用）
             CREATE TABLE IF NOT EXISTS checkpoints (
                 task_id    TEXT PRIMARY KEY,
                 session_id TEXT,
@@ -74,6 +80,7 @@ async def init_db() -> None:
                 updated_at TEXT
             );
 
+            -- Token 成本日志
             CREATE TABLE IF NOT EXISTS cost_log (
                 id            TEXT PRIMARY KEY,
                 session_id    TEXT,
@@ -85,6 +92,7 @@ async def init_db() -> None:
                 created_at    TEXT
             );
 
+            -- 执行链路追踪日志
             CREATE TABLE IF NOT EXISTS trace_log (
                 id         TEXT PRIMARY KEY,
                 session_id TEXT,
@@ -97,7 +105,7 @@ async def init_db() -> None:
         """)
         await db.commit()
 
-        # migrate agents table: add model_id/compress_config if missing (old schema used model_name/model_provider)
+        # 迁移：旧 agents 表可能缺少 model_id / compress_config 列
         cursor = await db.execute("PRAGMA table_info(agents)")
         columns = {row[1] for row in await cursor.fetchall()}
         changed = False

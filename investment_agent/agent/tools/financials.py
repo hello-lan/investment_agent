@@ -4,6 +4,7 @@ from .base import BaseTool
 
 
 def _run_sync(func, *args, **kwargs):
+    """在独立线程中执行同步函数，避免阻塞事件循环"""
     loop = asyncio.get_event_loop()
     return loop.run_in_executor(None, lambda: func(*args, **kwargs))
 

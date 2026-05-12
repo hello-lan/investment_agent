@@ -1,6 +1,7 @@
 from .engine import AgentEngine
 from .models import get_provider
 
+# 全局引擎字典：task_id → AgentEngine，实现并发任务隔离
 _engines: dict[str, AgentEngine] = {}
 
 
@@ -9,6 +10,7 @@ async def create_engine(
     system_prompt: str = "",
     provider_name: str | None = None,
 ) -> AgentEngine:
+    """为每次对话创建独立的 AgentEngine 实例"""
     provider = await get_provider(provider_name)
     engine = AgentEngine(session_id=session_id, system_prompt=system_prompt, provider=provider)
     _engines[engine.task_id] = engine
@@ -16,10 +18,12 @@ async def create_engine(
 
 
 def get_engine(task_id: str) -> AgentEngine | None:
+    """根据 task_id 获取对应的引擎实例"""
     return _engines.get(task_id)
 
 
 def interrupt_engine(task_id: str) -> bool:
+    """中断指定任务的执行"""
     engine = _engines.get(task_id)
     if engine:
         engine.interrupt()
@@ -28,4 +32,5 @@ def interrupt_engine(task_id: str) -> bool:
 
 
 def remove_engine(task_id: str) -> None:
+    """任务完成后清理引擎实例，释放内存"""
     _engines.pop(task_id, None)

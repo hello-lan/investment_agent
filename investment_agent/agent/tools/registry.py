@@ -6,6 +6,7 @@ from .financials import (
 )
 from .run_command import RunCommandTool
 
+# 工具注册中心：单例字典存储所有已注册工具
 _registry: dict[str, BaseTool] = {}
 
 
@@ -13,7 +14,7 @@ def _register(tool: BaseTool) -> None:
     _registry[tool.name] = tool
 
 
-# register all built-in tools
+# —— 启动时注册所有内置工具 ——
 _register(StockInfoTool())
 _register(StockPriceTool())
 _register(StockRealtimeTool())
@@ -35,4 +36,5 @@ def get_tool(name: str) -> BaseTool | None:
 
 
 def get_schemas() -> list[dict]:
+    """返回所有工具的 Anthropic tool schema 列表，用于注入 LLM 请求"""
     return [t.schema for t in _registry.values()]

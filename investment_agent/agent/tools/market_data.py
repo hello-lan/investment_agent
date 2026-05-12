@@ -5,7 +5,7 @@ from .base import BaseTool
 
 
 def _run_sync(func, *args, **kwargs):
-    """Run a sync function in a thread pool to avoid blocking the event loop."""
+    """在独立线程中执行同步函数，避免阻塞事件循环（AKShare 不支持 async）"""
     loop = asyncio.get_event_loop()
     return loop.run_in_executor(None, lambda: func(*args, **kwargs))
 

@@ -5,6 +5,7 @@ from .base import BaseTool
 
 
 class RunCommandTool(BaseTool):
+    """Shell 命令执行工具：允许 Agent 在项目根目录执行命令。风险等级 L2，运行脚本、下载文件等。"""
     name = "run_command"
     description = "在项目环境中执行 shell 命令。用于运行 Python 脚本、下载文件、安装依赖等命令行操作。命令在项目根目录执行。"
     risk_level = 2
@@ -28,6 +29,7 @@ class RunCommandTool(BaseTool):
 
     async def run(self, command: str) -> str:
         try:
+            # 异步子进程，120 秒超时，在项目根目录执行
             proc = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,

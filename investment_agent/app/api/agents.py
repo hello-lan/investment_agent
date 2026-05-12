@@ -11,14 +11,15 @@ router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 
 class AgentEntry(BaseModel):
+    """自定义 Agent 配置模型"""
     name: str
     description: str = ""
     system_prompt: str = ""
-    model_id: str = ""
+    model_id: str = ""             # 绑定的模型 ID
     temperature: float = 0.7
     max_tokens: int = 4096
-    skills: list[str] = []
-    compress_config: dict | None = None
+    skills: list[str] = []         # 启用的 Skill 名称列表
+    compress_config: dict | None = None  # 自定义压缩配置（为空则使用全局配置）
 
 
 @router.get("")

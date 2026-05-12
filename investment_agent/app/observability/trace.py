@@ -6,6 +6,7 @@ from ..db import get_db
 
 
 def _safe_detail(detail: dict | None) -> str:
+    """将 detail 字典序列化为 JSON 字符串，截断到 2000 字符"""
     if not detail:
         return "{}"
     text = json.dumps(detail, ensure_ascii=False)
@@ -19,6 +20,7 @@ async def log_trace(
     event_type: str,
     detail: dict | None = None,
 ) -> None:
+    """记录每一步的执行事件到 trace_log 表，用于链路追踪和调试"""
     now = datetime.utcnow().isoformat()
     async with get_db() as db:
         await db.execute(

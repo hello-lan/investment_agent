@@ -9,13 +9,13 @@ from ..db import get_db
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
-# ── Model CRUD ────────────────────────────────────────────────────────────────
+# ── 模型管理（CRUD + 默认值 + 连接测试）────────────────────────────────────
 
 class ModelEntry(BaseModel):
-    id: str = ""
+    id: str = ""       # 为空则自动生成
     name: str
-    type: str  # "anthropic" | "openai_compat"
-    api_key: str = ""
+    type: str          # "anthropic" | "openai_compat"
+    api_key: str = ""  # 更新时传 "***" 保留原值
     model: str
     base_url: str = ""
 
@@ -35,13 +35,14 @@ async def list_models():
 
 @router.post("/models")
 async def add_model(body: ModelEntry):
+    """添加模型：第一个模型自动设为默认"""
     mid = body.id.strip() or str(uuid.uuid4())[:8]
     now = datetime.utcnow().isoformat()
     async with get_db() as db:
         row = await db.execute("SELECT id FROM models WHERE id = ?", (mid,))
         if await row.fetchone():
             return {"error": f"Model id '{mid}' already exists."}
-        # first model becomes default
+        # 首个模型自动成为默认
         count = await db.execute("SELECT COUNT(*) FROM models")
         is_first = (await count.fetchone())[0] == 0
         await db.execute(
@@ -54,6 +55,7 @@ async def add_model(body: ModelEntry):
 
 @router.put("/models/default")
 async def set_default_model(body: dict):
+    """设置默认模型：先将所有模型置为 0，再设置目标模型为 1"""
     model_id = body.get("model_id", "")
     async with get_db() as db:
         await db.execute("UPDATE models SET is_default = 0")
@@ -64,12 +66,13 @@ async def set_default_model(body: dict):
 
 @router.put("/models/{model_id}")
 async def update_model(model_id: str, body: ModelEntry):
+    """更新模型：API Key 传 "***" 时保留原值（前端脱敏回传）"""
     async with get_db() as db:
         row = await db.execute("SELECT api_key FROM models WHERE id = ?", (model_id,))
         existing = await row.fetchone()
         if not existing:
             return {"error": "Model not found"}
-        # keep existing key if client sent masked value
+        # 前端传来脱敏值 *** 表示不修改 Key
         api_key = existing["api_key"] if body.api_key == "***" else body.api_key
         await db.execute(
             "UPDATE models SET name=?, type=?, api_key=?, model=?, base_url=? WHERE id=?",
@@ -81,11 +84,12 @@ async def update_model(model_id: str, body: ModelEntry):
 
 @router.delete("/models/{model_id}")
 async def delete_model(model_id: str):
+    """删除模型：如果删除的是默认模型，自动将第一个剩余模型设为默认"""
     async with get_db() as db:
         row = await db.execute("SELECT is_default FROM models WHERE id = ?", (model_id,))
         m = await row.fetchone()
         await db.execute("DELETE FROM models WHERE id = ?", (model_id,))
-        # promote next model to default if deleted was default
+        # 删除默认模型时，将第一个剩余模型提升为默认
         if m and m["is_default"]:
             await db.execute(
                 "UPDATE models SET is_default = 1 WHERE id = (SELECT id FROM models LIMIT 1)"
@@ -100,6 +104,7 @@ class TestModelRequest(BaseModel):
 
 @router.post("/models/test")
 async def test_model(body: TestModelRequest):
+    """测试模型连接：发送一个简单请求验证 API Key 和 endpoint 是否可用"""
     try:
         from ...agent.core.models import get_provider
         provider = await get_provider(body.model_id)

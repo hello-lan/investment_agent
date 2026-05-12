@@ -7,6 +7,7 @@ router = APIRouter(prefix="/api/observability", tags=["observability"])
 
 @router.get("/cost")
 async def get_cost(session_id: str | None = None, task_id: str | None = None, limit: int = 100):
+    """查询 Token 成本日志，支持按 session_id / task_id 过滤"""
     where = []
     params: list = []
     if session_id:
@@ -31,6 +32,7 @@ async def get_cost(session_id: str | None = None, task_id: str | None = None, li
 
 @router.get("/traces")
 async def get_traces(session_id: str | None = None, task_id: str | None = None, limit: int = 200):
+    """查询执行链路追踪日志，支持按 session_id / task_id 过滤"""
     where = []
     params: list = []
     if session_id:

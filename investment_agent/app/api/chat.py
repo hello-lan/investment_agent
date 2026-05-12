@@ -24,6 +24,7 @@ from ..observability.trace import log_trace
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
+# 默认系统提示词，当 Agent 未自定义时使用
 DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
 你可以调用工具获取股票行情、财务报表、估值指标等数据，帮助用户进行基本面分析。
 分析时请做到：数据驱动、逻辑清晰、结论明确。
@@ -37,14 +38,15 @@ DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
 
 
 class ChatRequest(BaseModel):
-    session_id: str | None = None
+    session_id: str | None = None  # 为空则创建新会话
     message: str
-    agent_id: str | None = None
+    agent_id: str | None = None   # 为空则使用默认 Agent
 
 
+# 文件上传限制
 ALLOWED_EXTS = {".txt", ".md", ".pdf", ".xlsx", ".xls", ".docx", ".doc"}
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-MAX_FILE_TEXT_CHARS = 50000
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB
+MAX_FILE_TEXT_CHARS = 50000  # 提取文本上限
 
 
 def _normalize_name(name: str | None) -> str:
@@ -145,6 +147,7 @@ def _build_user_message(message: str, filename: str | None, file_text: str | Non
 
 
 async def _parse_request_payload(request: Request) -> tuple[str | None, str, str | None, str | None, str | None]:
+    """解析请求体：支持 JSON 和 multipart/form-data（带文件上传）两种格式"""
     content_type = request.headers.get("content-type", "")
 
     if "application/json" in content_type:
@@ -186,6 +189,8 @@ async def _parse_request_payload(request: Request) -> tuple[str | None, str, str
 
 @router.post("")
 async def start_chat(request: Request):
+    """发起对话：创建/续接会话，加载 Agent 配置，注册工具，返回 task_id"""
+    # —— 第1步：解析请求 ——
     session_id, message, agent_id, filename, file_text = await _parse_request_payload(request)
     final_message = _build_user_message(message, filename, file_text)
     if not final_message.strip():
@@ -194,6 +199,7 @@ async def start_chat(request: Request):
     session_id = session_id or str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
 
+    # —— 第2步：创建或复用会话 ——
     async with get_db() as db:
         row = await db.execute("SELECT id FROM sessions WHERE id = ?", (session_id,))
         exists = await row.fetchone()
@@ -211,6 +217,7 @@ async def start_chat(request: Request):
         )
         await db.commit()
 
+    # —— 第3步：加载 Agent 配置（系统提示词、模型、Skills）——
     system_prompt = DEFAULT_SYSTEM_PROMPT
     model_id = None
     enabled_skill_names: list[str] = []
@@ -230,6 +237,7 @@ async def start_chat(request: Request):
                 except Exception:
                     enabled_skill_names = []
 
+    # 将启用的 Skill 正文注入 system prompt
     if enabled_skill_names:
         skill_sections = []
         for name in enabled_skill_names:
@@ -241,6 +249,7 @@ async def start_chat(request: Request):
         if skill_sections:
             system_prompt += "\n\n---\n\n# 可用技能\n\n" + "\n\n---\n\n".join(skill_sections)
 
+    # —— 第4步：创建引擎并注册全部工具 ——
     engine = await create_engine(session_id=session_id, system_prompt=system_prompt, provider_name=model_id)
 
     for tool in get_schemas():
@@ -253,12 +262,14 @@ async def start_chat(request: Request):
 
 @router.get("/{task_id}/stream")
 async def stream_chat(task_id: str):
+    """SSE 流式端点：从数据库加载历史消息，压缩后送入引擎执行，逐事件推送给前端"""
     engine = get_engine(task_id)
     if not engine:
         async def not_found():
             yield f"data: {json.dumps({'type': 'error', 'message': 'Task not found'})}\n\n"
         return StreamingResponse(not_found(), media_type="text/event-stream")
 
+    # —— 加载历史消息 ——
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at",
@@ -273,6 +284,7 @@ async def stream_chat(task_id: str):
         if r["role"] in ("user", "assistant"):
             messages.append({"role": r["role"], "content": r["content"] or ""})
 
+    # —— 获取 Agent 级别的压缩配置（优先于全局配置）——
     agent_compress_cfg = None
     if session and session["agent_id"]:
         async with get_db() as db:
@@ -292,6 +304,7 @@ async def stream_chat(task_id: str):
     messages_for_engine = compress_messages(messages, compress_cfg)
 
     async def event_stream():
+        """SSE 事件生成器：逐条产出引擎事件"""
         assistant_content = ""
         model_name = getattr(engine.provider, "model", "unknown")
         last_step = 0
@@ -303,6 +316,7 @@ async def stream_chat(task_id: str):
                 if isinstance(step, int):
                     last_step = step
 
+                # 记录执行链路
                 trace_detail = {}
                 if event_type == "tool_call":
                     trace_detail = {"tool": event.get("tool"), "input": event.get("input")}
@@ -312,6 +326,7 @@ async def stream_chat(task_id: str):
                     trace_detail = {"message": event.get("message") or event.get("content")}
                 await log_trace(engine.session_id, task_id, last_step or None, event_type, trace_detail)
 
+                # 累积文本 + 结束时写入 Token 成本
                 if event_type == "text_delta":
                     assistant_content += event["content"]
                 elif event_type in ("done", "error", "interrupted") and not cost_logged:
@@ -329,6 +344,7 @@ async def stream_chat(task_id: str):
 
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
+            # 保存 assistant 最终回复到数据库
             if assistant_content:
                 now = datetime.utcnow().isoformat()
                 async with get_db() as db2:
@@ -338,12 +354,12 @@ async def stream_chat(task_id: str):
                     )
                     await db2.commit()
         finally:
-            remove_engine(task_id)
+            remove_engine(task_id)  # 无论成功或失败，清理引擎
 
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},  # 禁用 nginx 缓冲
     )
 
 
