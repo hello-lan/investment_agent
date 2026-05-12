@@ -14,12 +14,17 @@ class ToolCall:
 class LLMResponse:
     content: str
     tool_calls: list[ToolCall] = field(default_factory=list)
+    extra_blocks: list[dict] = field(default_factory=list)
+    reasoning_content: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
     stop_reason: str = "end_turn"
 
 
 class ModelProvider(ABC):
+    def _convert_messages(self, messages: list[dict]) -> list[dict]:
+        return messages
+
     @abstractmethod
     async def chat(
         self,
@@ -73,6 +78,51 @@ class OpenAICompatProvider(ModelProvider):
         self.client = AsyncOpenAI(api_key=api_key or None, base_url=base_url)
         self.model = model
 
+    def _convert_messages(self, messages: list[dict]) -> list[dict]:
+        import json
+        converted = []
+        for msg in messages:
+            content = msg.get("content")
+            role = msg.get("role", "")
+            if role == "assistant" and isinstance(content, list):
+                text_parts = []
+                tool_calls = []
+                reasoning = None
+                for block in content:
+                    t = block.get("type", "")
+                    if t == "text":
+                        text_parts.append(block["text"])
+                    elif t == "reasoning":
+                        reasoning = block.get("content")
+                    elif t == "tool_use":
+                        tool_calls.append({
+                            "id": block["id"],
+                            "type": "function",
+                            "function": {
+                                "name": block["name"],
+                                "arguments": json.dumps(block.get("input", {}), ensure_ascii=False),
+                            },
+                        })
+                entry: dict[str, Any] = {"role": "assistant", "content": "\n".join(text_parts) or None}
+                if reasoning:
+                    entry["reasoning_content"] = reasoning
+                if tool_calls:
+                    entry["tool_calls"] = tool_calls
+                converted.append(entry)
+            elif role == "user" and isinstance(content, list):
+                for block in content:
+                    t = block.get("type", "")
+                    if t == "tool_result":
+                        c = block.get("content", "")
+                        if isinstance(c, list):
+                            c = "\n".join(b.get("text", "") for b in c if b.get("type") == "text")
+                        converted.append({"role": "tool", "tool_call_id": block["tool_use_id"], "content": str(c)})
+                    elif t == "text":
+                        converted.append({"role": "user", "content": block["text"]})
+            else:
+                converted.append(msg)
+        return converted
+
     async def chat(self, messages, system="", tools=None, max_tokens=4096, temperature=0.7) -> LLMResponse:
         import json
         all_messages = []
@@ -103,6 +153,7 @@ class OpenAICompatProvider(ModelProvider):
         msg = resp.choices[0].message
 
         content = msg.content or ""
+        reasoning = getattr(msg, "reasoning_content", None) or None
         tool_calls = []
         if msg.tool_calls:
             for tc in msg.tool_calls:
@@ -115,6 +166,7 @@ class OpenAICompatProvider(ModelProvider):
         return LLMResponse(
             content=content,
             tool_calls=tool_calls,
+            reasoning_content=reasoning,
             input_tokens=resp.usage.prompt_tokens if resp.usage else 0,
             output_tokens=resp.usage.completion_tokens if resp.usage else 0,
             stop_reason="tool_use" if tool_calls else "end_turn",

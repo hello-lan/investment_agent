@@ -35,6 +35,8 @@ class AgentEngine:
     def interrupt(self) -> None:
         self._interrupt.set()
 
+    LOOP_WHITELIST = {"run_command"}    # 允许在循环中调用的工具
+
     async def run(self, messages: list[dict]) -> AsyncGenerator[dict, None]:
         if not self.provider:
             yield {"type": "error", "message": "No model provider configured."}
@@ -61,7 +63,7 @@ class AgentEngine:
 
             try:
                 response: LLMResponse = await self.provider.chat(
-                    messages=messages,
+                    messages=self.provider._convert_messages(messages),
                     system=self.system_prompt,
                     tools=self.tools if self.tools else None,
                 )
@@ -83,10 +85,23 @@ class AgentEngine:
                         "output_tokens": self.total_output_tokens,
                     },
                 }
-                messages.append({"role": "assistant", "content": response.content})
+                if response.reasoning_content or response.extra_blocks:
+                    assistant_blocks = []
+                    if response.reasoning_content:
+                        assistant_blocks.append({"type": "reasoning", "content": response.reasoning_content})
+                    assistant_blocks.extend(response.extra_blocks)
+                    if response.content:
+                        assistant_blocks.append({"type": "text", "text": response.content})
+                    messages.append({"role": "assistant", "content": assistant_blocks})
+                else:
+                    messages.append({"role": "assistant", "content": response.content})
                 break
 
             assistant_content = []
+            if response.reasoning_content:
+                assistant_content.append({"type": "reasoning", "content": response.reasoning_content})
+            if response.extra_blocks:
+                assistant_content.extend(response.extra_blocks)
             if response.content:
                 assistant_content.append({"type": "text", "text": response.content})
             for tc in response.tool_calls:
@@ -95,8 +110,9 @@ class AgentEngine:
 
             for tc in response.tool_calls:
                 recent_tool_calls.append(tc.name)
+            loop_candidates = [n for n in recent_tool_calls if n not in self.LOOP_WHITELIST]
             recent_tool_calls = recent_tool_calls[-self.loop_threshold * 2:]
-            counts = Counter(recent_tool_calls[-self.loop_threshold:])
+            counts = Counter(loop_candidates[-self.loop_threshold:])
             if counts and counts.most_common(1)[0][1] >= self.loop_threshold:
                 yield {"type": "error", "message": f"Dead loop detected: '{counts.most_common(1)[0][0]}' called {self.loop_threshold} times in a row."}
                 break

@@ -15,7 +15,6 @@ from pydantic import BaseModel
 
 from ...agent.context.compressor import compress_messages
 from ...agent.core.session import create_engine, get_engine, interrupt_engine, remove_engine
-from ...agent.skills.loader import get_schemas as get_skill_schemas
 from ...agent.skills.loader import get_skill
 from ...agent.tools.registry import get_schemas, get_tool
 from ...config import get_settings
@@ -28,7 +27,13 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
 你可以调用工具获取股票行情、财务报表、估值指标等数据，帮助用户进行基本面分析。
 分析时请做到：数据驱动、逻辑清晰、结论明确。
-最终输出请使用 Markdown 格式。"""
+最终输出请使用 Markdown 格式。
+
+## 文件输出规范
+- PDF 财报文件保存到 data/reports/pdf/
+- Markdown 分析报告保存到 data/reports/
+- 图表保存到 data/reports/charts/
+- 临时文件放到 data/tmp/"""
 
 
 class ChatRequest(BaseModel):
@@ -225,19 +230,23 @@ async def start_chat(request: Request):
                 except Exception:
                     enabled_skill_names = []
 
+    if enabled_skill_names:
+        skill_sections = []
+        for name in enabled_skill_names:
+            skill = get_skill(name)
+            if skill:
+                skill_sections.append(
+                    f"## {skill.name}\n目录: {skill.skill_dir}\n\n{skill.body}"
+                )
+        if skill_sections:
+            system_prompt += "\n\n---\n\n# 可用技能\n\n" + "\n\n---\n\n".join(skill_sections)
+
     engine = await create_engine(session_id=session_id, system_prompt=system_prompt, provider_name=model_id)
 
     for tool in get_schemas():
         t = get_tool(tool["name"])
         if t:
             engine.register_tool(tool, t.run)
-
-    for skill_schema in get_skill_schemas(enabled_skill_names):
-        schema_name = skill_schema["name"]
-        skill_name = schema_name.replace("skill_", "", 1)
-        skill = get_skill(skill_name)
-        if skill:
-            engine.register_tool(skill_schema, skill.run)
 
     return {"task_id": engine.task_id, "session_id": session_id}
 
