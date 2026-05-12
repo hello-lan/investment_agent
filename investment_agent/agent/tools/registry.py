@@ -4,6 +4,7 @@ from .financials import (
     IncomeStatementTool, BalanceSheetTool, CashFlowTool,
     ValuationTool, FinancialIndicatorTool,
 )
+from .run_command import RunCommandTool
 
 _registry: dict[str, BaseTool] = {}
 
@@ -22,6 +23,7 @@ _register(BalanceSheetTool())
 _register(CashFlowTool())
 _register(ValuationTool())
 _register(FinancialIndicatorTool())
+_register(RunCommandTool())
 
 
 def get_all_tools() -> list[BaseTool]:
