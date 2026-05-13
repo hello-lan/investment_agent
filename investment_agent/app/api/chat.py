@@ -17,7 +17,7 @@ from ...agent.context.compressor import compress_messages
 from ...agent.core.session import create_engine, get_engine, interrupt_engine, remove_engine
 from ...agent.skills.loader import get_skill
 from ...agent.tools.registry import get_schemas, get_tool
-from ...config import get_settings
+from ...config import get_settings, PROJECT_ROOT
 from ..db import get_db
 from ..observability.cost_tracker import log_cost
 from ..observability.trace import log_trace
@@ -30,11 +30,16 @@ DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
 分析时请做到：数据驱动、逻辑清晰、结论明确。
 最终输出请使用 Markdown 格式。
 
+## 项目路径
+
+PROJECT_ROOT = {PROJECT_ROOT}
+
 ## 文件输出规范
-- PDF 财报文件保存到 data/reports/pdf/
-- Markdown 分析报告保存到 data/reports/
-- 图表保存到 data/reports/charts/
-- 临时文件放到 data/tmp/"""
+- PDF 财报文件保存到 {PROJECT_ROOT}/data/reports/pdf/{股票代码}/
+- Markdown 分析报告保存到 {PROJECT_ROOT}/data/reports/
+- 图表保存到 {PROJECT_ROOT}/data/reports/charts/
+- 临时文件放到 {PROJECT_ROOT}/data/tmp/
+- 调用 download-a-share-reports 技能下载财报时，必须传递 --save-dir {PROJECT_ROOT}/data/reports/pdf/"""
 
 
 class ChatRequest(BaseModel):
