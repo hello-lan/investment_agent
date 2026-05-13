@@ -1,5 +1,4 @@
 import asyncio
-import json
 from .base import BaseTool
 
 
@@ -118,8 +117,14 @@ class ValuationTool(BaseTool):
     async def run(self, symbol: str) -> str:
         import akshare as ak
         try:
-            df = await _run_sync(ak.stock_a_lg_indicator, symbol=symbol)
-            df = df.tail(10)
+            # 添加交易所前缀：6开头=SH，0/3开头=SZ
+            if symbol.startswith("6"):
+                full_symbol = f"SH{symbol}"
+            elif symbol.startswith(("0", "3")):
+                full_symbol = f"SZ{symbol}"
+            else:
+                full_symbol = symbol
+            df = await _run_sync(ak.stock_zh_valuation_comparison_em, symbol=full_symbol)
             return df.to_string(index=False)
         except Exception as e:
             return f"获取估值指标失败: {e}"

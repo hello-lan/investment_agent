@@ -1,5 +1,6 @@
 from .base import BaseTool
-from .market_data import StockInfoTool, StockPriceTool, StockRealtimeTool, MarketIndexTool
+from .market_data import StockInfoTool, StockPriceTool
+# StockRealtimeTool, MarketIndexTool 已注释：依赖 eastmoney.com API，网络不通
 from .financials import (
     IncomeStatementTool, BalanceSheetTool, CashFlowTool,
     ValuationTool, FinancialIndicatorTool,
@@ -17,8 +18,9 @@ def _register(tool: BaseTool) -> None:
 # —— 启动时注册所有内置工具 ——
 _register(StockInfoTool())
 _register(StockPriceTool())
-_register(StockRealtimeTool())
-_register(MarketIndexTool())
+# 注释原因：这两个工具依赖 eastmoney.com API，当前网络环境下代理无法连通
+# _register(StockRealtimeTool())
+# _register(MarketIndexTool())
 _register(IncomeStatementTool())
 _register(BalanceSheetTool())
 _register(CashFlowTool())

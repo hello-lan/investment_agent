@@ -1,6 +1,5 @@
 import asyncio
 import json
-from functools import lru_cache
 from .base import BaseTool
 
 
@@ -130,7 +129,7 @@ class MarketIndexTool(BaseTool):
     async def run(self, symbol: str, count: int = 20) -> str:
         import akshare as ak
         try:
-            df = await _run_sync(ak.index_zh_a_hist, symbol=symbol, period="daily", adjust="")
+            df = await _run_sync(ak.index_zh_a_hist, symbol=symbol, period="daily")
             df = df.tail(count)
             return df.to_string(index=False)
         except Exception as e:
