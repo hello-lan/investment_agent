@@ -168,6 +168,10 @@ async function loadSessions(){
     return `<div class="session-row${active}" data-sid="${s.id}" onclick="loadSession('${s.id}')">
       <div class="sess-title">${escapeHtml(title)}</div>
       <div class="sess-meta"><span>${date}</span></div>
+      <div class="sess-actions">
+        <button class="btn-continue" onclick="event.stopPropagation();loadSession('${s.id}')">继续对话</button>
+        <button class="btn-del" onclick="event.stopPropagation();deleteSession('${s.id}')">删除</button>
+      </div>
     </div>`;
   }).join('');
 }
@@ -190,6 +194,17 @@ async function loadSession(sid){
   } catch(e) {
     console.error('loadSession', e);
   }
+}
+
+async function deleteSession(sid){
+  if (!confirm('确认删除该会话？')) return;
+  await fetch('/api/sessions/' + sid, {method:'DELETE'});
+  if (currentSessionId === sid) {
+    currentSessionId = null;
+    document.getElementById('messages').innerHTML = '<div id="welcome" style="text-align:center;color:#999;margin-top:60px;font-size:14px;">输入股票代码或公司名称，开始分析</div>';
+    totalInputTokens = 0; totalOutputTokens = 0; updateStats();
+  }
+  loadSessions();
 }
 
 function newSession(){

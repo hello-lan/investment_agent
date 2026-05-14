@@ -46,6 +46,7 @@ async def init_db() -> None:
                 max_tokens    INTEGER DEFAULT 4096,
                 skills        TEXT DEFAULT '[]',
                 compress_config TEXT,
+                engine_config TEXT,
                 created_at    TEXT,
                 updated_at    TEXT
             );
@@ -97,6 +98,7 @@ async def init_db() -> None:
                 id         TEXT PRIMARY KEY,
                 session_id TEXT,
                 task_id    TEXT,
+                agent_name TEXT,
                 step       INTEGER,
                 event_type TEXT,
                 detail     TEXT,
@@ -117,5 +119,15 @@ async def init_db() -> None:
         if "compress_config" not in columns:
             await db.execute("ALTER TABLE agents ADD COLUMN compress_config TEXT")
             changed = True
+        if "engine_config" not in columns:
+            await db.execute("ALTER TABLE agents ADD COLUMN engine_config TEXT")
+            changed = True
         if changed:
+            await db.commit()
+
+        # 迁移：trace_log 可能缺少 agent_name 列
+        cursor = await db.execute("PRAGMA table_info(trace_log)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "agent_name" not in columns:
+            await db.execute("ALTER TABLE trace_log ADD COLUMN agent_name TEXT")
             await db.commit()

@@ -3,16 +3,14 @@
 {% block head %}
 <link rel="stylesheet" href="/static/css/settings.css">
 <style>
-  .skill-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;}
-  .skill-card{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:14px;}
-  .skill-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
-  .skill-name{font-weight:600;font-size:14px;color:#1a1a2e;}
-  .skill-desc{font-size:13px;color:#666;line-height:1.5;margin-bottom:10px;}
-  .tool-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
-  .tag{font-size:11px;background:#f0f1fa;color:#1a1a2e;border-radius:12px;padding:2px 8px;}
-  .status{font-size:12px;color:#777;}
-  .switch{padding:5px 10px;border-radius:14px;border:1px solid #ddd;cursor:pointer;background:#fff;font-size:12px;}
-  .switch.on{background:#e8f5e9;color:#2e7d32;border-color:#b7e1c0;}
+  .skill-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .skill-table th { text-align: center; padding: 10px 14px; border-bottom: 2px solid #e0e0e0; color: #666; font-weight: 600; font-size: 12px; }
+  .skill-table td { padding: 12px 14px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  .skill-table tr:hover td { background: #fafafa; }
+  .skill-table .col-name { width: 25%; font-weight: 600; color: #1a1a2e; }
+  .skill-table .col-desc { width: 75%; color: #555; line-height: 1.5; }
+  .tag { display: inline-block; font-size: 11px; background: #f0f1fa; color: #1a1a2e; border-radius: 12px; padding: 2px 8px; margin: 2px 4px 2px 0; }
+  .empty { text-align: center; color: #999; padding: 40px 0; font-size: 13px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -20,11 +18,33 @@
   <div class="card">
     <div class="card-header"><h3>Skill 目录</h3></div>
     <div class="card-body">
-      <div class="skill-grid" id="skillGrid"></div>
+      <table class="skill-table">
+        <thead>
+          <tr>
+            <th class="col-name">名称</th>
+            <th class="col-desc">描述</th>
+          </tr>
+        </thead>
+        <tbody id="skillTbody">
+          <tr><td colspan="2" class="empty">暂无可用 Skill</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/skills.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', async function(){
+  var tbody = document.getElementById('skillTbody');
+  try {
+    var res = await fetch('/api/skills');
+    var skills = await res.json();
+    tbody.innerHTML = '<tr><td colspan="2" style="padding:12px;color:green;">API 返回 ' + skills.length + ' 条数据</td></tr>';
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="2" style="padding:12px;color:red;">错误: ' + e.message + '</td></tr>';
+  }
+});
+</script>
+<script src="/static/js/skills.js?v=2"></script>
 {% endblock %}

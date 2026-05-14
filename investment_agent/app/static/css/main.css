@@ -61,6 +61,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 .session-row .sess-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .session-row .sess-meta { font-size: 11px; color: #999; margin-top: 3px; display: flex; gap: 12px; }
 .session-row .sess-preview { font-size: 11px; color: #bbb; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session-row .sess-actions { display: flex; gap: 6px; margin-top: 6px; }
+.session-row .sess-actions button { font-size: 11px; padding: 3px 10px; border-radius: 4px; cursor: pointer; border: none; }
+.session-row .btn-continue { background: #1a1a2e; color: #fff; }
+.session-row .btn-continue:hover { background: #333; }
+.session-row .btn-del { background: #fff; color: #e53935; border: 1px solid #ef9a9a; }
+.session-row .btn-del:hover { background: #ffebee; }
 .history-empty { text-align: center; color: #ccc; margin-top: 60px; font-size: 13px; }
 
 /* ---- Agent 列表（左侧） ---- */

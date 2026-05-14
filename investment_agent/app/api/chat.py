@@ -225,11 +225,12 @@ async def start_chat(request: Request):
     # —— 第3步：加载 Agent 配置（系统提示词、模型、Skills）——
     system_prompt = DEFAULT_SYSTEM_PROMPT
     model_id = None
+    engine_config: dict | None = None
     enabled_skill_names: list[str] = []
     if agent_id:
         async with get_db() as db:
             row = await db.execute(
-                "SELECT system_prompt, model_id, skills FROM agents WHERE id = ?", (agent_id,)
+                "SELECT system_prompt, model_id, skills, engine_config FROM agents WHERE id = ?", (agent_id,)
             )
             agent = await row.fetchone()
             if agent:
@@ -241,6 +242,14 @@ async def start_chat(request: Request):
                     enabled_skill_names = json.loads(agent["skills"] or "[]")
                 except Exception:
                     enabled_skill_names = []
+                try:
+                    raw_engine = agent["engine_config"]
+                    if isinstance(raw_engine, str) and raw_engine.strip():
+                        engine_config = json.loads(raw_engine)
+                    elif isinstance(raw_engine, dict):
+                        engine_config = raw_engine
+                except Exception:
+                    engine_config = None
 
     # 将启用的 Skill 正文注入 system prompt
     if enabled_skill_names:
@@ -255,7 +264,12 @@ async def start_chat(request: Request):
             system_prompt += "\n\n---\n\n# 可用技能\n\n" + "\n\n---\n\n".join(skill_sections)
 
     # —— 第4步：创建引擎并注册全部工具 ——
-    engine = await create_engine(session_id=session_id, system_prompt=system_prompt, provider_name=model_id)
+    engine = await create_engine(
+        session_id=session_id,
+        system_prompt=system_prompt,
+        provider_name=model_id,
+        engine_config=engine_config,
+    )
 
     for tool in get_schemas():
         t = get_tool(tool["name"])
@@ -291,11 +305,13 @@ async def stream_chat(task_id: str):
 
     # —— 获取 Agent 级别的压缩配置（优先于全局配置）——
     agent_compress_cfg = None
+    agent_name = None
     if session and session["agent_id"]:
         async with get_db() as db:
-            row = await db.execute("SELECT compress_config FROM agents WHERE id = ?", (session["agent_id"],))
+            row = await db.execute("SELECT name, compress_config FROM agents WHERE id = ?", (session["agent_id"],))
             agent = await row.fetchone()
             if agent:
+                agent_name = agent["name"]
                 try:
                     raw_compress = agent["compress_config"]
                     if isinstance(raw_compress, str) and raw_compress.strip():
@@ -329,7 +345,7 @@ async def stream_chat(task_id: str):
                     trace_detail = {"tool": event.get("tool"), "output": str(event.get("output", ""))[:500]}
                 elif event_type in ("error", "slow_think"):
                     trace_detail = {"message": event.get("message") or event.get("content")}
-                await log_trace(engine.session_id, task_id, last_step or None, event_type, trace_detail)
+                await log_trace(engine.session_id, task_id, last_step or None, event_type, trace_detail, agent_name=agent_name)
 
                 # 累积文本 + 结束时写入 Token 成本
                 if event_type == "text_delta":

@@ -25,8 +25,7 @@ TABS = [
     {"label": "对话", "href": "/"},
     {"label": "Agent", "href": "/agents"},
     {"label": "Skills", "href": "/skills"},
-    {"label": "模型", "href": "/settings"},
-    {"label": "历史", "href": "/history"},
+    {"label": "模型", "href": "/model"},
     {"label": "统计", "href": "/observability"},
 ]
 
@@ -69,14 +68,9 @@ async def skills_page(request: Request):
     return templates.TemplateResponse("skills.html", {"request": request, "tabs": TABS, "active_tab": "Skills"})
 
 
-@app.get("/settings")
+@app.get("/model")
 async def settings_page(request: Request):
-    return templates.TemplateResponse("settings.html", {"request": request, "tabs": TABS, "active_tab": "模型"})
-
-
-@app.get("/history")
-async def history_page(request: Request):
-    return templates.TemplateResponse("history.html", {"request": request, "tabs": TABS, "active_tab": "历史"})
+    return templates.TemplateResponse("model.html", {"request": request, "tabs": TABS, "active_tab": "模型"})
 
 
 @app.get("/observability")

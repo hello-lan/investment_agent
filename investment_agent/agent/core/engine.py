@@ -12,7 +12,13 @@ from .models import ModelProvider, LLMResponse, ToolCall
 class AgentEngine:
     """双循环执行引擎：快循环（LLM推理→工具调用→结果追加）+ 慢思考（定期全局复盘）"""
 
-    def __init__(self, session_id: str, system_prompt: str = "", provider: ModelProvider | None = None):
+    def __init__(
+        self,
+        session_id: str,
+        system_prompt: str = "",
+        provider: ModelProvider | None = None,
+        engine_config: dict | None = None,
+    ):
         self.session_id = session_id
         self.task_id = str(uuid.uuid4())
         self.system_prompt = system_prompt
@@ -21,12 +27,13 @@ class AgentEngine:
         self.tool_handlers: dict[str, Callable] = {}
         self._interrupt = asyncio.Event()  # 异步中断信号
 
-        # 从全局配置加载引擎参数
-        cfg = get_settings()["engine"]
-        self.max_steps: int = cfg.get("max_steps", 30)
-        self.slow_think_interval: int = cfg.get("slow_think_interval", 3)  # 每N步触发一次慢思考
-        self.token_budget: int = cfg.get("token_budget", 100000)
-        self.loop_threshold: int = cfg.get("loop_detection_threshold", 3)  # 死循环检测阈值
+        # Agent 级配置优先，fallback 到全局配置
+        agent_cfg = engine_config or {}
+        global_cfg = get_settings().get("engine", {})
+        self.max_steps: int = agent_cfg.get("max_steps") or global_cfg.get("max_steps", 30)
+        self.slow_think_interval: int = agent_cfg.get("slow_think_interval") or global_cfg.get("slow_think_interval", 3)
+        self.token_budget: int = agent_cfg.get("token_budget") or global_cfg.get("token_budget", 100000)
+        self.loop_threshold: int = agent_cfg.get("loop_detection_threshold") or global_cfg.get("loop_detection_threshold", 3)
 
         self.total_input_tokens = 0
         self.total_output_tokens = 0

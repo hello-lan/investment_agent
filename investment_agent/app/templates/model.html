@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}模型 — 投研 Agent{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/css/settings.css">
+{% endblock %}
+{% block content %}
+<div class="container">
+
+  <div class="card">
+    <div class="card-header">
+      <h3>模型配置</h3>
+      <button class="btn btn-primary btn-sm" onclick="openModal()">+ 添加模型</button>
+    </div>
+    <div class="card-body">
+      <div id="modelListContainer" class="model-list"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 添加/编辑模型弹窗 -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-title" id="modalTitle">添加模型</div>
+    <input type="hidden" id="mEditId">
+    <div class="form-row">
+      <label>显示名称 *</label>
+      <input type="text" id="mName" placeholder="如：Claude Sonnet 4.6">
+    </div>
+    <div class="form-row">
+      <label>唯一 ID *</label>
+      <input type="text" id="mId" placeholder="如：claude-default（留空自动生成）">
+      <div class="hint">用于内部标识，创建后不可修改</div>
+    </div>
+    <div class="form-row">
+      <label>类型</label>
+      <select id="mType" onchange="toggleBaseUrl()">
+        <option value="anthropic">Anthropic（原生 Claude SDK）</option>
+        <option value="openai_compat">OpenAI 兼容（DeepSeek / Qwen / Ollama 等）</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>API Key</label>
+      <input type="password" id="mKey" placeholder="sk-...">
+    </div>
+    <div class="form-row">
+      <label>Model Name *</label>
+      <input type="text" id="mModel" placeholder="如：claude-sonnet-4-6 或 deepseek-chat">
+    </div>
+    <div class="form-row" id="baseUrlRow">
+      <label>Base URL</label>
+      <input type="text" id="mBaseUrl" placeholder="如：https://api.deepseek.com">
+      <div class="hint">留空则使用 https://api.openai.com/v1</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveModel()">保存</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/model.js?v=2"></script>
+{% endblock %}

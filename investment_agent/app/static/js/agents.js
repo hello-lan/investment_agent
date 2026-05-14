@@ -87,6 +87,18 @@ function normalizeCompressConfig(raw) {
   return raw;
 }
 
+function normalizeEngineConfig(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return raw;
+}
+
 function fillCompressFields(cfg) {
   const enabled = document.getElementById('agentCompressEnabled');
   const recentKeep = document.getElementById('agentCompressRecentKeep');
@@ -110,8 +122,35 @@ function fillCompressFields(cfg) {
   totalBudget.value = cfg.total_budget_chars ?? '';
 }
 
+function fillEngineFields(cfg) {
+  const maxSteps = document.getElementById('agentMaxSteps');
+  const slowThink = document.getElementById('agentSlowThink');
+  const tokenBudget = document.getElementById('agentTokenBudget');
+  const loopThreshold = document.getElementById('agentLoopThreshold');
+
+  if (!cfg) {
+    maxSteps.value = 30;
+    document.getElementById('agentMaxStepsVal').textContent = '30';
+    slowThink.value = 3;
+    document.getElementById('agentSlowThinkVal').textContent = '3';
+    tokenBudget.value = '';
+    loopThreshold.value = 3;
+    document.getElementById('agentLoopVal').textContent = '3';
+    return;
+  }
+
+  maxSteps.value = cfg.max_steps ?? 30;
+  document.getElementById('agentMaxStepsVal').textContent = cfg.max_steps ?? 30;
+  slowThink.value = cfg.slow_think_interval ?? 3;
+  document.getElementById('agentSlowThinkVal').textContent = cfg.slow_think_interval ?? 3;
+  tokenBudget.value = cfg.token_budget ?? '';
+  loopThreshold.value = cfg.loop_detection_threshold ?? 3;
+  document.getElementById('agentLoopVal').textContent = cfg.loop_detection_threshold ?? 3;
+}
+
 function openModal(agent){
   const compressConfig = normalizeCompressConfig(agent?.compress_config);
+  const engineConfig = normalizeEngineConfig(agent?.engine_config);
   document.getElementById('modalTitle').textContent = agent ? '编辑 Agent' : '新建 Agent';
   document.getElementById('agentId').value = agent?.id || '';
   document.getElementById('agentName').value = agent?.name || '';
@@ -121,6 +160,7 @@ function openModal(agent){
   document.getElementById('agentTemp').value = agent?.temperature ?? 0.7;
   document.getElementById('agentMaxTokens').value = agent?.max_tokens || 4096;
   fillCompressFields(compressConfig);
+  fillEngineFields(engineConfig);
   renderSkillOptions(agent?.skills || []);
   document.getElementById('modalOverlay').classList.add('open');
 }
@@ -177,6 +217,20 @@ async function saveAgent(){
     }
   }
 
+  const engineMaxSteps = toNullableInt(document.getElementById('agentMaxSteps').value);
+  const engineSlowThink = toNullableInt(document.getElementById('agentSlowThink').value);
+  const engineTokenBudget = toNullableInt(document.getElementById('agentTokenBudget').value);
+  const engineLoopThreshold = toNullableInt(document.getElementById('agentLoopThreshold').value);
+
+  let engineConfig = null;
+  if (engineMaxSteps !== null || engineSlowThink !== null || engineTokenBudget !== null || engineLoopThreshold !== null) {
+    engineConfig = {};
+    if (engineMaxSteps !== null) engineConfig.max_steps = engineMaxSteps;
+    if (engineSlowThink !== null) engineConfig.slow_think_interval = engineSlowThink;
+    if (engineTokenBudget !== null) engineConfig.token_budget = engineTokenBudget;
+    if (engineLoopThreshold !== null) engineConfig.loop_detection_threshold = engineLoopThreshold;
+  }
+
   const body = {
     name,
     description: document.getElementById('agentDesc').value,
@@ -186,6 +240,7 @@ async function saveAgent(){
     max_tokens: parseInt(document.getElementById('agentMaxTokens').value),
     skills: selectedSkills(),
     compress_config: compressConfig,
+    engine_config: engineConfig,
   };
 
   const url = id ? `/api/agents/${id}` : '/api/agents';

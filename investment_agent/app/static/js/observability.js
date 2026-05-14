@@ -21,30 +21,19 @@ function buildQuery(filters) {
   return p.toString();
 }
 
-function renderCost(rows) {
-  const tbody = document.querySelector('#costTable tbody');
-  tbody.innerHTML = (rows || []).map(r => `
-    <tr>
-      <td>${esc((r.created_at || '').slice(0, 19).replace('T', ' '))}</td>
-      <td>${esc(r.session_id)}</td>
-      <td>${esc(r.task_id)}</td>
-      <td>${esc(r.model)}</td>
-      <td>${esc(r.input_tokens)}</td>
-      <td>${esc(r.output_tokens)}</td>
-      <td>${esc(Number(r.cost_usd || 0).toFixed(6))}</td>
-    </tr>
-  `).join('');
-}
-
 function renderTraces(rows) {
   const tbody = document.querySelector('#traceTable tbody');
   tbody.innerHTML = (rows || []).map(r => `
     <tr>
       <td>${esc((r.created_at || '').slice(0, 19).replace('T', ' '))}</td>
-      <td>${esc(r.step ?? '')}</td>
-      <td>${esc(r.event_type)}</td>
+      <td>${esc(r.agent_name)}</td>
       <td>${esc(r.session_id)}</td>
       <td>${esc(r.task_id)}</td>
+      <td>${esc(r.step ?? '')}</td>
+      <td>${esc(r.event_type)}</td>
+      <td>${esc(r.model)}</td>
+      <td>${esc(r.input_tokens)}</td>
+      <td>${esc(r.output_tokens)}</td>
       <td class="obs-pre">${esc(r.detail)}</td>
     </tr>
   `).join('');
@@ -56,11 +45,7 @@ async function loadData() {
   isLoading = true;
   try {
     const q = buildQuery(getFilters());
-    const [cost, traces] = await Promise.all([
-      fetch(`/api/observability/cost?${q}`).then(r => r.json()),
-      fetch(`/api/observability/traces?${q}`).then(r => r.json()),
-    ]);
-    renderCost(cost);
+    const traces = await fetch(`/api/observability/traces?${q}`).then(r => r.json());
     renderTraces(traces);
     document.getElementById('lastUpdated').textContent = `最后更新：${new Date().toLocaleTimeString()}`;
   } finally {

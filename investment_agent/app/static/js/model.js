@@ -9,43 +9,11 @@ let defaultModelId = '';
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 async function loadAll() {
-  const [s, models] = await Promise.all([
-    fetch('/api/settings').then(r => r.json()),
-    fetch('/api/settings/models').then(r => r.json()),
-  ]);
+  const models = await fetch('/api/settings/models').then(r => r.json());
   modelList = models.list || [];
   defaultModelId = models.default || '';
 
   renderModelList();
-  renderDefaultSelect();
-
-  const eng = s.engine || {};
-  document.getElementById('maxSteps').value = eng.max_steps || 30;
-  document.getElementById('maxStepsVal').textContent = eng.max_steps || 30;
-  document.getElementById('slowThink').value = eng.slow_think_interval || 3;
-  document.getElementById('slowThinkVal').textContent = eng.slow_think_interval || 3;
-  document.getElementById('tokenBudget').value = eng.token_budget || 100000;
-  document.getElementById('loopThreshold').value = eng.loop_detection_threshold || 3;
-  document.getElementById('loopVal').textContent = eng.loop_detection_threshold || 3;
-
-  const tools = s.tools || {};
-  document.getElementById('tushareToken').placeholder = tools.tushare_token ? '已设置（输入新值覆盖）' : '留空则只使用 AKShare';
-
-  const skills = s.skills || {};
-  document.getElementById('skillsDirectory').value = skills.directory || 'skills';
-
-  const compress = s.compress || {};
-  document.getElementById('compressEnabled').value = String(compress.enabled ?? true);
-  document.getElementById('compressRecentKeep').value = compress.recent_keep ?? 6;
-  document.getElementById('compressMaxChars').value = compress.max_chars_per_msg ?? 2000;
-  document.getElementById('compressTotalBudget').value = compress.total_budget_chars ?? 20000;
-}
-
-function renderDefaultSelect() {
-  const sel = document.getElementById('defaultModel');
-  sel.innerHTML = modelList.map(m =>
-    `<option value="${esc(m.id)}" ${m.id === defaultModelId ? 'selected' : ''}>${esc(m.name)}</option>`
-  ).join('');
 }
 
 function renderModelList() {
@@ -67,6 +35,7 @@ function renderModelList() {
         </div>
       </div>
       <div class="model-actions">
+        ${m.id !== defaultModelId ? `<button class="btn btn-ghost btn-sm" onclick="setDefault('${esc(m.id)}')">设为默认</button>` : ''}
         <button class="btn btn-test btn-sm" onclick="testModel('${esc(m.id)}')">测试</button>
         <button class="btn btn-ghost btn-sm" onclick="openModal('${esc(m.id)}')">编辑</button>
         <button class="btn btn-danger btn-sm" onclick="deleteModel('${esc(m.id)}')">删除</button>
@@ -75,8 +44,7 @@ function renderModelList() {
   `).join('');
 }
 
-async function saveDefault() {
-  const id = document.getElementById('defaultModel').value;
+async function setDefault(id) {
   await fetch('/api/settings/models/default', {
     method: 'PUT',
     headers: {'Content-Type': 'application/json'},
@@ -84,7 +52,6 @@ async function saveDefault() {
   });
   defaultModelId = id;
   renderModelList();
-  showMsg('defaultMsg', true, '已保存');
 }
 
 function openModal(id) {
@@ -163,56 +130,6 @@ async function testModel(id) {
     btn.textContent = '✗ 失败';
   }
   setTimeout(() => { btn.textContent = '测试'; btn.disabled = false; btn.style = ''; }, 3000);
-}
-
-async function saveEngine() {
-  const body = {
-    max_steps: parseInt(document.getElementById('maxSteps').value),
-    slow_think_interval: parseInt(document.getElementById('slowThink').value),
-    token_budget: parseInt(document.getElementById('tokenBudget').value),
-    loop_detection_threshold: parseInt(document.getElementById('loopThreshold').value),
-  };
-  const res = await fetch('/api/settings/engine', {
-    method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
-  });
-  showMsg('engineMsg', res.ok, res.ok ? '已保存' : '保存失败');
-}
-
-async function saveSkillsDirectory() {
-  const body = {directory: document.getElementById('skillsDirectory').value.trim() || 'skills'};
-  const res = await fetch('/api/settings/skills', {
-    method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
-  });
-  showMsg('skillsMsg', res.ok, res.ok ? '已保存' : '保存失败');
-}
-
-async function saveTools() {
-  const body = {tushare_token: document.getElementById('tushareToken').value || '***'};
-  const res = await fetch('/api/settings/tools', {
-    method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
-  });
-  showMsg('toolsMsg', res.ok, res.ok ? '已保存' : '保存失败');
-}
-
-async function saveCompress() {
-  const body = {
-    enabled: document.getElementById('compressEnabled').value === 'true',
-    recent_keep: parseInt(document.getElementById('compressRecentKeep').value || '6'),
-    max_chars_per_msg: parseInt(document.getElementById('compressMaxChars').value || '2000'),
-    total_budget_chars: parseInt(document.getElementById('compressTotalBudget').value || '20000'),
-  };
-  const res = await fetch('/api/settings/compress', {
-    method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
-  });
-  showMsg('compressMsg', res.ok, res.ok ? '已保存' : '保存失败');
-}
-
-function showMsg(id, ok, text) {
-  const el = document.getElementById(id);
-  el.className = 'msg ' + (ok ? 'success' : 'error');
-  el.textContent = text;
-  el.style.display = 'block';
-  setTimeout(() => { el.style.display = 'none'; }, 2500);
 }
 
 window.addEventListener('DOMContentLoaded', loadAll);

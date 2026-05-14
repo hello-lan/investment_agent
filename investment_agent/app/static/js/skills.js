@@ -1,23 +1,30 @@
 function esc(s){return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
 async function loadSkills(){
-  const skills = await fetch('/api/skills').then(r => r.json());
-  const grid = document.getElementById('skillGrid');
-  if(!skills.length){
-    grid.innerHTML = '<div class="empty">暂无可用 Skill</div>';
-    return;
-  }
+  try {
+    const res = await fetch('/api/skills');
+    const skills = await res.json();
+    const tbody = document.getElementById('skillTbody');
+    if (!tbody) return;
 
-  grid.innerHTML = skills.map(s => `
-    <div class="skill-card">
-      <div class="skill-title">
-        <div class="skill-name">${esc(s.name)}</div>
-      </div>
-      <div class="skill-desc">${esc(s.description)}</div>
-      <div class="tool-tags">${(s.tools || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>
-      <div class="status">Schema: ${esc(s.schema_name)}</div>
-    </div>
-  `).join('');
+    if (!skills || !skills.length){
+      tbody.innerHTML = '<tr><td colspan="2" class="empty">暂无可用 Skill</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = skills.map(s => {
+      const name = esc(s.name || '');
+      const desc = esc(s.description || '');
+      return '<tr>' +
+        '<td class="col-name">' + name + '</td>' +
+        '<td class="col-desc">' + desc + '</td>' +
+        '</tr>';
+    }).join('');
+  } catch(e) {
+    console.error('loadSkills error:', e);
+    const tbody = document.getElementById('skillTbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="2" class="empty">加载失败: ' + esc(e.message) + '</td></tr>';
+  }
 }
 
 window.addEventListener('DOMContentLoaded', loadSkills);
