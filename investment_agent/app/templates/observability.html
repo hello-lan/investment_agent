@@ -1,9 +1,6 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>观测 — 投研 Agent</title>
+{% extends "base.html" %}
+{% block title %}统计 — 投研 Agent{% endblock %}
+{% block head %}
 <link rel="stylesheet" href="/static/css/main.css">
 <style>
   .obs-wrap { max-width: 1200px; margin: 20px auto; padding: 0 20px 20px; }
@@ -20,18 +17,8 @@
   .obs-muted { color: #777; font-size: 12px; margin-bottom: 10px; }
   .obs-pre { white-space: pre-wrap; max-width: 460px; word-break: break-word; }
 </style>
-</head>
-<body>
-<nav class="navbar">
-  <span class="brand">📈 投研 Agent</span>
-  <a href="/">对话</a>
-  <a href="/agents">Agent 配置</a>
-  <a href="/skills">Skills</a>
-  <a href="/settings">设置</a>
-  <a href="/history">历史</a>
-  <a href="/observability" class="active">观测</a>
-</nav>
-
+{% endblock %}
+{% block content %}
 <div class="obs-wrap">
   <div class="obs-controls">
     <input id="sessionId" placeholder="session_id（可选）">
@@ -76,7 +63,7 @@
     </div>
   </div>
 </div>
-
+{% endblock %}
+{% block scripts %}
 <script src="/static/js/observability.js"></script>
-</body>
-</html>
+{% endblock %}

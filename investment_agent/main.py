@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 
 from .app.db import init_db
@@ -16,7 +16,19 @@ from .app.api.observability import router as observability_router
 # 项目根目录（investment_agent/ 的上一级）
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = PROJECT_ROOT / "investment_agent" / "app" / "static"
+TEMPLATE_DIR = PROJECT_ROOT / "investment_agent" / "app" / "templates"
 OUTPUT_DIR = PROJECT_ROOT / "output"
+
+templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+
+TABS = [
+    {"label": "对话", "href": "/"},
+    {"label": "Agent", "href": "/agents"},
+    {"label": "Skills", "href": "/skills"},
+    {"label": "模型", "href": "/settings"},
+    {"label": "历史", "href": "/history"},
+    {"label": "统计", "href": "/observability"},
+]
 
 
 @asynccontextmanager
@@ -43,33 +55,33 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/")
-async def index():
-    return FileResponse(str(STATIC_DIR / "index.html"))
+async def index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request, "tabs": TABS, "active_tab": "对话"})
 
 
 @app.get("/agents")
-async def agents_page():
-    return FileResponse(str(STATIC_DIR / "agents.html"))
+async def agents_page(request: Request):
+    return templates.TemplateResponse("agents.html", {"request": request, "tabs": TABS, "active_tab": "Agent"})
 
 
 @app.get("/skills")
-async def skills_page():
-    return FileResponse(str(STATIC_DIR / "skills.html"))
+async def skills_page(request: Request):
+    return templates.TemplateResponse("skills.html", {"request": request, "tabs": TABS, "active_tab": "Skills"})
 
 
 @app.get("/settings")
-async def settings_page():
-    return FileResponse(str(STATIC_DIR / "settings.html"))
+async def settings_page(request: Request):
+    return templates.TemplateResponse("settings.html", {"request": request, "tabs": TABS, "active_tab": "模型"})
 
 
 @app.get("/history")
-async def history_page():
-    return FileResponse(str(STATIC_DIR / "history.html"))
+async def history_page(request: Request):
+    return templates.TemplateResponse("history.html", {"request": request, "tabs": TABS, "active_tab": "历史"})
 
 
 @app.get("/observability")
-async def observability_page():
-    return FileResponse(str(STATIC_DIR / "observability.html"))
+async def observability_page(request: Request):
+    return templates.TemplateResponse("observability.html", {"request": request, "tabs": TABS, "active_tab": "统计"})
 
 
 @app.get("/health")

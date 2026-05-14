@@ -1,16 +1,9 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<title>设置 — 投研 Agent</title>
+{% extends "base.html" %}
+{% block title %}模型 — 投研 Agent{% endblock %}
+{% block head %}
 <link rel="stylesheet" href="/static/css/settings.css">
-</head>
-<body>
-<nav class="navbar">
-  <span class="brand">📈 投研 Agent</span>
-  <a href="/">对话</a><a href="/agents">Agent 配置</a>
-  <a href="/skills">Skills</a><a href="/settings" class="active">设置</a><a href="/history">历史</a><a href="/observability">观测</a>
-</nav>
+{% endblock %}
+{% block content %}
 <div class="container">
 
   <div class="card">
@@ -166,8 +159,8 @@
     </div>
   </div>
 </div>
-
+{% endblock %}
+{% block scripts %}
 <script src="/static/js/settings.js"></script>
 <script src="/static/js/settings2.js"></script>
-</body>
-</html>
+{% endblock %}

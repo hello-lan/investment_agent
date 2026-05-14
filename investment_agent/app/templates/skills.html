@@ -1,9 +1,6 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Skills 管理 — 投研 Agent</title>
+{% extends "base.html" %}
+{% block title %}Skills 管理 — 投研 Agent{% endblock %}
+{% block head %}
 <link rel="stylesheet" href="/static/css/settings.css">
 <style>
   .skill-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;}
@@ -17,17 +14,8 @@
   .switch{padding:5px 10px;border-radius:14px;border:1px solid #ddd;cursor:pointer;background:#fff;font-size:12px;}
   .switch.on{background:#e8f5e9;color:#2e7d32;border-color:#b7e1c0;}
 </style>
-</head>
-<body>
-<nav class="navbar">
-  <span class="brand">📈 投研 Agent</span>
-  <a href="/">对话</a>
-  <a href="/agents">Agent 配置</a>
-  <a href="/skills" class="active">Skills</a>
-  <a href="/settings">设置</a>
-  <a href="/history">历史</a>
-  <a href="/observability">观测</a>
-</nav>
+{% endblock %}
+{% block content %}
 <div class="container">
   <div class="card">
     <div class="card-header"><h3>Skill 目录</h3></div>
@@ -36,6 +24,7 @@
     </div>
   </div>
 </div>
+{% endblock %}
+{% block scripts %}
 <script src="/static/js/skills.js"></script>
-</body>
-</html>
+{% endblock %}
