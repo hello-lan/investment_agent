@@ -16,11 +16,11 @@ def pdf2markdown(src_path: str, target_path: str) -> None:
 
 def main():
     ap = argparse.ArgumentParser(description="将 PDF 文件转换为 Markdown 格式")
-    ap.add_argument("-i", "--input", required=True, help="待转换的 PDF 文件路径")
+    ap.add_argument("pdf", help="待转换的 PDF 文件路径")
     ap.add_argument("-o", "--output", default=None, help="转换结果保存路径（默认与 PDF 同目录同名 .md）")
     args = ap.parse_args()
 
-    input_file = args.input
+    input_file = args.pdf
     output_file = args.output
 
     if not os.path.exists(input_file):

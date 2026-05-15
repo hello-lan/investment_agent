@@ -156,7 +156,7 @@ investment_agent/
 | `demo_echo` | 回显参数，用于验证 Skill 链路 |
 | `demo_brief_report` | 根据参数生成简短结构化报告 |
 | `download-a-share-reports` | 从 cninfo.com.cn 下载 A 股年报 |
-| `pdf-to-markdown` | 通过 docling 将 PDF 转为 Markdown |
+| `pdf-to-markdown` | 将 PDF 转为 Markdown（默认 pdfplumber 快速模式，可选 docling 高质量模式） |
 | `a-share-financial-forensic` | A 股财务造假识别（38 条规则检查） |
 
 ### 上下文压缩（agent/context/compressor.py）
