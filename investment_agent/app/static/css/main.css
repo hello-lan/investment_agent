@@ -28,6 +28,29 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 .thinking span:nth-child(2) { animation-delay: 0.2s; }
 .thinking span:nth-child(3) { animation-delay: 0.4s; }
 @keyframes bounce { 0%,80%,100%{transform:scale(0)} 40%{transform:scale(1)} }
+
+/* ---- 思考过程区（在气泡内底部） ---- */
+.thinking-inline { display: flex; gap: 4px; padding: 4px 0; }
+.thinking-inline span { width: 7px; height: 7px; background: #aaa; border-radius: 50%; animation: bounce 1.2s infinite; }
+.thinking-inline span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-inline span:nth-child(3) { animation-delay: 0.4s; }
+
+.bubble-content { /* 正文区，由 innerHTML 填充 */ }
+
+.think-process { margin-top: 10px; border-top: 1px dashed #ddd; padding: 4px 10px; font-size: 11px; color: #999; background: #fafafa; border-radius: 0 0 6px 6px; margin-left: -16px; margin-right: -16px; margin-bottom: -12px; min-height: 24px; line-height: 22px; }
+.think-process .think-current { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.think-process .think-current .think-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ddd; border-top-color: #1a1a2e; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 2px; }
+.think-process .think-current .step-detail-inline { color: #bbb; font-size: 10px; margin-left: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.think-process .think-summary { cursor: pointer; color: #aaa; user-select: none; padding: 1px 0; }
+.think-process .think-summary:hover { color: #1a1a2e; }
+.think-process .think-arrow { font-size: 9px; margin-left: 2px; }
+.think-process.collapsed .think-steps { display: none; }
+.think-process .think-steps { margin-top: 4px; }
+.think-process .think-step { display: flex; gap: 5px; padding: 2px 0; align-items: baseline; }
+.think-process .think-step .step-icon { flex-shrink: 0; font-size: 11px; }
+.think-process .think-step .step-label { color: #777; }
+.think-process .think-step .step-detail { color: #bbb; font-size: 10px; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; }
 .input-area { padding: 16px 20px; background: #fff; border-top: 1px solid #e0e0e0; display: flex; gap: 10px; align-items: flex-end; }
 .input-left { flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .upload-row { display: flex; align-items: center; gap: 8px; min-height: 28px; }

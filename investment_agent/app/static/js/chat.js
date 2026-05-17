@@ -273,12 +273,64 @@ function appendAssistantMsg(md){
   return _append('<div class="msg assistant"><div class="msg-bubble">' + renderMarkdown(md) + '</div></div>');
 }
 
-function appendToolStep(name, output){
-  _append('<div class="tool-step"><span class="tool-name">🔧 ' + escapeHtml(name) + '</span><div class="tool-result">' + escapeHtml((output||'').slice(0,300)) + '</div></div>');
+function _createReplyBlock(){
+  const container = document.createElement('div');
+  container.className = 'msg assistant';
+  container.innerHTML =
+    '<div class="msg-bubble">' +
+      '<div class="bubble-content">' +
+        '<div class="thinking-inline"><span></span><span></span><span></span></div>' +
+      '</div>' +
+      '<div class="think-process" style="display:none">' +
+        '<div class="think-current"></div>' +
+        '<div class="think-summary" style="display:none"></div>' +
+        '<div class="think-steps" style="display:none"></div>' +
+      '</div>' +
+    '</div>';
+  document.getElementById('messages').appendChild(container);
+  return {
+    container,
+    bodyEl: container.querySelector('.bubble-content'),
+    thinkEl: container.querySelector('.think-process'),
+    currentEl: container.querySelector('.think-current'),
+    stepsEl: container.querySelector('.think-steps'),
+    summaryEl: container.querySelector('.think-summary'),
+  };
 }
 
-function appendSlowThink(content){
-  _append('<div class="slow-think">💭 <strong>策略复盘：</strong>' + escapeHtml(content) + '</div>');
+function _addThinkStep(block, thinkSteps, icon, label, detail){
+  block.thinkEl.style.display = '';
+  thinkSteps.push({ icon, label, detail });
+  let html = '<span class="think-spinner"></span> <span class="step-icon">' + icon + '</span> <span class="step-label">' + escapeHtml(label) + '</span>';
+  if (detail) {
+    html += ' <span class="step-detail-inline">' + escapeHtml((detail || '').slice(0, 80)) + '</span>';
+  }
+  block.currentEl.innerHTML = html;
+}
+
+function _collapseThink(block, thinkSteps){
+  const n = thinkSteps.length;
+  if (!n) { block.thinkEl.style.display = 'none'; return; }
+
+  block.currentEl.style.display = 'none';
+  block.stepsEl.style.display = '';
+  block.summaryEl.style.display = '';
+
+  block.stepsEl.innerHTML = thinkSteps.map(s =>
+    '<div class="think-step"><span class="step-icon">' + s.icon + '</span><span class="step-label">' + escapeHtml(s.label) + '</span>' +
+    (s.detail ? ' <span class="step-detail">' + escapeHtml(s.detail.slice(0, 120)) + '</span>' : '') +
+    '</div>'
+  ).join('');
+
+  block.summaryEl.innerHTML = '思考过程 (' + n + '步) <span class="think-arrow">▼</span>';
+  block.thinkEl.classList.add('collapsed');
+
+  block.summaryEl.onclick = function(){
+    block.thinkEl.classList.toggle('collapsed');
+    var arr = block.summaryEl.querySelector('.think-arrow');
+    if (arr) arr.textContent = block.thinkEl.classList.contains('collapsed') ? '▼' : '▲';
+    document.getElementById('messages').scrollTop = 99999;
+  };
 }
 
 function showThinking(){
@@ -349,29 +401,46 @@ async function sendMessage(){
   currentTaskId = data.task_id;
   currentSessionId = data.session_id;
 
-  let aDiv = null, aText = '', pendingTool = null;
+  let replyBlock = null, aText = '', pendingTool = null, thinkSteps = [];
+
+  function _ensureBlock(){
+    if (!replyBlock) { removeThinking(); replyBlock = _createReplyBlock(); }
+    return replyBlock;
+  }
 
   currentEventSource = new EventSource('/api/chat/' + currentTaskId + '/stream');
   currentEventSource.onmessage = (e) => {
     const ev = JSON.parse(e.data);
     if (ev.type === 'text_delta'){
-      removeThinking(); aText += ev.content;
-      if (!aDiv) aDiv = appendAssistantMsg(aText);
-      else { aDiv.querySelector('.msg-bubble').innerHTML = renderMarkdown(aText); document.getElementById('messages').scrollTop = 99999; }
+      const b = _ensureBlock();
+      const spin = b.bodyEl.querySelector('.thinking-inline');
+      if (spin) spin.remove();
+      aText += ev.content;
+      b.bodyEl.innerHTML = renderMarkdown(aText);
+      document.getElementById('messages').scrollTop = 99999;
     } else if (ev.type === 'tool_call'){
-      removeThinking(); pendingTool = ev;
+      const b = _ensureBlock();
+      const spin = b.bodyEl.querySelector('.thinking-inline');
+      if (spin) spin.remove();
+      pendingTool = ev;
     } else if (ev.type === 'tool_result'){
-      appendToolStep(pendingTool?.tool || ev.tool, ev.output); pendingTool = null; showThinking();
+      _addThinkStep(_ensureBlock(), thinkSteps, '🔧', pendingTool?.tool || ev.tool, ev.output);
+      pendingTool = null;
     } else if (ev.type === 'slow_think'){
-      removeThinking(); appendSlowThink(ev.content); showThinking();
+      _addThinkStep(_ensureBlock(), thinkSteps, '💭', '策略复盘', ev.content);
     } else if (ev.type === 'done'){
-      removeThinking();
+      if (replyBlock) {
+        const spin = replyBlock.bodyEl.querySelector('.thinking-inline');
+        if (spin) spin.remove();
+        _collapseThink(replyBlock, thinkSteps);
+      } else { removeThinking(); }
       totalInputTokens += (ev.usage?.input_tokens || 0);
       totalOutputTokens += (ev.usage?.output_tokens || 0);
       updateStats(); finishStream();
     } else if (ev.type === 'error' || ev.type === 'interrupted'){
       removeThinking();
       if (ev.message) _append('<div style="text-align:center;color:#e53935;font-size:12px;padding:8px">' + escapeHtml(ev.message) + '</div>');
+      if (replyBlock) _collapseThink(replyBlock, thinkSteps);
       finishStream();
     }
   };
