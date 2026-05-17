@@ -10,6 +10,8 @@ async def create_engine(
     system_prompt: str = "",
     provider_name: str | None = None,
     engine_config: dict | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
 ) -> AgentEngine:
     """为每次对话创建独立的 AgentEngine 实例"""
     provider = await get_provider(provider_name)
@@ -18,6 +20,8 @@ async def create_engine(
         system_prompt=system_prompt,
         provider=provider,
         engine_config=engine_config,
+        temperature=temperature,
+        max_tokens=max_tokens,
     )
     _engines[engine.task_id] = engine
     return engine

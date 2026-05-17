@@ -18,6 +18,8 @@ class AgentEngine:
         system_prompt: str = "",
         provider: ModelProvider | None = None,
         engine_config: dict | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ):
         self.session_id = session_id
         self.task_id = str(uuid.uuid4())
@@ -26,6 +28,10 @@ class AgentEngine:
         self.tools: list[dict] = []
         self.tool_handlers: dict[str, Callable] = {}
         self._interrupt = asyncio.Event()  # 异步中断信号
+
+        # Agent 级 LLM 参数（None 表示使用 provider 默认值）
+        self.temperature = temperature
+        self.max_tokens = max_tokens
 
         # Agent 级配置优先，fallback 到全局配置
         agent_cfg = engine_config or {}
@@ -78,11 +84,16 @@ class AgentEngine:
 
             # —— 快循环：LLM 推理 ——
             try:
-                response: LLMResponse = await self.provider.chat(
-                    messages=self.provider._convert_messages(messages),
-                    system=self.system_prompt,
-                    tools=self.tools if self.tools else None,
-                )
+                chat_kwargs: dict = {
+                    "messages": self.provider._convert_messages(messages),
+                    "system": self.system_prompt,
+                    "tools": self.tools if self.tools else None,
+                }
+                if self.temperature is not None:
+                    chat_kwargs["temperature"] = self.temperature
+                if self.max_tokens is not None:
+                    chat_kwargs["max_tokens"] = self.max_tokens
+                response: LLMResponse = await self.provider.chat(**chat_kwargs)
             except Exception as e:
                 yield {"type": "error", "message": str(e)}
                 break
@@ -176,7 +187,12 @@ class AgentEngine:
         )
         think_messages = messages + [{"role": "user", "content": prompt}]
         try:
-            resp = await self.provider.chat(messages=think_messages, system=self.system_prompt)
+            think_kwargs: dict = {"messages": think_messages, "system": self.system_prompt}
+            if self.temperature is not None:
+                think_kwargs["temperature"] = self.temperature
+            if self.max_tokens is not None:
+                think_kwargs["max_tokens"] = self.max_tokens
+            resp = await self.provider.chat(**think_kwargs)
             if resp.content:
                 yield {"type": "slow_think", "content": resp.content}
         except Exception:

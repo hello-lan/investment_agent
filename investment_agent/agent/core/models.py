@@ -63,6 +63,8 @@ class ClaudeProvider(ModelProvider):
             kwargs["system"] = system
         if tools:
             kwargs["tools"] = tools
+        if temperature is not None:
+            kwargs["temperature"] = temperature
 
         resp = await self.client.messages.create(**kwargs)
 

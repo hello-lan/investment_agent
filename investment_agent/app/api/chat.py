@@ -227,10 +227,12 @@ async def start_chat(request: Request):
     model_id = None
     engine_config: dict | None = None
     enabled_skill_names: list[str] = []
+    agent_temperature: float | None = None
+    agent_max_tokens: int | None = None
     if agent_id:
         async with get_db() as db:
             row = await db.execute(
-                "SELECT system_prompt, model_id, skills, engine_config FROM agents WHERE id = ?", (agent_id,)
+                "SELECT system_prompt, model_id, skills, engine_config, temperature, max_tokens FROM agents WHERE id = ?", (agent_id,)
             )
             agent = await row.fetchone()
             if agent:
@@ -238,6 +240,10 @@ async def start_chat(request: Request):
                     system_prompt = agent["system_prompt"]
                 if agent["model_id"]:
                     model_id = agent["model_id"]
+                if agent["temperature"] is not None:
+                    agent_temperature = agent["temperature"]
+                if agent["max_tokens"] is not None:
+                    agent_max_tokens = agent["max_tokens"]
                 try:
                     enabled_skill_names = json.loads(agent["skills"] or "[]")
                 except Exception:
@@ -269,6 +275,8 @@ async def start_chat(request: Request):
         system_prompt=system_prompt,
         provider_name=model_id,
         engine_config=engine_config,
+        temperature=agent_temperature,
+        max_tokens=agent_max_tokens,
     )
 
     for tool in get_schemas():
