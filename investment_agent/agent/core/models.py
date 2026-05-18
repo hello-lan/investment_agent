@@ -23,6 +23,8 @@ class LLMResponse:
     input_tokens: int = 0
     output_tokens: int = 0
     stop_reason: str = "end_turn"
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
 
 
 # ── Provider 基类 ───────────────────────────────────────────────────────────
@@ -48,6 +50,8 @@ class ModelProvider(ABC):
 # ── Anthropic Claude ────────────────────────────────────────────────────────
 
 class ClaudeProvider(ModelProvider):
+    provider_type = "anthropic"
+
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
         import anthropic
         self.client = anthropic.AsyncAnthropic(api_key=api_key or None)
@@ -60,6 +64,7 @@ class ClaudeProvider(ModelProvider):
             "messages": messages,
         }
         if system:
+            # 支持 str 或带 cache_control 的 content block 列表
             kwargs["system"] = system
         if tools:
             kwargs["tools"] = tools
@@ -68,7 +73,7 @@ class ClaudeProvider(ModelProvider):
 
         resp = await self.client.messages.create(**kwargs)
 
-        # 解析 Anthropic content blocks：text 或 tool_use
+        # 解析 Anthropic content blocks
         content = ""
         tool_calls = []
         for block in resp.content:
@@ -77,18 +82,27 @@ class ClaudeProvider(ModelProvider):
             elif block.type == "tool_use":
                 tool_calls.append(ToolCall(id=block.id, name=block.name, input=block.input))
 
+        # 提取缓存命中指标
+        usage = resp.usage
+        cache_read = getattr(usage, 'cache_read_input_tokens', 0) or 0
+        cache_creation = getattr(usage, 'cache_creation_input_tokens', 0) or 0
+
         return LLMResponse(
             content=content,
             tool_calls=tool_calls,
-            input_tokens=resp.usage.input_tokens,
-            output_tokens=resp.usage.output_tokens,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
             stop_reason=resp.stop_reason or "end_turn",
+            cache_read_tokens=cache_read,
+            cache_creation_tokens=cache_creation,
         )
 
 
 # ── OpenAI 兼容接口（DeepSeek / Qwen / Ollama / vLLM 等）────────────────
 
 class OpenAICompatProvider(ModelProvider):
+    provider_type = "openai"
+
     def __init__(self, api_key: str, model: str, base_url: str = "https://api.openai.com/v1"):
         from openai import AsyncOpenAI
         self.client = AsyncOpenAI(api_key=api_key or None, base_url=base_url)

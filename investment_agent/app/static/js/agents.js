@@ -99,27 +99,48 @@ function normalizeEngineConfig(raw) {
   return raw;
 }
 
-function fillCompressFields(cfg) {
-  const enabled = document.getElementById('agentCompressEnabled');
-  const recentKeep = document.getElementById('agentCompressRecentKeep');
-  const maxChars = document.getElementById('agentCompressMaxChars');
-  const totalBudget = document.getElementById('agentCompressTotalBudget');
+function fillContextFields(cfg) {
+  const elCtxEnabled = document.getElementById('agentCtxEnabled');
+  const elCtxRecentKeep = document.getElementById('agentCtxRecentKeep');
+  const elCtxSysBudget = document.getElementById('agentCtxSystemBudget');
+  const elSumEnabled = document.getElementById('agentSumEnabled');
+  const elSumTrigger = document.getElementById('agentSumTrigger');
+  const elCacheEnabled = document.getElementById('agentCacheEnabled');
 
   if (!cfg) {
-    enabled.value = 'inherit';
-    recentKeep.value = '';
-    maxChars.value = '';
-    totalBudget.value = '';
+    elCtxEnabled.value = 'inherit';
+    elCtxRecentKeep.value = '';
+    elCtxSysBudget.value = '';
+    elSumEnabled.value = 'inherit';
+    elSumTrigger.value = '';
+    elCacheEnabled.value = 'inherit';
     return;
   }
 
-  if (cfg.enabled === true) enabled.value = 'true';
-  else if (cfg.enabled === false) enabled.value = 'false';
-  else enabled.value = 'inherit';
+  // enabled
+  if (cfg.enabled === true) elCtxEnabled.value = 'true';
+  else if (cfg.enabled === false) elCtxEnabled.value = 'false';
+  else elCtxEnabled.value = 'inherit';
 
-  recentKeep.value = cfg.recent_keep ?? '';
-  maxChars.value = cfg.max_chars_per_msg ?? '';
-  totalBudget.value = cfg.total_budget_chars ?? '';
+  // recent_keep
+  elCtxRecentKeep.value = cfg.recent_keep ?? '';
+
+  // budget.system_max_tokens
+  const budget = cfg.budget || {};
+  elCtxSysBudget.value = budget.system_max_tokens ?? '';
+
+  // summarization
+  const summ = cfg.summarization || {};
+  if (summ.enabled === true) elSumEnabled.value = 'true';
+  else if (summ.enabled === false) elSumEnabled.value = 'false';
+  else elSumEnabled.value = 'inherit';
+  elSumTrigger.value = summ.trigger_after_messages ?? '';
+
+  // caching
+  const cache = cfg.caching || {};
+  if (cache.enabled === true) elCacheEnabled.value = 'true';
+  else if (cache.enabled === false) elCacheEnabled.value = 'false';
+  else elCacheEnabled.value = 'inherit';
 }
 
 function fillEngineFields(cfg) {
@@ -159,7 +180,7 @@ function openModal(agent){
   document.getElementById('agentModel').innerHTML = buildModelOptions(agent?.model_id || '');
   document.getElementById('agentTemp').value = agent?.temperature ?? 0.7;
   document.getElementById('agentMaxTokens').value = agent?.max_tokens || 4096;
-  fillCompressFields(compressConfig);
+  fillContextFields(compressConfig);
   fillEngineFields(engineConfig);
   renderSkillOptions(agent?.skills || []);
   document.getElementById('modalOverlay').classList.add('open');
@@ -190,30 +211,32 @@ async function saveAgent(){
   const name = document.getElementById('agentName').value.trim();
   if(!name){alert('请输入 Agent 名称'); return;}
 
-  const compressEnabled = document.getElementById('agentCompressEnabled').value;
-  const compressRecentKeep = toNullableInt(document.getElementById('agentCompressRecentKeep').value);
-  const compressMaxChars = toNullableInt(document.getElementById('agentCompressMaxChars').value);
-  const compressTotalBudget = toNullableInt(document.getElementById('agentCompressTotalBudget').value);
+  // 上下文配置（enabled / recent_keep / budget / summarization / caching）
+  const ctxEnabled = document.getElementById('agentCtxEnabled').value;
+  const ctxRecentKeep = toNullableInt(document.getElementById('agentCtxRecentKeep').value);
+  const ctxSysBudget = toNullableInt(document.getElementById('agentCtxSystemBudget').value);
+  const sumEnabled = document.getElementById('agentSumEnabled').value;
+  const sumTrigger = toNullableInt(document.getElementById('agentSumTrigger').value);
+  const cacheEnabled = document.getElementById('agentCacheEnabled').value;
 
   let compressConfig = null;
   if (
-    compressEnabled !== 'inherit' ||
-    compressRecentKeep !== null ||
-    compressMaxChars !== null ||
-    compressTotalBudget !== null
+    ctxEnabled !== 'inherit' || ctxRecentKeep !== null || ctxSysBudget !== null ||
+    sumEnabled !== 'inherit' || sumTrigger !== null || cacheEnabled !== 'inherit'
   ) {
     compressConfig = {};
-    if (compressEnabled !== 'inherit') {
-      compressConfig.enabled = compressEnabled === 'true';
+    if (ctxEnabled !== 'inherit') compressConfig.enabled = ctxEnabled === 'true';
+    if (ctxRecentKeep !== null) compressConfig.recent_keep = ctxRecentKeep;
+    if (ctxSysBudget !== null) {
+      compressConfig.budget = { system_max_tokens: ctxSysBudget };
     }
-    if (compressRecentKeep !== null) {
-      compressConfig.recent_keep = compressRecentKeep;
+    if (sumEnabled !== 'inherit' || sumTrigger !== null) {
+      compressConfig.summarization = {};
+      if (sumEnabled !== 'inherit') compressConfig.summarization.enabled = sumEnabled === 'true';
+      if (sumTrigger !== null) compressConfig.summarization.trigger_after_messages = sumTrigger;
     }
-    if (compressMaxChars !== null) {
-      compressConfig.max_chars_per_msg = compressMaxChars;
-    }
-    if (compressTotalBudget !== null) {
-      compressConfig.total_budget_chars = compressTotalBudget;
+    if (cacheEnabled !== 'inherit') {
+      compressConfig.caching = { enabled: cacheEnabled === 'true' };
     }
   }
 

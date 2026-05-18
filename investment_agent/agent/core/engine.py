@@ -43,6 +43,8 @@ class AgentEngine:
 
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        self.total_cache_read_tokens = 0
+        self.total_cache_creation_tokens = 0
 
     def register_tool(self, schema: dict, handler: Callable) -> None:
         """注册工具：schema 给 LLM 看，handler 执行实际逻辑"""
@@ -100,6 +102,8 @@ class AgentEngine:
 
             self.total_input_tokens += response.input_tokens
             self.total_output_tokens += response.output_tokens
+            self.total_cache_read_tokens += response.cache_read_tokens
+            self.total_cache_creation_tokens += response.cache_creation_tokens
 
             # 输出文本增量
             if response.content:

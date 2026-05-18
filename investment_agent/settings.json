@@ -11,6 +11,30 @@
     "max_chars_per_msg": 2000,
     "total_budget_chars": 100000
   },
+  "context": {
+    "enabled": true,
+    "model_max_tokens": null,
+    "recent_keep": 15,
+    "safety_margin": 0.10,
+    "max_chars_per_msg": 2000,
+    "budget": {
+      "system_max_tokens": 40000,
+      "tools_max_tokens": 20000,
+      "messages_max_tokens": null
+    },
+    "summarization": {
+      "enabled": false,
+      "model": null,
+      "max_summary_tokens": 2000,
+      "trigger_after_messages": 25
+    },
+    "caching": {
+      "enabled": false,
+      "cache_system_prompt": true,
+      "cache_tools": true,
+      "cache_summary": true
+    }
+  },
   "skills": {
     "directory": "./extensions/skills"
   },

@@ -14,6 +14,7 @@ from openpyxl import load_workbook
 from pydantic import BaseModel
 
 from ...agent.context.compressor import compress_messages
+from ...agent.context.manager import ContextManager
 from ...agent.core.session import create_engine, get_engine, interrupt_engine, remove_engine
 from ...agent.skills.loader import get_skill
 from ...agent.tools.registry import get_schemas, get_tool
@@ -311,7 +312,7 @@ async def stream_chat(task_id: str):
         if r["role"] in ("user", "assistant"):
             messages.append({"role": r["role"], "content": r["content"] or ""})
 
-    # —— 获取 Agent 级别的压缩配置（优先于全局配置）——
+    # —— 构建上下文管理配置（agent 级 > settings context > settings compress）——
     agent_compress_cfg = None
     agent_name = None
     if session and session["agent_id"]:
@@ -329,17 +330,55 @@ async def stream_chat(task_id: str):
                 except Exception:
                     agent_compress_cfg = None
 
-    compress_cfg = agent_compress_cfg or get_settings().get("compress", {})
-    messages_for_engine = compress_messages(messages, compress_cfg)
+    settings = get_settings()
+    # 合并: agent_compress_cfg > settings.context > settings.compress (旧兼容)
+    legacy_compress = settings.get("compress", {})
+    context_cfg = dict(legacy_compress)
+    context_cfg.update(settings.get("context", {}))
+    if agent_compress_cfg:
+        context_cfg.update(agent_compress_cfg)
+
+    provider_type = getattr(engine.provider, "provider_type", "anthropic")
+    model_name = getattr(engine.provider, "model", "unknown")
+    manager = ContextManager(context_cfg, provider_type=provider_type, model_name=model_name)
+
+    # 加载已有摘要（增量合并模式）
+    existing_summary = await manager.load_summary(engine.session_id)
+
+    result = await manager.prepare(
+        system_prompt=engine.system_prompt,
+        tools=engine.tools,
+        messages=messages,
+        provider=engine.provider,
+        existing_summary=existing_summary,
+    )
+
+    # 应用 ContextManager 的结果到引擎（裁剪或缓存格式化后的结果）
+    engine.system_prompt = result.system_prompt
+    if "tools_reduced" in result.warnings:
+        engine.tools = result.tools
+        kept_names = {t["name"] for t in result.tools}
+        for name in list(engine.tool_handlers):
+            if name not in kept_names:
+                del engine.tool_handlers[name]
+
+    # 记录上下文预算
+    await log_trace(engine.session_id, task_id, None, "context_budget", {
+        "system_tokens": result.system_tokens,
+        "tools_tokens": result.tools_tokens,
+        "messages_tokens": result.messages_tokens,
+        "total_tokens": result.total_tokens,
+        "model_max": result.model_max_tokens,
+        "warnings": result.warnings,
+    }, agent_name=agent_name)
 
     async def event_stream():
         """SSE 事件生成器：逐条产出引擎事件"""
         assistant_content = ""
-        model_name = getattr(engine.provider, "model", "unknown")
         last_step = 0
         cost_logged = False
         try:
-            async for event in engine.run(messages_for_engine):
+            async for event in engine.run(result.messages):
                 event_type = event.get("type", "unknown")
                 step = event.get("step")
                 if isinstance(step, int):
@@ -369,19 +408,40 @@ async def stream_chat(task_id: str):
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
                     )
+                    # 记录缓存命中情况
+                    cache_read = engine.total_cache_read_tokens
+                    cache_creation = engine.total_cache_creation_tokens
+                    if cache_read or cache_creation:
+                        await log_trace(engine.session_id, task_id, last_step or None,
+                            "cache_metrics", {
+                                "cache_read_tokens": cache_read,
+                                "cache_creation_tokens": cache_creation,
+                            }, agent_name=agent_name)
                     cost_logged = True
 
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
             # 保存 assistant 最终回复到数据库
+            last_msg_id = None
             if assistant_content:
                 now = datetime.utcnow().isoformat()
+                last_msg_id = str(uuid.uuid4())
                 async with get_db() as db2:
                     await db2.execute(
                         "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
-                        (str(uuid.uuid4()), engine.session_id, assistant_content, now),
+                        (last_msg_id, engine.session_id, assistant_content, now),
                     )
                     await db2.commit()
+
+            # 保存新生成的摘要到 DB
+            if result.did_summarize and result.new_summary:
+                through_id = last_msg_id or ""
+                await manager.save_summary(
+                    session_id=engine.session_id,
+                    summary=result.new_summary,
+                    through_message_id=through_id,
+                    token_count=result.summary_tokens,
+                )
         finally:
             remove_engine(task_id)  # 无论成功或失败，清理引擎
 
