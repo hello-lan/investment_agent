@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 
-from .token_utils import count_tokens, estimate_message_tokens, estimate_tokens
+from .token_utils import estimate_message_tokens, estimate_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +32,11 @@ def compress_messages(messages: list[dict], cfg: dict | None = None) -> list[dic
 
     recent_keep = max(0, int(cfg.get("recent_keep", 6)))
     max_chars_per_msg = max(200, int(cfg.get("max_chars_per_msg", 2000)))
-    total_budget_chars = max(2000, int(cfg.get("total_budget_chars", 20000)))
+    total_budget_tokens = max(2000, int(cfg.get("total_budget_tokens", 20000)))
 
     # 参数冲突检测：保留区不应超过总预算的 60%
-    if recent_keep * max_chars_per_msg > total_budget_chars * 0.6:
-        recent_keep = max(1, int(total_budget_chars * 0.6 / max_chars_per_msg))
+    if recent_keep * max_chars_per_msg > total_budget_tokens * 0.6:
+        recent_keep = max(1, int(total_budget_tokens * 0.6 / max_chars_per_msg))
         logger.warning(
             "Compress config conflict: recent_keep * max_chars_per_msg > 60%% of total_budget. "
             "recent_keep auto-adjusted to %d.", recent_keep
@@ -49,7 +49,7 @@ def compress_messages(messages: list[dict], cfg: dict | None = None) -> list[dic
     keep_from = max(0, n - recent_keep)  # 从第几条开始保留原文
 
     compressed: list[dict] = []
-    running_tokens = 0
+    estimated_tokens = 0
 
     for i, msg in enumerate(messages):
         role = msg.get("role")
@@ -59,7 +59,7 @@ def compress_messages(messages: list[dict], cfg: dict | None = None) -> list[dic
         if i >= keep_from:
             compressed_msg = {"role": role, "content": content}
             compressed.append(compressed_msg)
-            running_tokens += estimate_message_tokens(compressed_msg)
+            estimated_tokens += estimate_message_tokens(compressed_msg)
             continue
 
         # 旧消息：只压缩纯文本，结构化内容（tool 调用/结果）保持不动
@@ -70,14 +70,14 @@ def compress_messages(messages: list[dict], cfg: dict | None = None) -> list[dic
             compressed_msg = {"role": role, "content": content}
 
         compressed.append(compressed_msg)
-        running_tokens += estimate_message_tokens(compressed_msg)
+        estimated_tokens += estimate_message_tokens(compressed_msg)
 
     # 用 token 估算判断是否超预算
-    if running_tokens <= total_budget_chars:
+    if estimated_tokens <= total_budget_tokens:
         return compressed
 
     # 超出预算 → 对旧消息的文本内容做更激进的截断（每条约保留 120 字符底线）
-    over_tokens = running_tokens - total_budget_chars
+    over_tokens = estimated_tokens - total_budget_tokens
     for i in range(0, keep_from):
         msg = compressed[i]
         content = msg.get("content", "")

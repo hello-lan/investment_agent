@@ -1,7 +1,7 @@
 import json
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
@@ -331,10 +331,7 @@ async def stream_chat(task_id: str):
                     agent_compress_cfg = None
 
     settings = get_settings()
-    # 合并: agent_compress_cfg > settings.context > settings.compress (旧兼容)
-    legacy_compress = settings.get("compress", {})
-    context_cfg = dict(legacy_compress)
-    context_cfg.update(settings.get("context", {}))
+    context_cfg = dict(settings.get("context", {}))
     if agent_compress_cfg:
         context_cfg.update(agent_compress_cfg)
 
@@ -424,7 +421,7 @@ async def stream_chat(task_id: str):
             # 保存 assistant 最终回复到数据库
             last_msg_id = None
             if assistant_content:
-                now = datetime.utcnow().isoformat()
+                now = datetime.now(timezone.utc).isoformat()
                 last_msg_id = str(uuid.uuid4())
                 async with get_db() as db2:
                     await db2.execute(

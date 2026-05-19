@@ -65,36 +65,6 @@ _ROLE_OVERHEAD = 4
 _SYSTEM_OVERHEAD = 8
 _TOOL_DEF_OVERHEAD = 8
 
-# Known model context window sizes
-_MODEL_CONTEXT_LIMITS: dict[str, int] = {
-    # Claude models
-    "claude-sonnet-4-6": 200_000,
-    "claude-sonnet-4-5": 200_000,
-    "claude-opus-4-7": 200_000,
-    "claude-haiku-4-5": 200_000,
-    "claude-sonnet-4-0": 200_000,
-    "claude-opus-4-0": 200_000,
-    "claude-opus-4-5": 200_000,
-    "claude-3-5-sonnet": 200_000,
-    "claude-3-5-haiku": 200_000,
-    "claude-3-opus": 200_000,
-    "claude-3-sonnet": 200_000,
-    "claude-3-haiku": 200_000,
-    # OpenAI models
-    "gpt-4o": 128_000,
-    "gpt-4o-mini": 128_000,
-    "gpt-4-turbo": 128_000,
-    "gpt-4": 8_192,
-    "gpt-3.5-turbo": 16_384,
-    # DeepSeek models
-    "deepseek-v3": 128_000,
-    "deepseek-v4": 128_000,
-    "deepseek-r1": 128_000,
-    # Qwen models
-    "qwen-max": 128_000,
-    "qwen-plus": 128_000,
-}
-_DEFAULT_CONTEXT_LIMIT = 128_000
 
 
 def count_tokens(text: str) -> int:
@@ -164,6 +134,9 @@ def count_system_tokens(system_prompt: str) -> int:
     return _SYSTEM_OVERHEAD + count_tokens(system_prompt)
 
 
+_DEFAULT_CONTEXT_LIMIT = 128_000
+
+
 def get_model_context_limit(model_name: str | None) -> int:
     """获取已知模型的上下文窗口大小（token 数）。
 
@@ -173,9 +146,14 @@ def get_model_context_limit(model_name: str | None) -> int:
         return _DEFAULT_CONTEXT_LIMIT
 
     name_lower = model_name.lower()
-    for key, limit in _MODEL_CONTEXT_LIMITS.items():
-        if key in name_lower or name_lower in key:
-            return limit
+    if "claude" in name_lower:
+        return 200_000
+    if name_lower == "gpt-4":
+        return 8_192
+    if "gpt-4" in name_lower:
+        return 128_000
+    if "gpt-3.5" in name_lower:
+        return 16_384
 
     logger.warning("Unknown model %r — assuming %d context limit", model_name, _DEFAULT_CONTEXT_LIMIT)
     return _DEFAULT_CONTEXT_LIMIT

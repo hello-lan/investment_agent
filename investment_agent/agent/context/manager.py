@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from .compressor import compress_messages, create_summary_message, summarize_messages
+from .compressor import create_summary_message, summarize_messages
 from .token_utils import (
     count_message_tokens,
     count_system_tokens,
@@ -35,7 +35,6 @@ class ContextResult:
     did_summarize: bool = False
     new_summary: str | None = None
     summary_tokens: int = 0
-    summarized_through_id: str | None = None
 
 
 class ContextManager:
@@ -89,12 +88,14 @@ class ContextManager:
         summary_tokens = 0
 
         if not self.enabled:
+            sys_tok = count_system_tokens(system_prompt)
+            tools_tok = count_tool_tokens(tools)
+            msg_tok = sum(count_message_tokens(m, self.provider_type) for m in messages)
             return ContextResult(
                 system_prompt=system_prompt, tools=tools, messages=messages,
-                system_tokens=count_system_tokens(system_prompt),
-                tools_tokens=count_tool_tokens(tools),
-                messages_tokens=sum(count_message_tokens(m, self.provider_type) for m in messages),
-                total_tokens=0, model_max_tokens=self.model_max, warnings=warnings,
+                system_tokens=sys_tok, tools_tokens=tools_tok,
+                messages_tokens=msg_tok, total_tokens=sys_tok + tools_tok + msg_tok,
+                model_max_tokens=self.model_max, warnings=warnings,
             )
 
         # 1. system prompt budget
@@ -141,10 +142,9 @@ class ContextManager:
         # 6. build final message list
         if summary_msg:
             recent_budget = msg_budget - summary_tokens
-            recent_fit = self._fit_recent(recent_messages, max(0, recent_budget))
+            recent_fit, _, _ = self._fit_messages(recent_messages, max(0, recent_budget))
             final_messages = [summary_msg] + recent_fit
         else:
-            # fallback: truncation (Phase 2 behavior)
             final_messages, _, msg_warn = self._fit_messages(messages, msg_budget)
             if msg_warn:
                 warnings.append(msg_warn)
@@ -161,9 +161,8 @@ class ContextManager:
             warnings.append("emergency_trim")
 
         # 8. cache structure (Phase 4)
-        cache_prompt = False
         if self.caching_enabled and self.provider_type == "anthropic":
-            sys_prompt, final_messages, cache_prompt = self._apply_cache_markers(
+            sys_prompt, final_messages, _ = self._apply_cache_markers(
                 sys_prompt, final_messages
             )
 
@@ -200,53 +199,28 @@ class ContextManager:
         return kept, total, "tools_reduced" if len(kept) < len(tools) else None
 
     def _fit_messages(self, messages: list[dict], budget: int) -> tuple[list[dict], int, str | None]:
-        n = len(messages)
-        split = max(0, n - self.recent_keep)
-        old = messages[:split]
-        recent = messages[split:]
+        """从最新消息开始填充预算，优先保留最近的上下文。
 
-        # 先用 compress_messages 处理旧消息（截断模式）
-        if old:
-            old_cfg = {"enabled": True, "recent_keep": 0,
-                       "max_chars_per_msg": self.max_chars_per_msg,
-                       "total_budget_chars": budget * 4}  # 粗估: 1 token ~4 chars
-            old = compress_messages(old, old_cfg)
-
-        # 从尾部（最新）开始取，填满预算
-        combined = old + recent
-        result, total = [], 0
-        for msg in combined:
+        逐条从最新向旧遍历：能放入的直接放入，放不下的文本消息尝试截断。
+        不因单条大消息丢弃后续的小消息（无 break）。
+        """
+        result = []
+        total = 0
+        for msg in reversed(messages):
             t = count_message_tokens(msg, self.provider_type)
             if total + t <= budget:
-                result.append(msg)
+                result.insert(0, msg)
                 total += t
             else:
-                # 对文本消息尝试截断
                 content = msg.get("content", "")
                 if isinstance(content, str):
                     trimmed = self._truncate_text(content, budget - total)
                     if trimmed:
-                        result.append({"role": msg["role"], "content": trimmed})
+                        result.insert(0, {"role": msg["role"], "content": trimmed})
                         total += count_tokens(trimmed) + 4
-                break
 
-        warning = "messages_trimmed" if len(result) < len(combined) else None
+        warning = "messages_trimmed" if len(result) < len(messages) else None
         return result, sum(count_message_tokens(m, self.provider_type) for m in result), warning
-
-    def _fit_recent(self, recent: list[dict], budget: int) -> list[dict]:
-        """从最近消息中选择能放入预算的最大子集（优先保留最新的）。"""
-        if not recent:
-            return []
-        result = []
-        tokens = 0
-        for msg in reversed(recent):
-            t = count_message_tokens(msg, self.provider_type)
-            if tokens + t <= budget:
-                result.insert(0, msg)
-                tokens += t
-            else:
-                break
-        return result
 
     # ── Trimming helpers ────────────────────────────────────────────
 
@@ -336,7 +310,7 @@ class ContextManager:
     # ── Internal helpers ────────────────────────────────────────────
 
     def _resolve_model_max(self, explicit: int | None) -> int:
-        if explicit:
+        if explicit is not None:
             return explicit
         return get_model_context_limit(self.model_name)
 
@@ -407,8 +381,8 @@ class ContextManager:
         try:
             from ...app.db import get_db
             import uuid
-            from datetime import datetime
-            now = datetime.utcnow().isoformat()
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
             async with get_db() as db:
                 await db.execute(
                     """INSERT INTO session_summaries
