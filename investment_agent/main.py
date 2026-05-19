@@ -11,6 +11,7 @@ from .app.api.sessions import router as sessions_router
 from .app.api.settings import router as settings_router
 from .app.api.agents import router as agents_router
 from .app.api.skills import router as skills_router
+from .app.api.files import router as files_router
 from .app.api.observability import router as observability_router
 
 # 项目根目录（investment_agent/ 的上一级）
@@ -18,6 +19,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = PROJECT_ROOT / "investment_agent" / "app" / "static"
 TEMPLATE_DIR = PROJECT_ROOT / "investment_agent" / "app" / "templates"
 OUTPUT_DIR = PROJECT_ROOT / "output"
+DATA_DIR = PROJECT_ROOT / "data"
 
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
@@ -26,6 +28,7 @@ TABS = [
     {"label": "Agent", "href": "/agents"},
     {"label": "Skills", "href": "/skills"},
     {"label": "模型", "href": "/model"},
+    {"label": "文件", "href": "/files"},
     {"label": "统计", "href": "/observability"},
 ]
 
@@ -47,10 +50,12 @@ app.include_router(sessions_router)
 app.include_router(settings_router)
 app.include_router(agents_router)
 app.include_router(skills_router)
+app.include_router(files_router)
 app.include_router(observability_router)
 
 # —— 静态文件（前端 HTML/JS/CSS）——
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/data-files", StaticFiles(directory=str(DATA_DIR)), name="data-files")
 
 
 @app.get("/")
@@ -71,6 +76,11 @@ async def skills_page(request: Request):
 @app.get("/model")
 async def settings_page(request: Request):
     return templates.TemplateResponse("model.html", {"request": request, "tabs": TABS, "active_tab": "模型"})
+
+
+@app.get("/files")
+async def files_page(request: Request):
+    return templates.TemplateResponse("files.html", {"request": request, "tabs": TABS, "active_tab": "文件"})
 
 
 @app.get("/observability")
