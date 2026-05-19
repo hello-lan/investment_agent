@@ -52,21 +52,27 @@ function buildModelOptions(selectedId) {
 function renderSkillOptions(selected = []) {
   const box = document.getElementById('agentSkills');
   if (!availableSkills.length) {
-    box.innerHTML = '<span class="hint">暂无可挂载 Skill</span>';
+    box.innerHTML = '<div style="padding:12px;text-align:center;"><span class="hint">暂无可挂载 Skill</span></div>';
     return;
   }
   const selectedSet = new Set(selected || []);
   box.innerHTML = availableSkills.map(s => {
-    const checked = selectedSet.has(s.name) ? 'checked' : '';
-    return `<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;padding:2px 6px;border:1px solid #e4e4e4;border-radius:999px;background:#fff;">
-      <input type="checkbox" name="agentSkill" value="${esc(s.name)}" ${checked}>
+    const cls = selectedSet.has(s.name) ? 'skill-item selected' : 'skill-item';
+    return `<div class="${cls}" data-skill="${esc(s.name)}">
+      <span class="skill-mark">&#10003;</span>
       <span>${esc(s.name)}</span>
-    </label>`;
+    </div>`;
   }).join('');
 }
 
+document.addEventListener('click', function(e) {
+  const item = e.target.closest('.skill-item');
+  if (!item) return;
+  item.classList.toggle('selected');
+});
+
 function selectedSkills() {
-  return Array.from(document.querySelectorAll('input[name="agentSkill"]:checked')).map(i => i.value);
+  return Array.from(document.querySelectorAll('#agentSkills .skill-item.selected')).map(el => el.dataset.skill);
 }
 
 function toNullableInt(value) {
