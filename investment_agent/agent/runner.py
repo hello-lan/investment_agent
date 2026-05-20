@@ -109,6 +109,12 @@ class AgentRunner:
             yield {"type": "error", "message": "Task not found"}
             return
 
+        # 0. 填充 hooks 的 session_id / agent_name
+        if hooks:
+            hooks.session_id = getattr(hooks, "session_id", "") or engine.session_id
+            if self._config and hasattr(hooks, "agent_name"):
+                hooks.agent_name = hooks.agent_name or self._config.agent_name
+
         # 1. 加载历史消息
         messages = await self._storage.load_messages(engine.session_id)
 
