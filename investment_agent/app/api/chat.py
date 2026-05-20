@@ -1,7 +1,6 @@
 import json
 import re
 import uuid
-from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
@@ -13,14 +12,9 @@ from fastapi.responses import StreamingResponse
 from openpyxl import load_workbook
 from pydantic import BaseModel
 
-from ...agent.context.manager import ContextManager
-from ...agent.core.session import create_engine, get_engine, interrupt_engine, remove_engine
-from ...agent.tools.registry import get_schemas, get_tool
-from ...config import get_settings
+from ...agent import AgentRunner
 from ..config_factory import load_agent_run_config
-from ..db import get_db
-from ..observability.cost_tracker import log_cost
-from ..observability.trace import log_trace
+from ..storage import SqliteStorage
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -177,226 +171,43 @@ async def _parse_request_payload(request: Request) -> tuple[str | None, str, str
 
 @router.post("")
 async def start_chat(request: Request):
-    """发起对话：创建/续接会话，加载 Agent 配置，注册工具，返回 task_id"""
-    # —— 第1步：解析请求 ——
+    """发起对话：解析请求，加载配置，委托 AgentRunner 创建引擎"""
     session_id, message, agent_id, filename, file_text = await _parse_request_payload(request)
     final_message = _build_user_message(message, filename, file_text)
     if not final_message.strip():
         raise HTTPException(status_code=400, detail="消息和文件不能同时为空")
 
-    session_id = session_id or str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
-
-    # —— 第2步：创建或复用会话 ——
-    async with get_db() as db:
-        row = await db.execute("SELECT id FROM sessions WHERE id = ?", (session_id,))
-        exists = await row.fetchone()
-        if not exists:
-            await db.execute(
-                "INSERT INTO sessions (id, agent_id, title, status, created_at) VALUES (?, ?, ?, 'active', ?)",
-                (session_id, agent_id, final_message[:50], now),
-            )
-            await db.commit()
-
-        msg_id = str(uuid.uuid4())
-        await db.execute(
-            "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
-            (msg_id, session_id, final_message, now),
-        )
-        await db.commit()
-
-    # —— 第3步：加载 Agent 配置（一次性合并 settings.json + agents + models + skills）——
     config = await load_agent_run_config(agent_id)
-
-    # —— 第4步：创建引擎并注册全部工具 ——
-    engine = await create_engine(
-        session_id=session_id,
-        system_prompt=config.system_prompt,
-        provider=config.provider,
-        engine_config={
-            "max_steps": config.max_steps,
-            "slow_think_interval": config.slow_think_interval,
-            "token_budget": config.token_budget,
-            "loop_detection_threshold": config.loop_detection_threshold,
-        },
-        temperature=config.temperature,
-        max_tokens=config.max_tokens,
+    runner = AgentRunner(storage=SqliteStorage())
+    task_id, session_id = await runner.start(
+        session_id=session_id or str(uuid.uuid4()),
+        config=config,
+        message=final_message,
     )
-
-    for tool in get_schemas():
-        t = get_tool(tool["name"])
-        if t:
-            engine.register_tool(tool, t.run)
-
-    return {"task_id": engine.task_id, "session_id": session_id}
+    return {"task_id": task_id, "session_id": session_id}
 
 
 @router.get("/{task_id}/stream")
 async def stream_chat(task_id: str):
-    """SSE 流式端点：从数据库加载历史消息，压缩后送入引擎执行，逐事件推送给前端"""
-    engine = get_engine(task_id)
-    if not engine:
-        async def not_found():
-            yield f"data: {json.dumps({'type': 'error', 'message': 'Task not found'})}\n\n"
-        return StreamingResponse(not_found(), media_type="text/event-stream")
-
-    # —— 加载历史消息 ——
-    async with get_db() as db:
-        cursor = await db.execute(
-            "SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at",
-            (engine.session_id,),
-        )
-        rows = await cursor.fetchall()
-        session_row = await db.execute("SELECT agent_id FROM sessions WHERE id = ?", (engine.session_id,))
-        session = await session_row.fetchone()
-
-    messages = []
-    for r in rows:
-        if r["role"] in ("user", "assistant"):
-            messages.append({"role": r["role"], "content": r["content"] or ""})
-
-    # —— 构建上下文管理配置（agent 级 > settings context > settings compress）——
-    agent_compress_cfg = None
-    agent_name = None
-    if session and session["agent_id"]:
-        async with get_db() as db:
-            row = await db.execute("SELECT name, compress_config FROM agents WHERE id = ?", (session["agent_id"],))
-            agent = await row.fetchone()
-            if agent:
-                agent_name = agent["name"]
-                try:
-                    raw_compress = agent["compress_config"]
-                    if isinstance(raw_compress, str) and raw_compress.strip():
-                        agent_compress_cfg = json.loads(raw_compress)
-                    elif isinstance(raw_compress, dict):
-                        agent_compress_cfg = raw_compress
-                except Exception:
-                    agent_compress_cfg = None
-
-    settings = get_settings()
-    context_cfg = dict(settings.get("context", {}))
-    if agent_compress_cfg:
-        context_cfg.update(agent_compress_cfg)
-
-    provider_type = getattr(engine.provider, "provider_type", "anthropic")
-    model_name = getattr(engine.provider, "model", "unknown")
-    manager = ContextManager(context_cfg, provider_type=provider_type, model_name=model_name)
-
-    # 加载已有摘要（增量合并模式）
-    existing_summary = await manager.load_summary(engine.session_id)
-
-    result = await manager.prepare(
-        system_prompt=engine.system_prompt,
-        tools=engine.tools,
-        messages=messages,
-        provider=engine.provider,
-        existing_summary=existing_summary,
-    )
-
-    # 应用 ContextManager 的结果到引擎（裁剪或缓存格式化后的结果）
-    engine.system_prompt = result.system_prompt
-    if "tools_reduced" in result.warnings:
-        engine.tools = result.tools
-        kept_names = {t["name"] for t in result.tools}
-        for name in list(engine.tool_handlers):
-            if name not in kept_names:
-                del engine.tool_handlers[name]
-
-    # 记录上下文预算
-    await log_trace(engine.session_id, task_id, None, "context_budget", {
-        "system_tokens": result.system_tokens,
-        "tools_tokens": result.tools_tokens,
-        "messages_tokens": result.messages_tokens,
-        "total_tokens": result.total_tokens,
-        "model_max": result.model_max_tokens,
-        "warnings": result.warnings,
-    }, agent_name=agent_name)
+    """SSE 流式端点：委托 AgentRunner 执行引擎，yield SSE 事件"""
+    runner = AgentRunner(storage=SqliteStorage())
 
     async def event_stream():
-        """SSE 事件生成器：逐条产出引擎事件"""
-        assistant_content = ""
-        last_step = 0
-        cost_logged = False
         try:
-            async for event in engine.run(result.messages):
-                event_type = event.get("type", "unknown")
-                step = event.get("step")
-                if isinstance(step, int):
-                    last_step = step
-
-                # 记录执行链路
-                trace_detail = {}
-                if event_type == "tool_call":
-                    trace_detail = {"tool": event.get("tool"), "input": event.get("input")}
-                elif event_type == "tool_result":
-                    trace_detail = {"tool": event.get("tool"), "output": str(event.get("output", ""))[:500]}
-                elif event_type in ("error", "slow_think"):
-                    trace_detail = {"message": event.get("message") or event.get("content")}
-                await log_trace(engine.session_id, task_id, last_step or None, event_type, trace_detail, agent_name=agent_name)
-
-                # 累积文本 + 结束时写入 Token 成本
-                if event_type == "text_delta":
-                    assistant_content += event["content"]
-                elif event_type in ("done", "error", "interrupted") and not cost_logged:
-                    usage = event.get("usage", {}) if isinstance(event, dict) else {}
-                    input_tokens = usage.get("input_tokens", engine.total_input_tokens)
-                    output_tokens = usage.get("output_tokens", engine.total_output_tokens)
-                    await log_cost(
-                        session_id=engine.session_id,
-                        task_id=task_id,
-                        model=model_name,
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        agent_name=agent_name,
-                        input_price=getattr(engine.provider, '_input_price', None),
-                        output_price=getattr(engine.provider, '_output_price', None),
-                        currency=getattr(engine.provider, '_currency', 'USD'),
-                    )
-                    # 记录缓存命中情况
-                    cache_read = engine.total_cache_read_tokens
-                    cache_creation = engine.total_cache_creation_tokens
-                    if cache_read or cache_creation:
-                        await log_trace(engine.session_id, task_id, last_step or None,
-                            "cache_metrics", {
-                                "cache_read_tokens": cache_read,
-                                "cache_creation_tokens": cache_creation,
-                            }, agent_name=agent_name)
-                    cost_logged = True
-
+            async for event in runner.run(task_id):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-
-            # 保存 assistant 最终回复到数据库
-            last_msg_id = None
-            if assistant_content:
-                now = datetime.now(timezone.utc).isoformat()
-                last_msg_id = str(uuid.uuid4())
-                async with get_db() as db2:
-                    await db2.execute(
-                        "INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, 'assistant', ?, ?)",
-                        (last_msg_id, engine.session_id, assistant_content, now),
-                    )
-                    await db2.commit()
-
-            # 保存新生成的摘要到 DB
-            if result.did_summarize and result.new_summary:
-                through_id = last_msg_id or ""
-                await manager.save_summary(
-                    session_id=engine.session_id,
-                    summary=result.new_summary,
-                    through_message_id=through_id,
-                    token_count=result.summary_tokens,
-                )
+            await runner.save_response()
         finally:
-            remove_engine(task_id)  # 无论成功或失败，清理引擎
+            runner.cleanup(task_id)
 
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},  # 禁用 nginx 缓冲
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
 @router.post("/{task_id}/interrupt")
 async def interrupt_chat(task_id: str):
-    ok = interrupt_engine(task_id)
+    ok = AgentRunner.interrupt(task_id)
     return {"success": ok}

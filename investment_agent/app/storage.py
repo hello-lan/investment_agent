@@ -1,0 +1,146 @@
+"""SqliteStorage — 实现 agent.protocols.Storage 协议。
+
+封装 agent 所需的所有 DB 操作，agent 包不直接依赖 app.db。
+"""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from datetime import datetime, timezone
+
+from .db import get_db
+
+logger = logging.getLogger(__name__)
+
+
+class SqliteStorage:
+    """SQLite 持久化实现，满足 agent.protocols.Storage 协议。"""
+
+    async def create_or_get_session(
+        self, session_id: str, agent_id: str | None, title: str,
+    ) -> str:
+        """创建或复用会话，返回 session_id。"""
+        async with get_db() as db:
+            row = await db.execute("SELECT id FROM sessions WHERE id = ?", (session_id,))
+            exists = await row.fetchone()
+            if not exists:
+                now = datetime.utcnow().isoformat()
+                await db.execute(
+                    "INSERT INTO sessions (id, agent_id, title, status, created_at) "
+                    "VALUES (?, ?, ?, 'active', ?)",
+                    (session_id, agent_id, title[:50], now),
+                )
+                await db.commit()
+        return session_id
+
+    async def save_user_message(self, session_id: str, content: str) -> str:
+        """保存用户消息，返回 message_id。"""
+        msg_id = str(uuid.uuid4())
+        now = datetime.utcnow().isoformat()
+        async with get_db() as db:
+            await db.execute(
+                "INSERT INTO messages (id, session_id, role, content, created_at) "
+                "VALUES (?, ?, 'user', ?, ?)",
+                (msg_id, session_id, content, now),
+            )
+            await db.commit()
+        return msg_id
+
+    async def save_assistant_message(self, session_id: str, content: str) -> str:
+        """保存 assistant 回复，返回 message_id。"""
+        if not content:
+            return ""
+        msg_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        async with get_db() as db:
+            await db.execute(
+                "INSERT INTO messages (id, session_id, role, content, created_at) "
+                "VALUES (?, ?, 'assistant', ?, ?)",
+                (msg_id, session_id, content, now),
+            )
+            await db.commit()
+        return msg_id
+
+    async def load_messages(self, session_id: str) -> list[dict]:
+        """加载会话的所有历史消息（user + assistant）。"""
+        async with get_db() as db:
+            cursor = await db.execute(
+                "SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at",
+                (session_id,),
+            )
+            rows = await cursor.fetchall()
+        messages: list[dict] = []
+        for r in rows:
+            if r["role"] in ("user", "assistant"):
+                messages.append({"role": r["role"], "content": r["content"] or ""})
+        return messages
+
+    async def load_summary(self, session_id: str) -> str | None:
+        """从 DB 加载已有摘要。"""
+        try:
+            async with get_db() as db:
+                row = await db.execute(
+                    "SELECT summary_content FROM session_summaries WHERE session_id = ?",
+                    (session_id,),
+                )
+                record = await row.fetchone()
+                if record and record["summary_content"]:
+                    return record["summary_content"]
+        except Exception:
+            logger.debug("Failed to load summary for session %s", session_id, exc_info=True)
+        return None
+
+    async def save_summary(
+        self, session_id: str, summary: str,
+        through_message_id: str, token_count: int,
+    ) -> None:
+        """保存/更新摘要到 DB。"""
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            async with get_db() as db:
+                await db.execute(
+                    """INSERT INTO session_summaries
+                       (id, session_id, summary_content, summarized_through_id,
+                        summary_token_count, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(session_id) DO UPDATE SET
+                        summary_content = excluded.summary_content,
+                        summarized_through_id = excluded.summarized_through_id,
+                        summary_token_count = excluded.summary_token_count,
+                        updated_at = excluded.updated_at""",
+                    (str(uuid.uuid4()), session_id, summary, through_message_id,
+                     token_count, now, now),
+                )
+                await db.commit()
+        except Exception:
+            logger.exception("Failed to save summary for session %s", session_id)
+
+    async def get_agent_config(self, agent_id: str) -> dict | None:
+        """查询 agent 配置。"""
+        async with get_db() as db:
+            row = await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
+            result = await row.fetchone()
+            return dict(result) if result else None
+
+    async def get_model_config(self, model_id: str | None = None) -> dict | None:
+        """查询模型配置。默认模型时 model_id 为 None。"""
+        async with get_db() as db:
+            if model_id:
+                row = await db.execute("SELECT * FROM models WHERE id = ?", (model_id,))
+            else:
+                row = await db.execute("SELECT * FROM models WHERE is_default = 1 LIMIT 1")
+            cfg = await row.fetchone()
+            if not cfg:
+                row = await db.execute("SELECT * FROM models LIMIT 1")
+                cfg = await row.fetchone()
+        return dict(cfg) if cfg else None
+
+    async def get_session_agent_id(self, session_id: str) -> str | None:
+        """查询会话绑定的 agent_id。"""
+        async with get_db() as db:
+            row = await db.execute("SELECT agent_id FROM sessions WHERE id = ?", (session_id,))
+            session = await row.fetchone()
+            if session:
+                return session["agent_id"]
+        return None
