@@ -232,10 +232,14 @@ async def get_provider(model_id: str | None = None) -> ModelProvider:
         raise ValueError("No model configured. Please add a model in Settings.")
 
     if cfg["type"] == "anthropic":
-        return ClaudeProvider(api_key=cfg["api_key"], model=cfg["model"])
+        provider = ClaudeProvider(api_key=cfg["api_key"], model=cfg["model"])
     else:
-        return OpenAICompatProvider(
+        provider = OpenAICompatProvider(
             api_key=cfg["api_key"],
             model=cfg["model"],
             base_url=cfg["base_url"] or "https://api.openai.com/v1",
         )
+    provider._input_price = cfg["input_price"] if cfg["input_price"] is not None else None
+    provider._output_price = cfg["output_price"] if cfg["output_price"] is not None else None
+    provider._currency = cfg["currency"] or "USD"
+    return provider

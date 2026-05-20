@@ -18,13 +18,16 @@ class ModelEntry(BaseModel):
     api_key: str = ""  # 更新时传 "***" 保留原值
     model: str
     base_url: str = ""
+    input_price: float | None = None   # 每百万 token 输入价格
+    output_price: float | None = None  # 每百万 token 输出价格
+    currency: str = "USD"              # 计价币种 USD / CNY
 
 
 @router.get("/models")
 async def list_models():
     async with get_db() as db:
         cursor = await db.execute(
-            "SELECT id, name, type, model, base_url, is_default FROM models ORDER BY created_at"
+            "SELECT id, name, type, model, base_url, is_default, input_price, output_price, currency FROM models ORDER BY created_at"
         )
         rows = await cursor.fetchall()
     return {
@@ -46,8 +49,8 @@ async def add_model(body: ModelEntry):
         count = await db.execute("SELECT COUNT(*) FROM models")
         is_first = (await count.fetchone())[0] == 0
         await db.execute(
-            "INSERT INTO models (id, name, type, api_key, model, base_url, is_default, created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (mid, body.name, body.type, body.api_key, body.model, body.base_url, 1 if is_first else 0, now),
+            "INSERT INTO models (id, name, type, api_key, model, base_url, is_default, input_price, output_price, currency, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (mid, body.name, body.type, body.api_key, body.model, body.base_url, 1 if is_first else 0, body.input_price, body.output_price, body.currency, now),
         )
         await db.commit()
     return {"id": mid}
@@ -75,8 +78,8 @@ async def update_model(model_id: str, body: ModelEntry):
         # 前端传来脱敏值 *** 表示不修改 Key
         api_key = existing["api_key"] if body.api_key == "***" else body.api_key
         await db.execute(
-            "UPDATE models SET name=?, type=?, api_key=?, model=?, base_url=? WHERE id=?",
-            (body.name, body.type, api_key, body.model, body.base_url, model_id),
+            "UPDATE models SET name=?, type=?, api_key=?, model=?, base_url=?, input_price=?, output_price=?, currency=? WHERE id=?",
+            (body.name, body.type, api_key, body.model, body.base_url, body.input_price, body.output_price, body.currency, model_id),
         )
         await db.commit()
     return {"success": True}

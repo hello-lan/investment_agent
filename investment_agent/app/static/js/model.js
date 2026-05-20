@@ -32,6 +32,9 @@ function renderModelList() {
         </div>
         <div class="model-meta">
           ${m.base_url ? esc(m.base_url) + ' · ' : ''}model: ${esc(m.model)}
+          ${m.input_price != null || m.output_price != null
+            ? ' · 价格: ' + (m.currency === 'CNY' ? '¥' : '$') + (m.input_price != null ? m.input_price : '?') + ' / ' + (m.currency === 'CNY' ? '¥' : '$') + (m.output_price != null ? m.output_price : '?') + ' /M'
+            : ''}
         </div>
       </div>
       <div class="model-actions">
@@ -66,6 +69,10 @@ function openModal(id) {
   document.getElementById('mKey').value = '';
   document.getElementById('mKey').placeholder = m?.api_key ? '已设置（输入新值覆盖）' : 'sk-...';
   document.getElementById('mBaseUrl').value = m?.base_url || '';
+  document.getElementById('mInputPrice').value = m?.input_price != null ? m.input_price : '';
+  document.getElementById('mOutputPrice').value = m?.output_price != null ? m.output_price : '';
+  var cur = m?.currency || 'USD';
+  document.querySelector('input[name=mCurrency][value=' + cur + ']').checked = true;
   toggleBaseUrl();
   document.getElementById('modalOverlay').classList.add('open');
 }
@@ -81,6 +88,8 @@ function toggleBaseUrl() {
 
 async function saveModel() {
   const editId = document.getElementById('mEditId').value;
+  const inputPriceVal = document.getElementById('mInputPrice').value.trim();
+  const outputPriceVal = document.getElementById('mOutputPrice').value.trim();
   const body = {
     id: document.getElementById('mId').value.trim(),
     name: document.getElementById('mName').value.trim(),
@@ -88,6 +97,9 @@ async function saveModel() {
     model: document.getElementById('mModel').value.trim(),
     api_key: document.getElementById('mKey').value || '***',
     base_url: document.getElementById('mBaseUrl').value.trim(),
+    input_price: inputPriceVal !== '' ? parseFloat(inputPriceVal) : null,
+    output_price: outputPriceVal !== '' ? parseFloat(outputPriceVal) : null,
+    currency: document.querySelector('input[name=mCurrency]:checked').value,
   };
   if (!body.name || !body.model) { alert('请填写名称和模型名'); return; }
 

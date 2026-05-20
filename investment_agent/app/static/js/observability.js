@@ -9,9 +9,10 @@ function formatNum(n) {
   return Number(n).toLocaleString();
 }
 
-function formatCost(c) {
+function formatCost(c, currency) {
   if (c == null) return '-';
-  return '$' + Number(c).toFixed(4);
+  var symbol = currency === 'CNY' ? '¥' : '$';
+  return symbol + Number(c).toFixed(4);
 }
 
 function formatTime(t) {
@@ -55,6 +56,28 @@ var _timer = null;
 var _isLoading = false;
 var _activeTab = 'traces';
 var _cachedSessions = [];
+var _lastTraceTime = null;
+var _lastCostTime = null;
+var _prevSessionId = '';
+var _prevTaskId = '';
+
+function updateLastTraceTime(rows) {
+  var maxT = null;
+  for (var i = 0; i < rows.length; i++) {
+    var t = rows[i].created_at;
+    if (t && (!maxT || t > maxT)) maxT = t;
+  }
+  if (maxT) _lastTraceTime = maxT;
+}
+
+function updateLastCostTime(rows) {
+  var maxT = null;
+  for (var i = 0; i < rows.length; i++) {
+    var t = rows[i].created_at;
+    if (t && (!maxT || t > maxT)) maxT = t;
+  }
+  if (maxT) _lastCostTime = maxT;
+}
 
 // ── Filters ──
 
@@ -71,6 +94,7 @@ function buildQuery(filters) {
   if (filters.session_id) p.set('session_id', filters.session_id);
   if (filters.task_id) p.set('task_id', filters.task_id);
   if (filters.limit) p.set('limit', String(filters.limit));
+  if (filters.since) p.set('since', filters.since);
   return p.toString();
 }
 
@@ -110,14 +134,36 @@ async function loadTraces() {
   var elEmpty = document.getElementById('traceEmpty');
   var elContent = document.getElementById('traceContent');
   elError.style.display = 'none';
-  elEmpty.style.display = 'none';
-  elContent.innerHTML = '';
+
+  var filters = getFilters();
+  // 用户过滤条件变更 → 全量刷新
+  if (filters.session_id !== _prevSessionId || filters.task_id !== _prevTaskId) {
+    _lastTraceTime = null;
+    _prevSessionId = filters.session_id;
+    _prevTaskId = filters.task_id;
+  }
+  // 增量刷新：带上 since（无过滤条件时才增量）
+  if (_lastTraceTime && !filters.session_id && !filters.task_id) {
+    filters.since = _lastTraceTime;
+  }
 
   try {
-    var q = buildQuery(getFilters());
+    var q = buildQuery(filters);
     var rows = await fetch('/api/observability/traces?' + q).then(function(r) { return r.json(); });
-    if (!rows.length) { elEmpty.style.display = ''; return; }
-    renderTraces(rows);
+
+    if (_lastTraceTime) {
+      // 增量模式
+      if (!rows.length) return; // 无新数据，不动 DOM
+      mergeNewTraces(rows);
+      updateLastTraceTime(rows);
+    } else {
+      // 全量模式
+      elEmpty.style.display = 'none';
+      if (!rows.length) { elEmpty.style.display = ''; return; }
+      var html = buildAllTracesHtml(rows);
+      elContent.innerHTML = html;
+      updateLastTraceTime(rows);
+    }
   } catch (e) {
     elError.textContent = '加载失败：' + e.message;
     elError.style.display = '';
@@ -148,14 +194,32 @@ async function loadCost() {
   var elEmpty = document.getElementById('costEmpty');
   var tbody = document.querySelector('#costTable tbody');
   elError.style.display = 'none';
-  elEmpty.style.display = 'none';
-  tbody.innerHTML = '';
+
+  var filters = getFilters();
+  if (filters.session_id !== _prevSessionId || filters.task_id !== _prevTaskId) {
+    _lastCostTime = null;
+    _prevSessionId = filters.session_id;
+    _prevTaskId = filters.task_id;
+  }
+  if (_lastCostTime && !filters.session_id && !filters.task_id) {
+    filters.since = _lastCostTime;
+  }
 
   try {
-    var q = buildQuery(getFilters());
+    var q = buildQuery(filters);
     var rows = await fetch('/api/observability/cost?' + q).then(function(r) { return r.json(); });
-    if (!rows.length) { elEmpty.style.display = ''; return; }
-    renderCostTable(rows);
+
+    if (_lastCostTime) {
+      if (!rows.length) return;
+      // 新增行前插到 tbody 顶部
+      tbody.insertAdjacentHTML('afterbegin', buildCostRows(rows));
+      updateLastCostTime(rows);
+    } else {
+      elEmpty.style.display = 'none';
+      if (!rows.length) { elEmpty.style.display = ''; return; }
+      tbody.innerHTML = buildCostRows(rows);
+      updateLastCostTime(rows);
+    }
   } catch (e) {
     elError.textContent = '加载失败：' + e.message;
     elError.style.display = '';
@@ -164,53 +228,63 @@ async function loadCost() {
 
 // ── Hierarchical Trace Rendering ──
 
-function renderTraces(rows) {
+function buildAllTracesHtml(rows) {
   var grouped = groupTraces(rows);
-  var container = document.getElementById('traceContent');
   var html = '';
-
   grouped.forEach(function(session) {
-    var tasks = Array.from(session.tasks.values());
-    // session aggregate token info from cost_log join
-    var firstWithTokens = tasks.reduce(function(found, steps) {
-      if (found) return found;
-      for (var i = 0; i < steps.length; i++) {
-        if (steps[i].input_tokens != null || steps[i].output_tokens != null) return steps[i];
-      }
-      return null;
-    }, null);
-    var totalIn = firstWithTokens ? firstWithTokens.input_tokens : null;
-    var totalOut = firstWithTokens ? firstWithTokens.output_tokens : null;
-    var model = firstWithTokens ? firstWithTokens.model : null;
+    html += buildSessionAccordion(session.id, session.tasks);
+  });
+  return html;
+}
 
-    // time range
-    var times = tasks.map(function(steps) { return steps[0] && steps[0].created_at; }).filter(Boolean).sort();
-    var tFirst = times[0], tLast = times[times.length - 1];
+function buildSessionAccordion(sessionId, taskMap) {
+  var tasks = Array.from(taskMap.values());
 
-    html += '<div class="obs-accordion">';
-    html += '<div class="obs-acc-header session-level" onclick="toggleAcc(this)">';
-    html += '<span class="obs-arrow">▶</span>';
-    html += '<span class="obs-session-id" title="' + esc(session.id) + '">' + esc(shortId(session.id)) + '</span>';
-    html += '<span class="obs-session-meta">';
-    html += '<span>📋 ' + tasks.length + ' 个任务</span>';
-    if (totalIn != null) html += '<span>🔤 输入 ' + formatNum(totalIn) + '</span>';
-    if (totalOut != null) html += '<span>🔤 输出 ' + formatNum(totalOut) + '</span>';
-    html += '<span>📅 ' + formatTime(tFirst) + ' ~ ' + formatTime(tLast) + '</span>';
-    if (model) html += '<span class="obs-badge obs-badge-model">' + esc(model) + '</span>';
-    html += '</span></div>';
-
-    html += '<div class="obs-acc-body"><div style="padding:4px 0;">';
-    // Sort tasks by first step time descending
-    tasks.sort(function(a, b) {
-      var ta = a[0] ? a[0].created_at : '';
-      var tb = b[0] ? b[0].created_at : '';
-      return String(tb).localeCompare(String(ta));
-    });
-    tasks.forEach(function(steps) { html += renderTaskAccordion(steps); });
-    html += '</div></div></div>';
+  // sort tasks by first step time descending
+  tasks.sort(function(a, b) {
+    var ta = a[0] ? a[0].created_at : '';
+    var tb = b[0] ? b[0].created_at : '';
+    return String(tb).localeCompare(String(ta));
   });
 
-  container.innerHTML = html;
+  var firstWithTokens = tasks.reduce(function(found, steps) {
+    if (found) return found;
+    for (var i = 0; i < steps.length; i++) {
+      if (steps[i].input_tokens != null || steps[i].output_tokens != null) return steps[i];
+    }
+    return null;
+  }, null);
+  var totalIn = firstWithTokens ? firstWithTokens.input_tokens : null;
+  var totalOut = firstWithTokens ? firstWithTokens.output_tokens : null;
+  var model = firstWithTokens ? firstWithTokens.model : null;
+  var agentName = tasks.reduce(function(found, steps) {
+    if (found) return found;
+    for (var i = 0; i < steps.length; i++) {
+      if (steps[i].agent_name) return steps[i].agent_name;
+    }
+    return null;
+  }, null);
+
+  var times = tasks.map(function(steps) { return steps[0] && steps[0].created_at; }).filter(Boolean).sort();
+  var tFirst = times[0], tLast = times[times.length - 1];
+
+  var html = '<div class="obs-accordion" data-sid="' + esc(sessionId) + '">';
+  html += '<div class="obs-acc-header session-level" onclick="toggleAcc(this)">';
+  html += '<span class="obs-arrow">▶</span>';
+  html += '<span class="obs-session-id" title="' + esc(sessionId) + '">' + esc(shortId(sessionId)) + '</span>';
+  html += '<span class="obs-session-meta">';
+  html += '<span class="obs-meta-tasks">📋 ' + tasks.length + ' 个任务</span>';
+  if (totalIn != null) html += '<span class="obs-meta-in">🔤 输入 ' + formatNum(totalIn) + '</span>';
+  if (totalOut != null) html += '<span class="obs-meta-out">🔤 输出 ' + formatNum(totalOut) + '</span>';
+  html += '<span class="obs-meta-time">📅 ' + formatTime(tFirst) + ' ~ ' + formatTime(tLast) + '</span>';
+  if (model) html += '<span class="obs-badge obs-badge-model">' + esc(model) + '</span>';
+  if (agentName) html += '<span class="obs-badge" style="background:#e8eaf6;color:#3949ab;">' + esc(agentName) + '</span>';
+  html += '</span></div>';
+
+  html += '<div class="obs-acc-body"><div style="padding:4px 0;">';
+  tasks.forEach(function(steps) { html += renderTaskAccordion(steps); });
+  html += '</div></div></div>';
+  return html;
 }
 
 function groupTraces(rows) {
@@ -262,7 +336,7 @@ function renderTaskAccordion(steps) {
   var times = steps.map(function(s) { return s.created_at; }).filter(Boolean).sort();
   var tFirst = times[0], tLast = times[times.length - 1];
 
-  var html = '<div class="obs-accordion">';
+  var html = '<div class="obs-accordion" data-tid="' + esc(taskId) + '">';
   html += '<div class="obs-acc-header task-level" onclick="toggleAcc(this)">';
   html += '<span class="obs-arrow">▶</span>';
   html += '<span class="obs-task-id" title="' + esc(taskId) + '">' + esc(shortId(taskId)) + '</span>';
@@ -291,33 +365,7 @@ function renderTaskAccordion(steps) {
   // Step rows (exclude context_budget, it's already shown as a card)
   steps.forEach(function(s) {
     if (s.event_type === 'context_budget') return;
-    var cat = evtCategory(s.event_type);
-    var timeStr = formatFullTime(s.created_at);
-    var stepNum = s.step != null ? s.step : '—';
-    var detailText = '';
-    var detailObj = parseDetail(s.detail);
-    if (s.event_type === 'tool_call' && detailObj.tool_name) {
-      detailText = detailObj.tool_name;
-      if (detailObj.tool_input) {
-        var inputStr = typeof detailObj.tool_input === 'string' ? detailObj.tool_input : JSON.stringify(detailObj.tool_input);
-        detailText += '(' + inputStr.slice(0, 80) + ')';
-      }
-    } else if (s.event_type === 'tool_result' && detailObj.tool_name) {
-      detailText = detailObj.tool_name + ' → ' + esc(String(detailObj.result_preview || '').slice(0, 100));
-    } else if (s.event_type === 'cache_metrics') {
-      detailText = 'cache_read: ' + (detailObj.cache_read_tokens || 0) + ' / cache_creation: ' + (detailObj.cache_creation_tokens || 0);
-    } else if (s.event_type === 'done' && detailObj.usage) {
-      detailText = '完成 — 输入 ' + formatNum(detailObj.usage.input_tokens) + ' / 输出 ' + formatNum(detailObj.usage.output_tokens);
-    } else {
-      detailText = esc(String(s.detail || '').slice(0, 120));
-    }
-
-    html += '<div class="obs-step-row">';
-    html += '<span class="obs-step-num">' + stepNum + '</span>';
-    html += '<span class="obs-step-time">' + esc(timeStr) + '</span>';
-    html += '<span><span class="obs-evt-badge obs-evt-' + cat + '">' + esc(s.event_type) + '</span>';
-    html += ' <span class="obs-step-detail">' + detailText + '</span></span>';
-    html += '</div>';
+    html += buildStepRow(s);
   });
 
   html += '</div></div>';
@@ -361,6 +409,144 @@ function toggleAcc(header) {
   }
 }
 
+function buildStepRow(step) {
+  var cat = evtCategory(step.event_type);
+  var timeStr = formatFullTime(step.created_at);
+  var stepNum = step.step != null ? step.step : '—';
+  var detailText = '';
+  var detailObj = parseDetail(step.detail);
+  if (step.event_type === 'tool_call' && detailObj.tool_name) {
+    detailText = detailObj.tool_name;
+    if (detailObj.tool_input) {
+      var inputStr = typeof detailObj.tool_input === 'string' ? detailObj.tool_input : JSON.stringify(detailObj.tool_input);
+      detailText += '(' + inputStr.slice(0, 80) + ')';
+    }
+  } else if (step.event_type === 'tool_result' && detailObj.tool_name) {
+    detailText = detailObj.tool_name + ' → ' + esc(String(detailObj.result_preview || '').slice(0, 100));
+  } else if (step.event_type === 'cache_metrics') {
+    detailText = 'cache_read: ' + (detailObj.cache_read_tokens || 0) + ' / cache_creation: ' + (detailObj.cache_creation_tokens || 0);
+  } else if (step.event_type === 'done' && detailObj.usage) {
+    detailText = '完成 — 输入 ' + formatNum(detailObj.usage.input_tokens) + ' / 输出 ' + formatNum(detailObj.usage.output_tokens);
+  } else {
+    detailText = esc(String(step.detail || '').slice(0, 120));
+  }
+  return '<div class="obs-step-row" data-trace-id="' + esc(step.id) + '">' +
+    '<span class="obs-step-num">' + stepNum + '</span>' +
+    '<span class="obs-step-time">' + esc(timeStr) + '</span>' +
+    '<span><span class="obs-evt-badge obs-evt-' + cat + '">' + esc(step.event_type) + '</span>' +
+    ' <span class="obs-step-detail">' + detailText + '</span></span>' +
+    '</div>';
+}
+
+function updateSessionHeader(sessionEl, taskMap) {
+  var header = sessionEl.querySelector(':scope > .obs-acc-header');
+  if (!header) return;
+  var tasks = Array.from(taskMap.values());
+  var metaEl = header.querySelector('.obs-session-meta');
+  if (!metaEl) return;
+
+  // Update task count
+  var tasksSpan = metaEl.querySelector('.obs-meta-tasks');
+  if (tasksSpan) tasksSpan.textContent = '📋 ' + tasks.length + ' 个任务';
+
+  // Update token count from first task with tokens
+  var firstWithTokens = null;
+  tasks.forEach(function(steps) {
+    if (firstWithTokens) return;
+    for (var i = 0; i < steps.length; i++) {
+      if (steps[i].input_tokens != null || steps[i].output_tokens != null) {
+        firstWithTokens = steps[i];
+        return;
+      }
+    }
+  });
+  var inSpan = metaEl.querySelector('.obs-meta-in');
+  var outSpan = metaEl.querySelector('.obs-meta-out');
+  if (firstWithTokens) {
+    if (inSpan) inSpan.textContent = '🔤 输入 ' + formatNum(firstWithTokens.input_tokens);
+    else if (firstWithTokens.input_tokens != null) {
+      inSpan = document.createElement('span');
+      inSpan.className = 'obs-meta-in';
+      inSpan.textContent = '🔤 输入 ' + formatNum(firstWithTokens.input_tokens);
+      metaEl.insertBefore(inSpan, metaEl.querySelector('.obs-meta-time'));
+    }
+    if (outSpan) outSpan.textContent = '🔤 输出 ' + formatNum(firstWithTokens.output_tokens);
+    else if (firstWithTokens.output_tokens != null) {
+      outSpan = document.createElement('span');
+      outSpan.className = 'obs-meta-out';
+      outSpan.textContent = '🔤 输出 ' + formatNum(firstWithTokens.output_tokens);
+      metaEl.insertBefore(outSpan, metaEl.querySelector('.obs-meta-time'));
+    }
+  }
+
+  // Update time range
+  var times = [];
+  tasks.forEach(function(steps) {
+    steps.forEach(function(s) { if (s.created_at) times.push(s.created_at); });
+  });
+  times.sort();
+  var timeSpan = metaEl.querySelector('.obs-meta-time');
+  if (timeSpan && times.length) {
+    timeSpan.textContent = '📅 ' + formatTime(times[0]) + ' ~ ' + formatTime(times[times.length - 1]);
+  }
+}
+
+function mergeNewTraces(newRows) {
+  var elContent = document.getElementById('traceContent');
+  var grouped = groupTraces(newRows);
+
+  grouped.forEach(function(session) {
+    var sessionEl = elContent.querySelector('[data-sid="' + CSS.escape(session.id) + '"]');
+    if (!sessionEl) {
+      // New session — prepend to top
+      elContent.insertAdjacentHTML('afterbegin', buildSessionAccordion(session.id, session.tasks));
+      return;
+    }
+    // Existing session — merge tasks
+    var sessionBody = sessionEl.querySelector(':scope > .obs-acc-body > div');
+    if (!sessionBody) return;
+
+    session.tasks.forEach(function(steps, taskId) {
+      var taskEl = sessionBody.querySelector('[data-tid="' + CSS.escape(taskId) + '"]');
+      if (!taskEl) {
+        // New task — prepend to session body
+        sessionBody.insertAdjacentHTML('afterbegin', renderTaskAccordion(steps));
+        return;
+      }
+      // Existing task — append new step rows
+      var taskBody = taskEl.querySelector(':scope > .obs-acc-body');
+      if (!taskBody) return;
+      var existingIds = {};
+      taskBody.querySelectorAll('.obs-step-row').forEach(function(el) {
+        var tid = el.dataset.traceId;
+        if (tid) existingIds[tid] = true;
+      });
+      steps.forEach(function(s) {
+        if (s.event_type === 'context_budget') return;
+        if (existingIds[s.id]) return;
+        taskBody.insertAdjacentHTML('beforeend', buildStepRow(s));
+      });
+    });
+
+    // Rebuild taskMap from merged data to update header
+    var mergedTaskMap = new Map();
+    // Collect existing tasks (by data-tid)
+    sessionBody.querySelectorAll(':scope > .obs-accordion[data-tid]').forEach(function(el) {
+      var tid = el.dataset.tid;
+      mergedTaskMap.set(tid, [{ created_at: el.querySelector('.obs-step-row') ? el.querySelector('.obs-step-time').textContent : '' }]);
+    });
+    // Add/overwrite with new tasks
+    session.tasks.forEach(function(steps, taskId) {
+      mergedTaskMap.set(taskId, steps);
+    });
+    updateSessionHeader(sessionEl, mergedTaskMap);
+  });
+
+  // Remove empty/loading placeholders
+  var emptyEl = document.getElementById('traceEmpty');
+  if (emptyEl) emptyEl.style.display = 'none';
+}
+
 // ── Token Analysis Rendering ──
 
 function updateSummaryStats(sessions) {
@@ -383,10 +569,11 @@ function renderSessionTable(sessions) {
   tbody.innerHTML = sessions.map(function(s) {
     return '<tr>' +
       '<td style="font-family:monospace;font-weight:500;" title="' + esc(s.session_id) + '">' + esc(shortId(s.session_id)) + '</td>' +
+      '<td>' + esc(s.agent_name || '-') + '</td>' +
       '<td>' + s.task_count + '</td>' +
       '<td style="text-align:right">' + formatNum(s.total_input_tokens) + '</td>' +
       '<td style="text-align:right">' + formatNum(s.total_output_tokens) + '</td>' +
-      '<td style="text-align:right">' + formatCost(s.total_cost_usd) + '</td>' +
+      '<td style="text-align:right">' + formatCost(s.total_cost_usd, s.currency) + '</td>' +
       '<td style="font-size:11px;">' + formatTime(s.first_seen) + ' ~ ' + formatTime(s.last_seen) + '</td>' +
       '<td>' + esc(s.models || '') + '</td>' +
       '</tr>';
@@ -396,7 +583,11 @@ function renderSessionTable(sessions) {
 function populateComparisonDropdowns(sessions) {
   var html = '<option value="">-- 选择会话 A --</option>';
   sessions.forEach(function(s) {
-    var label = shortId(s.session_id) + ' — ' + s.task_count + ' tasks — ' + (s.models || '');
+    var parts = [shortId(s.session_id)];
+    if (s.agent_name) parts.push(s.agent_name);
+    parts.push(s.task_count + ' tasks');
+    parts.push(s.models || '');
+    var label = parts.join(' — ');
     html += '<option value="' + esc(s.session_id) + '">' + esc(label) + '</option>';
   });
   var selA = document.getElementById('compareSessionA');
@@ -537,19 +728,24 @@ function renderBarRow(label, inTok, outTok, maxVal) {
 
 // ── Cost Table Rendering ──
 
-function renderCostTable(rows) {
-  var tbody = document.querySelector('#costTable tbody');
-  tbody.innerHTML = rows.map(function(r) {
+function buildCostRows(rows) {
+  return rows.map(function(r) {
     return '<tr>' +
       '<td style="font-size:11px;">' + esc(formatFullTime(r.created_at)) + '</td>' +
       '<td style="font-family:monospace;" title="' + esc(r.session_id) + '">' + esc(shortId(r.session_id)) + '</td>' +
+      '<td>' + esc(r.agent_name || '-') + '</td>' +
       '<td style="font-family:monospace;" title="' + esc(r.task_id) + '">' + esc(shortId(r.task_id)) + '</td>' +
       '<td>' + esc(r.model) + '</td>' +
       '<td style="text-align:right">' + formatNum(r.input_tokens) + '</td>' +
       '<td style="text-align:right">' + formatNum(r.output_tokens) + '</td>' +
-      '<td style="text-align:right">' + formatCost(r.cost_usd) + '</td>' +
+      '<td style="text-align:right">' + formatCost(r.cost_usd, r.currency) + '</td>' +
       '</tr>';
   }).join('');
+}
+
+function renderCostTable(rows) {
+  var tbody = document.querySelector('#costTable tbody');
+  tbody.innerHTML = buildCostRows(rows);
 }
 
 // ── Autorefresh ──

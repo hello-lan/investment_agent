@@ -32,6 +32,9 @@ async def init_db() -> None:
                 model       TEXT NOT NULL,
                 base_url    TEXT DEFAULT '',
                 is_default  INTEGER DEFAULT 0,
+                input_price  REAL,
+                output_price REAL,
+                currency     TEXT DEFAULT 'USD',
                 created_at  TEXT
             );
 
@@ -90,6 +93,7 @@ async def init_db() -> None:
                 input_tokens  INTEGER DEFAULT 0,
                 output_tokens INTEGER DEFAULT 0,
                 cost_usd      REAL DEFAULT 0,
+                currency      TEXT,
                 created_at    TEXT
             );
 
@@ -141,4 +145,33 @@ async def init_db() -> None:
         columns = {row[1] for row in await cursor.fetchall()}
         if "agent_name" not in columns:
             await db.execute("ALTER TABLE trace_log ADD COLUMN agent_name TEXT")
+            await db.commit()
+
+        # 迁移：cost_log 可能缺少 agent_name / currency 列
+        cursor = await db.execute("PRAGMA table_info(cost_log)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        changed = False
+        if "agent_name" not in columns:
+            await db.execute("ALTER TABLE cost_log ADD COLUMN agent_name TEXT")
+            changed = True
+        if "currency" not in columns:
+            await db.execute("ALTER TABLE cost_log ADD COLUMN currency TEXT")
+            changed = True
+        if changed:
+            await db.commit()
+
+        # 迁移：models 可能缺少 input_price / output_price / currency 列
+        cursor = await db.execute("PRAGMA table_info(models)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        changed = False
+        if "input_price" not in columns:
+            await db.execute("ALTER TABLE models ADD COLUMN input_price REAL")
+            changed = True
+        if "output_price" not in columns:
+            await db.execute("ALTER TABLE models ADD COLUMN output_price REAL")
+            changed = True
+        if "currency" not in columns:
+            await db.execute("ALTER TABLE models ADD COLUMN currency TEXT DEFAULT 'USD'")
+            changed = True
+        if changed:
             await db.commit()

@@ -8,6 +8,9 @@
 /* forms */
 .form-row{margin-bottom:16px;}
 .form-row label,.form-field label{display:block;font-size:13px;color:#555;margin-bottom:5px;font-weight:500;}
+.required{color:#e53935;}
+.optional{color:#aaa;font-size:11px;margin-left:2px;}
+.form-section{font-size:12px;color:#888;border-top:1px solid #eee;padding-top:14px;margin:20px 0 12px;font-weight:500;}
 .form-row input,.form-row select,.form-field input,.form-field select{width:100%;border:1px solid #ddd;border-radius:6px;padding:9px 12px;font-size:14px;outline:none;font-family:inherit;}
 .form-row input:focus,.form-row select:focus,.form-field input:focus{border-color:#1a1a2e;}
 .hint{font-size:12px;color:#aaa;margin-top:4px;}
@@ -48,6 +51,12 @@
 .default-row{display:flex;align-items:center;gap:12px;}
 .default-row label{font-size:13px;color:#555;white-space:nowrap;}
 .default-row select{flex:1;border:1px solid #ddd;border-radius:6px;padding:8px 12px;font-size:14px;outline:none;}
+/* radio */
+.radio-row{display:flex;gap:20px;}
+.form-row .radio-label{display:flex;align-items:center;gap:6px;font-size:13px;color:#555;cursor:pointer;font-weight:400;}
+.radio-label input[type=radio]{display:none;}
+.radio-circle{width:10px;height:10px;border-radius:50%;border:1.5px solid #bbb;flex-shrink:0;transition:border-color .15s,background .15s;}
+.radio-label input:checked+.radio-circle{border-color:#1a1a2e;background:#1a1a2e;box-shadow:inset 0 0 0 1.5px #fff;}
 /* messages */
 .inline-msg{font-size:13px;display:none;}
 .inline-msg.success{color:#2e7d32;}

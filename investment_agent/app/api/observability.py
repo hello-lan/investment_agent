@@ -6,7 +6,12 @@ router = APIRouter(prefix="/api/observability", tags=["observability"])
 
 
 @router.get("/cost")
-async def get_cost(session_id: str | None = None, task_id: str | None = None, limit: int = 100):
+async def get_cost(
+    session_id: str | None = None,
+    task_id: str | None = None,
+    since: str | None = None,
+    limit: int = 100,
+):
     """查询 Token 成本日志，支持按 session_id / task_id 过滤"""
     where = []
     params: list = []
@@ -16,6 +21,9 @@ async def get_cost(session_id: str | None = None, task_id: str | None = None, li
     if task_id:
         where.append("task_id = ?")
         params.append(task_id)
+    if since:
+        where.append("created_at > ?")
+        params.append(since)
 
     sql = "SELECT * FROM cost_log"
     if where:
@@ -31,7 +39,12 @@ async def get_cost(session_id: str | None = None, task_id: str | None = None, li
 
 
 @router.get("/traces")
-async def get_traces(session_id: str | None = None, task_id: str | None = None, limit: int = 200):
+async def get_traces(
+    session_id: str | None = None,
+    task_id: str | None = None,
+    since: str | None = None,
+    limit: int = 200,
+):
     """查询执行链路追踪日志，LEFT JOIN 成本日志获取 model/token 信息"""
     where = []
     params: list = []
@@ -41,6 +54,9 @@ async def get_traces(session_id: str | None = None, task_id: str | None = None, 
     if task_id:
         where.append("t.task_id = ?")
         params.append(task_id)
+    if since:
+        where.append("t.created_at > ?")
+        params.append(since)
 
     sql = """SELECT t.*, c.model, c.input_tokens, c.output_tokens
 FROM trace_log t
@@ -93,6 +109,8 @@ async def get_sessions(
 
         sql = """SELECT
             session_id,
+            MIN(agent_name) AS agent_name,
+            MIN(currency) AS currency,
             COUNT(DISTINCT task_id) AS task_count,
             SUM(input_tokens) AS total_input_tokens,
             SUM(output_tokens) AS total_output_tokens,

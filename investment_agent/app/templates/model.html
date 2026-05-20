@@ -23,35 +23,65 @@
   <div class="modal">
     <div class="modal-title" id="modalTitle">添加模型</div>
     <input type="hidden" id="mEditId">
+
+    <div class="form-section">标识</div>
     <div class="form-row">
-      <label>显示名称 *</label>
+      <label>显示名称 <span class="required">*</span></label>
       <input type="text" id="mName" placeholder="如：Claude Sonnet 4.6">
     </div>
     <div class="form-row">
-      <label>唯一 ID *</label>
-      <input type="text" id="mId" placeholder="如：claude-default（留空自动生成）">
+      <label>唯一 ID <span class="optional">（可选）</span></label>
+      <input type="text" id="mId" placeholder="留空自动生成">
       <div class="hint">用于内部标识，创建后不可修改</div>
     </div>
+
+    <div class="form-section">连接配置</div>
     <div class="form-row">
-      <label>类型</label>
+      <label>类型 <span class="required">*</span></label>
       <select id="mType" onchange="toggleBaseUrl()">
         <option value="anthropic">Anthropic（原生 Claude SDK）</option>
         <option value="openai_compat">OpenAI 兼容（DeepSeek / Qwen / Ollama 等）</option>
       </select>
     </div>
     <div class="form-row">
-      <label>API Key</label>
-      <input type="password" id="mKey" placeholder="sk-...">
-    </div>
-    <div class="form-row">
-      <label>Model Name *</label>
+      <label>Model Name <span class="required">*</span></label>
       <input type="text" id="mModel" placeholder="如：claude-sonnet-4-6 或 deepseek-chat">
     </div>
+    <div class="form-row">
+      <label>API Key <span class="required">*</span></label>
+      <input type="password" id="mKey" placeholder="sk-...">
+    </div>
     <div class="form-row" id="baseUrlRow">
-      <label>Base URL</label>
+      <label>Base URL <span class="required">*</span></label>
       <input type="text" id="mBaseUrl" placeholder="如：https://api.deepseek.com">
       <div class="hint">留空则使用 https://api.openai.com/v1</div>
     </div>
+
+    <div class="form-section">可选</div>
+    <div class="form-row">
+      <label>计价币种 <span class="optional">（可选）</span></label>
+      <div class="radio-row">
+        <label class="radio-label">
+          <input type="radio" name="mCurrency" value="USD" checked>
+          <span class="radio-circle"></span>
+          USD ($)
+        </label>
+        <label class="radio-label">
+          <input type="radio" name="mCurrency" value="CNY">
+          <span class="radio-circle"></span>
+          CNY (¥)
+        </label>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>输入价格 <span class="optional">（可选）</span></label>
+      <input type="number" id="mInputPrice" step="0.01" placeholder="每百万 token 价格，留空则不估算费用">
+    </div>
+    <div class="form-row">
+      <label>输出价格 <span class="optional">（可选）</span></label>
+      <input type="number" id="mOutputPrice" step="0.01" placeholder="每百万 token 价格，留空则不估算费用">
+    </div>
+
     <div class="modal-footer">
       <button class="btn btn-cancel" onclick="closeModal()">取消</button>
       <button class="btn btn-primary" onclick="saveModel()">保存</button>

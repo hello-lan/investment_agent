@@ -404,6 +404,10 @@ async def stream_chat(task_id: str):
                         model=model_name,
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
+                        agent_name=agent_name,
+                        input_price=getattr(engine.provider, '_input_price', None),
+                        output_price=getattr(engine.provider, '_output_price', None),
+                        currency=getattr(engine.provider, '_currency', 'USD'),
                     )
                     # 记录缓存命中情况
                     cache_read = engine.total_cache_read_tokens
