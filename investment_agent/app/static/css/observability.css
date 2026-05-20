@@ -1,0 +1,145 @@
+/* ── 页面容器 ── */
+.obs-wrap { max-width: 1280px; margin: 24px auto; padding: 0 20px 40px; }
+
+/* ── 过滤栏 ── */
+.obs-controls { display: grid; grid-template-columns: 1fr 1fr 100px 140px 100px; gap: 10px; margin-bottom: 14px; }
+.obs-controls input, .obs-controls select, .obs-controls button {
+  border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px; font-size: 13px;
+}
+.obs-controls button { background: #1a1a2e; color: #fff; cursor: pointer; }
+
+.obs-muted { color: #777; font-size: 12px; margin-bottom: 14px; }
+
+/* ── Tab 导航 ── */
+.obs-tabs { display: flex; border-bottom: 2px solid #e0e0e0; margin-bottom: 18px; }
+.obs-tab {
+  padding: 10px 24px; font-size: 14px; cursor: pointer; color: #888;
+  border-bottom: 3px solid transparent; transition: color .15s;
+}
+.obs-tab:hover { color: #333; }
+.obs-tab.active { color: #1a1a2e; font-weight: 600; border-bottom-color: #1a1a2e; }
+
+.obs-tab-panel { display: none; }
+.obs-tab-panel.active { display: block; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Tab 1: 链路日志 — 折叠面板
+   ═══════════════════════════════════════════════════════════════ */
+
+.obs-accordion { margin-bottom: 4px; }
+.obs-acc-header {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px;
+  cursor: pointer; user-select: none; font-size: 13px; transition: background .12s;
+}
+.obs-acc-header:hover { background: #eef1f6; }
+.obs-acc-header .obs-arrow { font-size: 11px; color: #999; width: 16px; text-align: center; transition: transform .15s; }
+.obs-acc-header.open { border-radius: 8px 8px 0 0; }
+.obs-acc-header.open .obs-arrow { transform: rotate(90deg); }
+
+.obs-acc-body { display: none; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px; }
+.obs-acc-body.open { display: block; }
+.obs-acc-body .obs-accordion { margin-bottom: 0; }
+
+/* 会话级头部 */
+.obs-acc-header.session-level { gap: 16px; }
+.obs-session-id { font-weight: 600; font-family: monospace; }
+.obs-session-meta { display: flex; gap: 16px; font-size: 12px; color: #666; flex: 1; flex-wrap: wrap; align-items: center; }
+.obs-session-meta span { white-space: nowrap; }
+
+/* 任务级头部（缩进） */
+.obs-acc-header.task-level { margin-left: 20px; }
+.obs-task-id { font-family: monospace; font-size: 12px; }
+.obs-task-meta { display: flex; gap: 12px; font-size: 11px; color: #777; flex-wrap: wrap; align-items: center; }
+
+/* ── 徽章 ── */
+.obs-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 500; display: inline-block; white-space: nowrap; }
+.obs-badge-model { background: #e3f2fd; color: #1565c0; }
+
+/* ── context_budget 卡片 ── */
+.obs-ctx-card {
+  background: #f0f4ff; border: 1px solid #c5cae9; border-radius: 8px;
+  padding: 12px 14px; margin: 8px 10px 8px 40px; font-size: 12px;
+}
+.obs-ctx-card .obs-ctx-title { font-weight: 600; color: #283593; margin-bottom: 8px; font-size: 11px; }
+.obs-ctx-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.obs-ctx-item { text-align: center; }
+.obs-ctx-value { font-weight: 600; font-size: 16px; color: #1a1a2e; }
+.obs-ctx-label { font-size: 10px; color: #888; margin-top: 2px; }
+.obs-ctx-warn { margin-top: 6px; font-size: 10px; color: #e65100; }
+
+/* ── 步骤行 ── */
+.obs-step-row {
+  display: grid; grid-template-columns: 50px 110px 1fr; gap: 10px;
+  padding: 5px 10px 5px 40px; border-bottom: 1px solid #f5f5f5;
+  font-size: 12px; align-items: center;
+}
+.obs-step-num { color: #999; font-size: 11px; text-align: right; }
+.obs-step-time { color: #bbb; font-size: 11px; }
+
+/* 事件徽标颜色 */
+.obs-evt-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 500; display: inline-block; white-space: nowrap; }
+.obs-evt-tool { background: #e3f2fd; color: #1565c0; }
+.obs-evt-engine { background: #fff3e0; color: #e65100; }
+.obs-evt-system { background: #e8f5e9; color: #2e7d32; }
+
+.obs-step-detail { color: #aaa; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 500px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Tab 2: Token 分析
+   ═══════════════════════════════════════════════════════════════ */
+
+.obs-summary-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.obs-stat-card {
+  background: #fff; border: 1px solid #e0e0e0; border-radius: 10px;
+  padding: 18px; text-align: center;
+}
+.obs-stat-val { font-size: 24px; font-weight: 700; color: #1a1a2e; margin-bottom: 4px; }
+.obs-stat-label { font-size: 12px; color: #888; }
+
+/* 复用通用卡片/表格 */
+.obs-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden; margin-bottom: 20px; }
+.obs-card h3 { margin: 0; padding: 12px 14px; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+.obs-table-wrap { overflow: auto; max-height: 340px; }
+.obs-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.obs-table th, .obs-table td { border-bottom: 1px solid #f0f0f0; padding: 8px 10px; text-align: left; vertical-align: top; }
+.obs-table th { position: sticky; top: 0; background: #fafafa; font-weight: 600; }
+.obs-table tr:hover { background: #fafafa; }
+
+.obs-pre { white-space: pre-wrap; max-width: 460px; word-break: break-word; }
+
+/* ── 对比区 ── */
+.obs-comparison { margin-top: 24px; border-top: 2px solid #1a1a2e; padding-top: 16px; }
+.obs-comparison h3 { font-size: 14px; margin-bottom: 12px; }
+.obs-cmp-selects { display: grid; grid-template-columns: 1fr 50px 1fr; gap: 12px; align-items: center; margin-bottom: 16px; }
+.obs-cmp-selects select { border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
+.obs-cmp-vs { text-align: center; color: #888; font-weight: 600; }
+
+.obs-cmp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.obs-cmp-table th { background: #fafafa; border-bottom: 2px solid #e0e0e0; padding: 8px 10px; text-align: left; font-size: 12px; }
+.obs-cmp-table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
+.obs-cmp-table .obs-cmp-label { font-weight: 500; }
+.obs-cmp-table .obs-cmp-col-a,
+.obs-cmp-table .obs-cmp-col-b { text-align: right; font-variant-numeric: tabular-nums; }
+.obs-cmp-table .obs-cmp-col-delta { text-align: right; }
+
+.obs-delta { font-weight: 600; font-variant-numeric: tabular-nums; }
+.obs-delta.pos { color: #2e7d32; }
+.obs-delta.neg { color: #c62828; }
+.obs-delta-pct { font-size: 11px; margin-left: 4px; }
+
+/* ── CSS 条形图 ── */
+.obs-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.obs-bar-label { width: 60px; font-size: 11px; color: #666; text-align: right; flex-shrink: 0; }
+.obs-bar-track { flex: 1; height: 18px; background: #f0f0f0; border-radius: 4px; overflow: hidden; display: flex; }
+.obs-bar-in { height: 100%; background: #1a1a2e; }
+.obs-bar-out { height: 100%; background: #90caf9; }
+.obs-bar-val { font-size: 11px; color: #555; width: 100px; flex-shrink: 0; }
+
+.obs-legend { display: flex; gap: 14px; font-size: 11px; color: #888; margin: 6px 0 10px; }
+.obs-legend span { display: flex; align-items: center; gap: 4px; }
+.obs-legend .obs-swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+/* ── 空态 / 错误 ── */
+.obs-empty { text-align: center; padding: 60px 20px; color: #bbb; font-size: 14px; }
+.obs-error { text-align: center; padding: 20px; color: #c62828; background: #ffebee; border-radius: 8px; font-size: 13px; margin-bottom: 12px; }

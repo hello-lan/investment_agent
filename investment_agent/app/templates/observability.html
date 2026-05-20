@@ -1,29 +1,15 @@
 {% extends "base.html" %}
 {% block title %}统计 — 投研 Agent{% endblock %}
 {% block head %}
-<link rel="stylesheet" href="/static/css/main.css">
-<style>
-  .obs-wrap { max-width: 1200px; margin: 20px auto; padding: 0 20px 20px; }
-  .obs-controls { display: grid; grid-template-columns: 1fr 1fr 120px 140px 120px; gap: 10px; margin-bottom: 14px; }
-  .obs-controls input, .obs-controls select, .obs-controls button { border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
-  .obs-controls button { background: #1a1a2e; color: #fff; cursor: pointer; }
-  .obs-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
-  .obs-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; overflow: hidden; }
-  .obs-card h3 { margin: 0; padding: 12px 14px; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
-  .obs-table-wrap { overflow: auto; max-height: 340px; }
-  .obs-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  .obs-table th, .obs-table td { border-bottom: 1px solid #f0f0f0; padding: 8px 10px; text-align: left; vertical-align: top; }
-  .obs-table th { position: sticky; top: 0; background: #fafafa; }
-  .obs-muted { color: #777; font-size: 12px; margin-bottom: 10px; }
-  .obs-pre { white-space: pre-wrap; max-width: 460px; word-break: break-word; }
-</style>
+<link rel="stylesheet" href="/static/css/observability.css">
 {% endblock %}
 {% block content %}
 <div class="obs-wrap">
+
   <div class="obs-controls">
     <input id="sessionId" placeholder="session_id（可选）">
     <input id="taskId" placeholder="task_id（可选）">
-    <input id="limit" type="number" min="1" max="500" value="100">
+    <input id="limit" type="number" min="1" max="500" value="200">
     <select id="autoRefresh">
       <option value="on" selected>自动刷新：开</option>
       <option value="off">自动刷新：关</option>
@@ -32,22 +18,77 @@
   </div>
   <div class="obs-muted" id="lastUpdated">最后更新：-</div>
 
-  <div class="obs-grid">
+  <div class="obs-tabs">
+    <div class="obs-tab active" data-tab="traces">链路日志</div>
+    <div class="obs-tab" data-tab="tokens">Token 分析</div>
+    <div class="obs-tab" data-tab="cost">成本日志</div>
+  </div>
+
+  <!-- Tab 1: 链路日志 -->
+  <div class="obs-tab-panel active" id="tab-traces">
+    <div id="traceContent"></div>
+    <div class="obs-empty" id="traceEmpty" style="display:none">暂无链路日志数据</div>
+    <div class="obs-error" id="traceError" style="display:none"></div>
+  </div>
+
+  <!-- Tab 2: Token 分析 -->
+  <div class="obs-tab-panel" id="tab-tokens">
+    <div class="obs-summary-cards" id="tokenSummary">
+      <div class="obs-stat-card"><div class="obs-stat-val" id="sumSessions">-</div><div class="obs-stat-label">会话数</div></div>
+      <div class="obs-stat-card"><div class="obs-stat-val" id="sumInputTokens">-</div><div class="obs-stat-label">总输入 Token</div></div>
+      <div class="obs-stat-card"><div class="obs-stat-val" id="sumOutputTokens">-</div><div class="obs-stat-label">总输出 Token</div></div>
+      <div class="obs-stat-card"><div class="obs-stat-val" id="sumCost">-</div><div class="obs-stat-label">总费用 (USD)</div></div>
+      <div class="obs-stat-card"><div class="obs-stat-val" id="sumAvgTokens">-</div><div class="obs-stat-label">平均 Token/任务</div></div>
+    </div>
+
     <div class="obs-card">
-      <h3>链路日志（trace_log）</h3>
+      <h3>会话汇总</h3>
       <div class="obs-table-wrap">
-        <table class="obs-table" id="traceTable">
+        <table class="obs-table" id="sessionTable">
           <thead>
             <tr>
-              <th>时间</th><th>agent</th><th>session_id</th><th>task_id</th><th>step</th>
-              <th>event_type</th><th>model</th><th>input</th><th>output</th><th>detail</th>
+              <th>会话 ID</th><th>任务数</th><th style="text-align:right">输入 Token</th><th style="text-align:right">输出 Token</th><th style="text-align:right">费用 USD</th><th>时间范围</th><th>模型</th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
     </div>
+
+    <div class="obs-comparison" id="comparisonSection">
+      <h3>会话对比</h3>
+      <div class="obs-cmp-selects">
+        <select id="compareSessionA"><option value="">-- 选择会话 A --</option></select>
+        <span class="obs-cmp-vs">VS</span>
+        <select id="compareSessionB"><option value="">-- 选择会话 B --</option></select>
+      </div>
+      <div id="comparisonResult"></div>
+    </div>
+
+    <div class="obs-empty" id="tokenEmpty" style="display:none">暂无成本数据</div>
+    <div class="obs-error" id="tokenError" style="display:none"></div>
   </div>
+
+  <!-- Tab 3: 成本日志 -->
+  <div class="obs-tab-panel" id="tab-cost">
+    <div class="obs-card">
+      <h3>成本日志（cost_log）</h3>
+      <div class="obs-table-wrap">
+        <table class="obs-table" id="costTable">
+          <thead>
+            <tr>
+              <th>时间</th><th>session_id</th><th>task_id</th><th>model</th>
+              <th style="text-align:right">input_tokens</th><th style="text-align:right">output_tokens</th><th style="text-align:right">cost_usd</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="obs-empty" id="costEmpty" style="display:none">暂无成本日志数据</div>
+    <div class="obs-error" id="costError" style="display:none"></div>
+  </div>
+
 </div>
 {% endblock %}
 {% block scripts %}
