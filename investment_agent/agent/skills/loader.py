@@ -1,31 +1,23 @@
 from pathlib import Path
 
-from ...config import get_settings, PROJECT_ROOT
 from .base import BaseSkill
 from .markdown_parser import parse_skill_markdown
 from .markdown_skill import MarkdownSkill
 
 # Skill 注册中心
 _registry: dict[str, BaseSkill] = {}
+_skills_dir: Path | None = None
 
 
 def _register(skill: BaseSkill) -> None:
     _registry[skill.name] = skill
 
 
-def _project_root() -> Path:
-    return PROJECT_ROOT
-
-
-def _resolve_skills_directory() -> Path:
-    """解析 Skills 目录路径（支持相对路径，相对于项目根目录）"""
-    settings = get_settings()
-    skills_cfg = settings.get("skills", {}) if isinstance(settings.get("skills", {}), dict) else {}
-    raw_dir = str(skills_cfg.get("directory", "./skills")).strip() or "./skills"
-    path = Path(raw_dir)
-    if not path.is_absolute():
-        path = _project_root() / path
-    return path
+def init_skills_dir(dir_path: Path) -> None:
+    """设置 Skills 目录并执行初始加载。由 app 层在启动时调用。"""
+    global _skills_dir
+    _skills_dir = dir_path
+    reload_skills()
 
 
 def _discover_markdown_files(base_dir: Path) -> list[Path]:
@@ -48,17 +40,13 @@ def _discover_markdown_files(base_dir: Path) -> list[Path]:
 def reload_skills() -> None:
     """清空并重新扫描 Skills 目录，重新加载所有 Skill"""
     _registry.clear()
-    skills_dir = _resolve_skills_directory()
-    for md_file in _discover_markdown_files(skills_dir):
-        try:
-            parsed = parse_skill_markdown(md_file)
-            _register(MarkdownSkill(parsed))
-        except Exception:
-            continue
-
-
-# 启动时自动加载
-reload_skills()
+    if _skills_dir:
+        for md_file in _discover_markdown_files(_skills_dir):
+            try:
+                parsed = parse_skill_markdown(md_file)
+                _register(MarkdownSkill(parsed))
+            except Exception:
+                continue
 
 
 def get_all_skills() -> list[BaseSkill]:

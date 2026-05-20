@@ -1,8 +1,21 @@
+from ...config import get_settings
 from .engine import AgentEngine
 from .models import get_provider
 
 # 全局引擎字典：task_id → AgentEngine，实现并发任务隔离
 _engines: dict[str, AgentEngine] = {}
+
+
+def _resolve_engine_params(agent_cfg: dict | None) -> dict:
+    """合并 agent 级 engine_config 与全局 settings，返回已解析的引擎参数。"""
+    global_cfg = get_settings().get("engine", {})
+    agent_cfg = agent_cfg or {}
+    return {
+        "max_steps": agent_cfg.get("max_steps") or global_cfg.get("max_steps", 30),
+        "slow_think_interval": agent_cfg.get("slow_think_interval") or global_cfg.get("slow_think_interval", 3),
+        "token_budget": agent_cfg.get("token_budget") or global_cfg.get("token_budget", 100000),
+        "loop_detection_threshold": agent_cfg.get("loop_detection_threshold") or global_cfg.get("loop_detection_threshold", 3),
+    }
 
 
 async def create_engine(
@@ -15,13 +28,14 @@ async def create_engine(
 ) -> AgentEngine:
     """为每次对话创建独立的 AgentEngine 实例"""
     provider = await get_provider(provider_name)
+    engine_params = _resolve_engine_params(engine_config)
     engine = AgentEngine(
         session_id=session_id,
         system_prompt=system_prompt,
         provider=provider,
-        engine_config=engine_config,
         temperature=temperature,
         max_tokens=max_tokens,
+        **engine_params,
     )
     _engines[engine.task_id] = engine
     return engine

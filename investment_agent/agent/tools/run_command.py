@@ -1,7 +1,14 @@
 import asyncio
 
-from ...config import PROJECT_ROOT
 from .base import BaseTool
+
+# 项目根目录，由 app 层在启动时注入
+_project_root: str | None = None
+
+
+def set_project_root(path: str) -> None:
+    global _project_root
+    _project_root = path
 
 
 class RunCommandTool(BaseTool):
@@ -34,7 +41,7 @@ class RunCommandTool(BaseTool):
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=str(PROJECT_ROOT),
+                cwd=_project_root or ".",
             )
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=120

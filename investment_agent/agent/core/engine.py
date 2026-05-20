@@ -5,7 +5,6 @@ from collections import Counter
 from datetime import datetime
 from typing import AsyncGenerator, Callable
 
-from ...config import get_settings
 from .models import ModelProvider, LLMResponse, ToolCall
 
 
@@ -17,9 +16,12 @@ class AgentEngine:
         session_id: str,
         system_prompt: str = "",
         provider: ModelProvider | None = None,
-        engine_config: dict | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        max_steps: int = 30,
+        slow_think_interval: int = 3,
+        token_budget: int = 100000,
+        loop_detection_threshold: int = 3,
     ):
         self.session_id = session_id
         self.task_id = str(uuid.uuid4())
@@ -27,19 +29,14 @@ class AgentEngine:
         self.provider = provider
         self.tools: list[dict] = []
         self.tool_handlers: dict[str, Callable] = {}
-        self._interrupt = asyncio.Event()  # 异步中断信号
+        self._interrupt = asyncio.Event()
 
-        # Agent 级 LLM 参数（None 表示使用 provider 默认值）
         self.temperature = temperature
         self.max_tokens = max_tokens
-
-        # Agent 级配置优先，fallback 到全局配置
-        agent_cfg = engine_config or {}
-        global_cfg = get_settings().get("engine", {})
-        self.max_steps: int = agent_cfg.get("max_steps") or global_cfg.get("max_steps", 30)
-        self.slow_think_interval: int = agent_cfg.get("slow_think_interval") or global_cfg.get("slow_think_interval", 3)
-        self.token_budget: int = agent_cfg.get("token_budget") or global_cfg.get("token_budget", 100000)
-        self.loop_threshold: int = agent_cfg.get("loop_detection_threshold") or global_cfg.get("loop_detection_threshold", 3)
+        self.max_steps = max_steps
+        self.slow_think_interval = slow_think_interval
+        self.token_budget = token_budget
+        self.loop_threshold = loop_detection_threshold
 
         self.total_input_tokens = 0
         self.total_output_tokens = 0

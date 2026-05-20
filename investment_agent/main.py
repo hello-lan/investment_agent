@@ -13,6 +13,9 @@ from .app.api.agents import router as agents_router
 from .app.api.skills import router as skills_router
 from .app.api.files import router as files_router
 from .app.api.observability import router as observability_router
+from .agent.skills.loader import init_skills_dir
+from .agent.tools.run_command import set_project_root
+from .config import get_settings
 
 # 项目根目录（investment_agent/ 的上一级）
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -33,12 +36,26 @@ TABS = [
 ]
 
 
+def _resolve_skills_dir() -> Path:
+    """解析 Skills 目录路径（支持相对路径，相对于项目根目录）"""
+    settings = get_settings()
+    skills_cfg = settings.get("skills", {}) if isinstance(settings.get("skills", {}), dict) else {}
+    raw_dir = str(skills_cfg.get("directory", "./skills")).strip() or "./skills"
+    path = Path(raw_dir)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动时初始化数据库和输出目录"""
+    """应用生命周期：启动时初始化数据库、输出目录、Skills、全局依赖"""
     await init_db()
     (OUTPUT_DIR / "reports").mkdir(parents=True, exist_ok=True)
     (OUTPUT_DIR / "charts").mkdir(parents=True, exist_ok=True)
+    # 注入 agent 包所需的全局依赖
+    set_project_root(str(PROJECT_ROOT))
+    init_skills_dir(_resolve_skills_dir())
     yield
 
 
