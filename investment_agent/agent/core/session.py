@@ -1,6 +1,6 @@
 from ...config import get_settings
 from .engine import AgentEngine
-from .models import get_provider
+from .models import ModelProvider
 
 # 全局引擎字典：task_id → AgentEngine，实现并发任务隔离
 _engines: dict[str, AgentEngine] = {}
@@ -21,13 +21,12 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
 async def create_engine(
     session_id: str,
     system_prompt: str = "",
-    provider_name: str | None = None,
+    provider: ModelProvider | None = None,
     engine_config: dict | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
 ) -> AgentEngine:
     """为每次对话创建独立的 AgentEngine 实例"""
-    provider = await get_provider(provider_name)
     engine_params = _resolve_engine_params(engine_config)
     engine = AgentEngine(
         session_id=session_id,

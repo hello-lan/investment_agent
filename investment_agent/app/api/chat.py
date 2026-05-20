@@ -13,34 +13,16 @@ from fastapi.responses import StreamingResponse
 from openpyxl import load_workbook
 from pydantic import BaseModel
 
-from ...agent.context.compressor import compress_messages
 from ...agent.context.manager import ContextManager
 from ...agent.core.session import create_engine, get_engine, interrupt_engine, remove_engine
-from ...agent.skills.loader import get_skill
 from ...agent.tools.registry import get_schemas, get_tool
-from ...config import get_settings, PROJECT_ROOT
+from ...config import get_settings
+from ..config_factory import load_agent_run_config
 from ..db import get_db
 from ..observability.cost_tracker import log_cost
 from ..observability.trace import log_trace
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
-
-# 默认系统提示词，当 Agent 未自定义时使用
-DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
-你可以调用工具获取股票行情、财务报表、估值指标等数据，帮助用户进行基本面分析。
-分析时请做到：数据驱动、逻辑清晰、结论明确。
-最终输出请使用 Markdown 格式。
-
-## 项目路径
-
-PROJECT_ROOT = {PROJECT_ROOT}
-
-## 文件输出规范
-- PDF 财报文件保存到 {PROJECT_ROOT}/data/reports/pdf/{股票代码}/
-- Markdown 分析报告保存到 {PROJECT_ROOT}/data/reports/
-- 图表保存到 {PROJECT_ROOT}/data/reports/charts/
-- 临时文件放到 {PROJECT_ROOT}/data/tmp/
-- 调用 download-a-share-reports 技能下载财报时，必须传递 --save-dir {PROJECT_ROOT}/data/reports/pdf/"""
 
 
 class ChatRequest(BaseModel):
@@ -223,61 +205,22 @@ async def start_chat(request: Request):
         )
         await db.commit()
 
-    # —— 第3步：加载 Agent 配置（系统提示词、模型、Skills）——
-    system_prompt = DEFAULT_SYSTEM_PROMPT
-    model_id = None
-    engine_config: dict | None = None
-    enabled_skill_names: list[str] = []
-    agent_temperature: float | None = None
-    agent_max_tokens: int | None = None
-    if agent_id:
-        async with get_db() as db:
-            row = await db.execute(
-                "SELECT system_prompt, model_id, skills, engine_config, temperature, max_tokens FROM agents WHERE id = ?", (agent_id,)
-            )
-            agent = await row.fetchone()
-            if agent:
-                if agent["system_prompt"]:
-                    system_prompt = agent["system_prompt"]
-                if agent["model_id"]:
-                    model_id = agent["model_id"]
-                if agent["temperature"] is not None:
-                    agent_temperature = agent["temperature"]
-                if agent["max_tokens"] is not None:
-                    agent_max_tokens = agent["max_tokens"]
-                try:
-                    enabled_skill_names = json.loads(agent["skills"] or "[]")
-                except Exception:
-                    enabled_skill_names = []
-                try:
-                    raw_engine = agent["engine_config"]
-                    if isinstance(raw_engine, str) and raw_engine.strip():
-                        engine_config = json.loads(raw_engine)
-                    elif isinstance(raw_engine, dict):
-                        engine_config = raw_engine
-                except Exception:
-                    engine_config = None
-
-    # 将启用的 Skill 正文注入 system prompt
-    if enabled_skill_names:
-        skill_sections = []
-        for name in enabled_skill_names:
-            skill = get_skill(name)
-            if skill:
-                skill_sections.append(
-                    f"## {skill.name}\n目录: {skill.skill_dir}\n\n{skill.body}"
-                )
-        if skill_sections:
-            system_prompt += "\n\n---\n\n# 可用技能\n\n" + "\n\n---\n\n".join(skill_sections)
+    # —— 第3步：加载 Agent 配置（一次性合并 settings.json + agents + models + skills）——
+    config = await load_agent_run_config(agent_id)
 
     # —— 第4步：创建引擎并注册全部工具 ——
     engine = await create_engine(
         session_id=session_id,
-        system_prompt=system_prompt,
-        provider_name=model_id,
-        engine_config=engine_config,
-        temperature=agent_temperature,
-        max_tokens=agent_max_tokens,
+        system_prompt=config.system_prompt,
+        provider=config.provider,
+        engine_config={
+            "max_steps": config.max_steps,
+            "slow_think_interval": config.slow_think_interval,
+            "token_budget": config.token_budget,
+            "loop_detection_threshold": config.loop_detection_threshold,
+        },
+        temperature=config.temperature,
+        max_tokens=config.max_tokens,
     )
 
     for tool in get_schemas():

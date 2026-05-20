@@ -209,37 +209,3 @@ class OpenAICompatProvider(ModelProvider):
             output_tokens=resp.usage.completion_tokens if resp.usage else 0,
             stop_reason="tool_use" if tool_calls else "end_turn",
         )
-
-
-# ── 工厂函数 ────────────────────────────────────────────────────────────────
-
-async def get_provider(model_id: str | None = None) -> ModelProvider:
-    """从数据库 models 表读取配置，创建对应的 ModelProvider 实例"""
-    from ...app.db import get_db
-    async with get_db() as db:
-        if model_id:
-            row = await db.execute("SELECT * FROM models WHERE id = ?", (model_id,))
-        else:
-            row = await db.execute("SELECT * FROM models WHERE is_default = 1 LIMIT 1")
-        cfg = await row.fetchone()
-
-        if not cfg:
-            # 降级：取数据库中第一个模型
-            row = await db.execute("SELECT * FROM models LIMIT 1")
-            cfg = await row.fetchone()
-
-    if not cfg:
-        raise ValueError("No model configured. Please add a model in Settings.")
-
-    if cfg["type"] == "anthropic":
-        provider = ClaudeProvider(api_key=cfg["api_key"], model=cfg["model"])
-    else:
-        provider = OpenAICompatProvider(
-            api_key=cfg["api_key"],
-            model=cfg["model"],
-            base_url=cfg["base_url"] or "https://api.openai.com/v1",
-        )
-    provider._input_price = cfg["input_price"] if cfg["input_price"] is not None else None
-    provider._output_price = cfg["output_price"] if cfg["output_price"] is not None else None
-    provider._currency = cfg["currency"] or "USD"
-    return provider

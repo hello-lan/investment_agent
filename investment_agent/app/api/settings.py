@@ -109,7 +109,7 @@ class TestModelRequest(BaseModel):
 async def test_model(body: TestModelRequest):
     """测试模型连接：发送一个简单请求验证 API Key 和 endpoint 是否可用"""
     try:
-        from ...agent.core.models import get_provider
+        from ..config_factory import get_provider
         provider = await get_provider(body.model_id)
         resp = await provider.chat(
             messages=[{"role": "user", "content": "reply with the single word: ok"}],
