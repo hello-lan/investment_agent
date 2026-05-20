@@ -1,11 +1,51 @@
 import argparse
 import os
+import shutil
+import subprocess
 import sys
 
-from docling.document_converter import DocumentConverter
+
+def _ensure_package(package_name: str):
+    """Auto-install a missing Python package; exit on failure."""
+    try:
+        __import__(package_name)
+        return
+    except ImportError:
+        pass
+
+    print(f"[pdf-to-markdown] 缺少依赖: {package_name}，正在自动安装...")
+
+    uv = shutil.which("uv")
+    if uv:
+        try:
+            subprocess.check_call(
+                [uv, "pip", "install", package_name],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            print(f"[pdf-to-markdown] 安装完成: {package_name}")
+            return
+        except subprocess.CalledProcessError:
+            pass
+
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", package_name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print(f"[pdf-to-markdown] 安装完成: {package_name}")
+        return
+    except Exception:
+        pass
+
+    print(f"[pdf-to-markdown] 自动安装失败，请手动执行: pip install {package_name}")
+    sys.exit(1)
 
 
 def pdf2markdown(src_path: str, target_path: str) -> None:
+    from docling.document_converter import DocumentConverter
+
     converter = DocumentConverter()
     result = converter.convert(src_path)
     markdown_output = result.document.export_to_markdown()
@@ -19,6 +59,8 @@ def main():
     ap.add_argument("pdf", help="待转换的 PDF 文件路径")
     ap.add_argument("-o", "--output", default=None, help="转换结果保存路径（默认与 PDF 同目录同名 .md）")
     args = ap.parse_args()
+
+    _ensure_package("docling")
 
     input_file = args.pdf
     output_file = args.output
