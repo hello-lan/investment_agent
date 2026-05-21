@@ -13,6 +13,9 @@
   .tag-orch { background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; border-radius: 3px; font-size: 10px; padding: 1px 5px; font-weight: 600; }
   .skill-deps-inline { font-size: 12px; color: #999; }
   .empty { text-align: center; color: #999; padding: 40px 0; font-size: 13px; }
+  .skill-legend { font-size: 12px; color: #999; margin-bottom: 12px; line-height: 1.6; }
+  .legend-atomic { color: #999; }
+  .legend-orch { color: #52c41a; font-weight: 600; }
 </style>
 {% endblock %}
 {% block content %}
@@ -20,6 +23,10 @@
   <div class="card">
     <div class="card-header"><h3>Skill 目录</h3></div>
     <div class="card-body">
+      <div class="skill-legend">
+        <span class="legend-atomic">atomic</span> 原子技能：独立执行单一任务（如 PDF 转换、财报切割）<br>
+        <span class="legend-orch">orch</span> 编排技能：串联多个原子技能组成完整工作流，Agent 需先加载 orch 正文再逐步执行子技能
+      </div>
       <table class="skill-table">
         <thead>
           <tr>
