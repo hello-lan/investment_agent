@@ -3,7 +3,8 @@
     "max_steps": 30,
     "slow_think_interval": 3,
     "token_budget": 100000,
-    "loop_detection_threshold": 3
+    "loop_detection_threshold": 3,
+    "skill_body_ttl": 600
   },
   "context": {
     "enabled": true,

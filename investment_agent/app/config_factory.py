@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ..agent.config import AgentRunConfig
 from ..agent.core.models import ClaudeProvider, ModelProvider, OpenAICompatProvider
+from ..agent.skills.cache import get_cache
 from ..agent.skills.loader import get_skill
 from ..config import PROJECT_ROOT, get_settings
 from .db import get_db
@@ -103,7 +104,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
             agent_row = await row.fetchone()
 
     # —— System prompt ——
-    system_prompt = DEFAULT_SYSTEM_PROMPT
+    system_prompt = DEFAULT_SYSTEM_PROMPT.replace("{PROJECT_ROOT}", str(PROJECT_ROOT))
     agent_name = None
     model_id = None
     enabled_skill_names: list[str] = []
@@ -140,17 +141,29 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         except Exception:
             agent_compress_config = None
 
-    # —— 注入 Skill 正文到 system prompt ——
+    # —— 注入 Skill meta 到 system prompt（仅名称+描述，不含 body） ——
     if enabled_skill_names:
-        skill_sections = []
+        skill_lines = []
         for name in enabled_skill_names:
             skill = get_skill(name)
             if skill:
-                skill_sections.append(
-                    f"## {skill.name}\n目录: {skill.skill_dir}\n\n{skill.body}"
+                prefix = "[orch] " if skill.skill_type == "orch" else ""
+                deps_hint = ""
+                if skill.depends_on:
+                    deps_hint = f"（含 {len(skill.depends_on)} 个子流程）"
+                skill_lines.append(
+                    f"- {prefix}**{skill.name}**: {skill.description}{deps_hint}"
                 )
-        if skill_sections:
-            system_prompt += "\n\n---\n\n# 可用技能\n\n" + "\n\n---\n\n".join(skill_sections)
+        if skill_lines:
+            system_prompt += (
+                "\n\n---\n\n# 可用技能\n\n"
+                + "\n".join(skill_lines)
+                + "\n\n> 使用 Skill 工具加载技能完整说明后再执行。"
+            )
+
+    # —— 配置 Skill body 缓存 TTL ——
+    ttl = get_settings().get("engine", {}).get("skill_body_ttl", 600)
+    get_cache().set_ttl(ttl)
 
     # —— Provider ——
     provider = await get_provider(model_id)

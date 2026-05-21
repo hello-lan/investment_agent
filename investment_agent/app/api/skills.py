@@ -14,6 +14,8 @@ async def list_skills():
                 "name": skill.name,
                 "description": skill.description,
                 "tools": skill.tools,
+                "type": skill.skill_type,
+                "depends_on": skill.depends_on,
                 "schema_name": skill.schema.get("name", skill.name),
             }
         )

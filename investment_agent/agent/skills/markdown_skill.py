@@ -10,10 +10,13 @@ class MarkdownSkill(BaseSkill):
         self.name = parsed.name
         self.description = parsed.description
         self.tools = parsed.tools
+        self.skill_type = parsed.skill_type
+        self.depends_on = parsed.depends_on
         self._schema = parsed.schema
         self._entry = parsed.entry
         self._skill_dir = parsed.skill_dir
         self._body = parsed.body
+        self.main_md_path = parsed.main_md_path
 
     @property
     def body(self) -> str:

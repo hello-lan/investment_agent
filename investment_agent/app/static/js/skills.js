@@ -15,9 +15,15 @@ async function loadSkills(){
     tbody.innerHTML = skills.map(s => {
       const name = esc(s.name || '');
       const desc = esc(s.description || '');
+      const typeTag = s.type === 'orch'
+        ? '<span class="tag tag-orch">orch</span> '
+        : '';
+      const depInfo = (s.depends_on && s.depends_on.length)
+        ? ' <span class="skill-deps-inline">(' + s.depends_on.length + ' 个子流程: ' + esc(s.depends_on.join(', ')) + ')</span>'
+        : '';
       return '<tr>' +
-        '<td class="col-name">' + name + '</td>' +
-        '<td class="col-desc">' + desc + '</td>' +
+        '<td class="col-name">' + typeTag + name + '</td>' +
+        '<td class="col-desc">' + desc + depInfo + '</td>' +
         '</tr>';
     }).join('');
   } catch(e) {

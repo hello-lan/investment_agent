@@ -58,9 +58,18 @@ function renderSkillOptions(selected = []) {
   const selectedSet = new Set(selected || []);
   box.innerHTML = availableSkills.map(s => {
     const cls = selectedSet.has(s.name) ? 'skill-item selected' : 'skill-item';
-    return `<div class="${cls}" data-skill="${esc(s.name)}">
+    const typeTag = s.type === 'orch'
+      ? '<span class="skill-type-tag orch">orch</span>'
+      : '';
+    const depInfo = (s.depends_on && s.depends_on.length)
+      ? `<span class="skill-deps">含 ${s.depends_on.length} 个子流程: ${esc(s.depends_on.join(', '))}</span>`
+      : '';
+    return `<div class="${cls}" data-skill="${esc(s.name)}" data-type="${esc(s.type||'atomic')}">
       <span class="skill-mark">&#10003;</span>
-      <span>${esc(s.name)}</span>
+      <div class="skill-item-text">
+        <span>${typeTag}${esc(s.name)}</span>
+        ${depInfo}
+      </div>
     </div>`;
   }).join('');
 }

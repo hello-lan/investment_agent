@@ -6,6 +6,7 @@ from .financials import (
     ValuationTool, FinancialIndicatorTool,
 )
 from .run_command import RunCommandTool
+from ..skills.tool import SkillTool
 
 # 工具注册中心：单例字典存储所有已注册工具
 _registry: dict[str, BaseTool] = {}
@@ -16,6 +17,7 @@ def _register(tool: BaseTool) -> None:
 
 
 # —— 启动时注册所有内置工具 ——
+_register(SkillTool())
 _register(StockInfoTool())
 _register(StockPriceTool())
 # 注释原因：这两个工具依赖 eastmoney.com API，当前网络环境下代理无法连通

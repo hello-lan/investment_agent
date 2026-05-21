@@ -8,6 +8,8 @@ class ParsedSkill:
     name: str
     description: str
     tools: list[str]
+    skill_type: str       # "atomic" | "orch"，默认 "atomic"
+    depends_on: list[str] # orch skill 依赖的原子 skill 名称列表
     schema: dict
     entry: str | None  # 入口脚本路径（相对于 skill 目录）
     skill_dir: Path
@@ -90,6 +92,13 @@ def _default_schema(name: str, description: str) -> dict:
     }
 
 
+def load_skill_body(md_path: Path) -> str:
+    """仅加载 SKILL.md 的 body 部分（跳过 frontmatter 重新解析）。"""
+    content = md_path.read_text(encoding="utf-8")
+    _, body = _parse_frontmatter(content)
+    return body
+
+
 def parse_skill_markdown(md_path: Path) -> ParsedSkill:
     """解析 SKILL.md 文件，返回 ParsedSkill 数据结构"""
     content = md_path.read_text(encoding="utf-8")
@@ -103,6 +112,14 @@ def parse_skill_markdown(md_path: Path) -> ParsedSkill:
     tools = meta.get("tools", [])
     if not isinstance(tools, list):
         tools = []
+
+    skill_type = str(meta.get("type", "atomic")).strip()
+    if skill_type not in ("atomic", "orch"):
+        skill_type = "atomic"
+
+    depends_on = meta.get("depends_on", [])
+    if not isinstance(depends_on, list):
+        depends_on = []
 
     schema = meta.get("schema")
     if not isinstance(schema, dict):
@@ -132,6 +149,8 @@ def parse_skill_markdown(md_path: Path) -> ParsedSkill:
         name=name,
         description=description,
         tools=[str(t) for t in tools],
+        skill_type=skill_type,
+        depends_on=[str(d) for d in depends_on],
         schema=schema,
         entry=entry,
         skill_dir=md_path.parent,

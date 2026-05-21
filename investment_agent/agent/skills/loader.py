@@ -1,8 +1,12 @@
+import logging
 from pathlib import Path
 
 from .base import BaseSkill
+from .dependency import validate_dependencies
 from .markdown_parser import parse_skill_markdown
 from .markdown_skill import MarkdownSkill
+
+logger = logging.getLogger(__name__)
 
 # Skill 注册中心
 _registry: dict[str, BaseSkill] = {}
@@ -48,6 +52,9 @@ def reload_skills() -> None:
             except Exception:
                 continue
 
+    for warning in validate_dependencies(_registry):
+        logger.warning("Skill dependency: %s", warning)
+
 
 def get_all_skills() -> list[BaseSkill]:
     reload_skills()
@@ -55,6 +62,8 @@ def get_all_skills() -> list[BaseSkill]:
 
 
 def get_skill(name: str) -> BaseSkill | None:
+    if not _registry and _skills_dir:
+        reload_skills()
     return _registry.get(name)
 
 
