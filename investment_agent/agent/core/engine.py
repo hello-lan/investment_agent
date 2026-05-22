@@ -48,7 +48,7 @@ class AgentEngine:
 
         self._orch_dependencies: set[str] = set()  # orch skill 的子技能名称集合
         self._messages: list[dict] = []             # 当前步骤的消息列表快照
-        self._pending_events: list[dict] = []       # 子Agent进度事件缓冲
+        self._subagent_queue: asyncio.Queue | None = None  # 子Agent实时事件队列
 
     def register_tool(self, schema: dict, handler: Callable) -> None:
         """注册工具：schema 给 LLM 看，handler 执行实际逻辑"""
@@ -90,7 +90,7 @@ class AgentEngine:
                 yield {"type": "context_trim", "step": step}
 
             # —— 慢思考：每 N 步触发一次全局复盘 ——
-            if step > 1 and step % self.slow_think_interval == 0:
+            if self.slow_think_interval > 0 and step > 1 and step % self.slow_think_interval == 0:
                 reflection = await self._do_slow_think(messages, step)
                 if reflection:
                     yield {"type": "slow_think", "content": reflection}
@@ -196,10 +196,21 @@ class AgentEngine:
                 yield {"type": "tool_call", "tool": tc.name, "input": tc.input}
                 t0 = time.monotonic()
                 result = await self._execute_tool(tc)
+                # 子Agent在后台运行时，实时转发其进度事件
+                if result is None:
+                    while self._subagent_queue is not None:
+                        event = await self._subagent_queue.get()
+                        if event["type"] == "__subagent_done__":
+                            result = event["result"]
+                            self._subagent_queue = None
+                            break
+                        elif event["type"] == "__subagent_error__":
+                            result = f"子任务执行错误: {event['message']}"
+                            self._subagent_queue = None
+                            break
+                        else:
+                            yield event
                 duration_ms = int((time.monotonic() - t0) * 1000)
-                # 透传子Agent进度事件
-                while self._pending_events:
-                    yield self._pending_events.pop(0)
                 yield {"type": "tool_result", "tool": tc.name, "output": result, "duration_ms": duration_ms}
                 tool_results.append({
                     "type": "tool_result",
@@ -213,12 +224,13 @@ class AgentEngine:
         else:
             yield {"type": "error", "message": f"Max steps ({self.max_steps}) reached."}
 
-    async def _execute_tool(self, tc: ToolCall) -> str:
+    async def _execute_tool(self, tc: ToolCall) -> str | None:
         # —— 透明 SubAgent：orch 依赖的子技能在隔离引擎中执行 ——
         if tc.name == "Skill":
             skill_name = tc.input.get("name", "")
             if skill_name in self._orch_dependencies:
-                return await self._run_skill_in_subagent(skill_name)
+                self._start_subagent(skill_name)
+                return None  # 信号：子Agent在后台运行，主循环需轮询 _subagent_queue
 
         handler = self.tool_handlers.get(tc.name)
         if not handler:
@@ -239,29 +251,34 @@ class AgentEngine:
         except Exception as e:
             return f"Tool error: {e}"
 
-    async def _run_skill_in_subagent(self, skill_name: str) -> str:
-        """在隔离引擎中执行子技能，仅返回最终结果。"""
+    def _start_subagent(self, skill_name: str) -> None:
+        """启动子Agent后台任务，事件通过 _subagent_queue 实时转发。"""
+        queue: asyncio.Queue = asyncio.Queue()
+        self._subagent_queue = queue
+        asyncio.ensure_future(self._run_subagent_task(skill_name, queue))
+
+    async def _run_subagent_task(self, skill_name: str, queue: asyncio.Queue) -> None:
+        """子Agent后台任务：运行隔离引擎，事件入队，完成/错误时发哨兵事件。"""
         from ..skills.loader import get_skill
         from ..skills.cache import get_cache
         from ..tools.run_command import RunCommandTool
 
         skill = get_skill(skill_name)
         if not skill:
-            return f"Skill '{skill_name}' not found."
+            await queue.put({"type": "__subagent_error__", "message": f"Skill '{skill_name}' not found."})
+            return
 
         cache = get_cache()
         body = cache.get(skill_name, skill.main_md_path, skill.skill_dir)
 
         # 构造子Agent消息（不含原始用户请求，避免子Agent误判任务范围）
         sub_messages: list[dict] = []
-        # 提取最近 assistant 消息中的步骤上下文（含文件路径、参数）
         for m in reversed(self._messages):
             if m.get("role") == "assistant":
                 text = self._extract_text_from_content(m.get("content", ""))
                 if text.strip():
                     sub_messages.append({"role": "user", "content": text})
                 break
-        # 明确子Agent角色和约束
         sub_messages.append({"role": "user", "content": (
             "你是一个子Agent，负责执行上述步骤。\n\n"
             "关键规则：\n"
@@ -284,21 +301,26 @@ class AgentEngine:
         sub.register_tool(run_tool.schema, run_tool.run)
 
         result_text = ""
-        async for event in sub.run(sub_messages):
-            if event["type"] == "text_delta":
-                result_text += event["content"]
-            elif event["type"] in ("tool_call", "tool_result"):
-                self._pending_events.append({
-                    "type": f"sub_{event['type']}",
-                    "tool": event.get("tool", ""),
-                    "input": str(event.get("input", "")),
-                    "output": str(event.get("output", "")),
-                    "duration_ms": event.get("duration_ms", 0),
-                })
-            elif event["type"] == "error":
-                return f"子任务执行错误: {event['message']}"
-            elif event["type"] == "done":
-                break
+        try:
+            async for event in sub.run(sub_messages):
+                if event["type"] == "text_delta":
+                    result_text += event["content"]
+                elif event["type"] in ("tool_call", "tool_result"):
+                    await queue.put({
+                        "type": f"sub_{event['type']}",
+                        "tool": event.get("tool", ""),
+                        "input": str(event.get("input", "")),
+                        "output": str(event.get("output", "")),
+                        "duration_ms": event.get("duration_ms", 0),
+                    })
+                elif event["type"] == "error":
+                    await queue.put({"type": "__subagent_error__", "message": event["message"]})
+                    return
+                elif event["type"] == "done":
+                    break
+        except Exception as e:
+            await queue.put({"type": "__subagent_error__", "message": str(e)})
+            return
 
         # 子引擎 token 计入主引擎
         self.total_input_tokens += sub.total_input_tokens
@@ -306,7 +328,10 @@ class AgentEngine:
         self.total_cache_read_tokens += sub.total_cache_read_tokens
         self.total_cache_creation_tokens += sub.total_cache_creation_tokens
 
-        return result_text.strip() or "(子任务完成，无文本输出)"
+        await queue.put({
+            "type": "__subagent_done__",
+            "result": result_text.strip() or "(子任务完成，无文本输出)",
+        })
 
     @staticmethod
     def _extract_text_from_content(content) -> str:
