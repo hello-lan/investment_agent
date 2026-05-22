@@ -77,6 +77,7 @@ class AgentRunner:
             slow_think_interval=config.slow_think_interval,
             token_budget=config.token_budget,
             loop_detection_threshold=config.loop_detection_threshold,
+            context_trim_interval=config.context_trim_interval,
         )
 
         # 4. 注册全部工具

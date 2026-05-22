@@ -37,6 +37,7 @@ class AgentRunConfig:
     slow_think_interval: int = 3
     token_budget: int = 100000
     loop_detection_threshold: int = 3
+    context_trim_interval: int = 0
 
     # ── 上下文参数 ──
     context: dict = field(default_factory=dict)

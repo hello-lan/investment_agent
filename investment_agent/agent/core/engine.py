@@ -23,6 +23,7 @@ class AgentEngine:
         slow_think_interval: int = 3,
         token_budget: int = 100000,
         loop_detection_threshold: int = 3,
+        context_trim_interval: int = 0,
     ):
         self.session_id = session_id
         self.task_id = str(uuid.uuid4())
@@ -38,6 +39,7 @@ class AgentEngine:
         self.slow_think_interval = slow_think_interval
         self.token_budget = token_budget
         self.loop_threshold = loop_detection_threshold
+        self.context_trim_interval = context_trim_interval  # 0 = disabled
 
         self.total_input_tokens = 0
         self.total_output_tokens = 0
@@ -77,10 +79,19 @@ class AgentEngine:
             step += 1
             yield {"type": "step_start", "step": step}
 
+            # —— 运行时上下文整理：每 N 步裁剪旧消息 ——
+            if self.context_trim_interval > 0 and step > 1 and step % self.context_trim_interval == 0:
+                messages = self._trim_context(messages, step)
+                yield {"type": "context_trim", "step": step}
+
             # —— 慢思考：每 N 步触发一次全局复盘 ——
             if step > 1 and step % self.slow_think_interval == 0:
-                async for event in self._slow_think(messages, step):
-                    yield event
+                reflection = await self._do_slow_think(messages, step)
+                if reflection:
+                    yield {"type": "slow_think", "content": reflection}
+                    messages.append(
+                        {"role": "user", "content": f"[慢思考反思 @ step {step}] {reflection}"}
+                    )
 
             # —— 快循环：LLM 推理 ——
             try:
@@ -139,7 +150,7 @@ class AgentEngine:
                 if response.reasoning_content or response.extra_blocks:
                     assistant_blocks = []
                     if response.reasoning_content:
-                        assistant_blocks.append({"type": "reasoning", "content": response.reasoning_content})
+                        assistant_blocks.append({"type": "reasoning", "content": self._truncate_reasoning(response.reasoning_content)})
                     assistant_blocks.extend(response.extra_blocks)
                     if response.content:
                         assistant_blocks.append({"type": "text", "text": response.content})
@@ -151,7 +162,7 @@ class AgentEngine:
             # 有工具调用 → 构造 assistant 消息并执行工具
             assistant_content = []
             if response.reasoning_content:
-                assistant_content.append({"type": "reasoning", "content": response.reasoning_content})
+                assistant_content.append({"type": "reasoning", "content": self._truncate_reasoning(response.reasoning_content)})
             if response.extra_blocks:
                 assistant_content.extend(response.extra_blocks)
             if response.content:
@@ -204,7 +215,147 @@ class AgentEngine:
         except Exception as e:
             return f"Tool error: {e}"
 
-    async def _slow_think(self, messages: list[dict], step: int) -> AsyncGenerator[dict, None]:
+    def _trim_context(self, messages: list[dict], current_step: int, keep_recent: int = 5) -> list[dict]:
+        """运行时上下文裁剪：保留最近 N 轮对话，旧消息剥离 reasoning 并截断 tool_result。
+
+        "一轮" = 一条 assistant 消息 + 其后的一条 user(tool_result) 消息。
+        messages[0]（原始用户问题）始终完整保留。
+        """
+        if len(messages) <= 1:
+            return messages
+
+        # 从尾部向前数 keep_recent 个 assistant 消息，标记保留边界
+        assistant_indices = [
+            i for i, m in enumerate(messages) if m.get("role") == "assistant"
+        ]
+        if len(assistant_indices) <= keep_recent:
+            return messages
+
+        # retain_from 及之后的消息完整保留（含对应的 user 消息）
+        retain_from = assistant_indices[-(keep_recent)]
+
+        trimmed = []
+        for i, msg in enumerate(messages):
+            if i == 0 or i >= retain_from:
+                # 原始用户问题 + 最近 N 轮：完整保留
+                trimmed.append(msg)
+                continue
+
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+
+            if role == "assistant" and isinstance(content, list):
+                new_blocks = []
+                for block in content:
+                    if block.get("type") == "reasoning":
+                        # 剥离旧 reasoning，保留占位标记
+                        new_blocks.append(
+                            {"type": "reasoning", "content": "[推理过程已压缩]"}
+                        )
+                    else:
+                        new_blocks.append(block)
+                trimmed.append({"role": "assistant", "content": new_blocks})
+
+            elif role == "user" and isinstance(content, list):
+                new_blocks = []
+                for block in content:
+                    b = dict(block)
+                    if block.get("type") == "tool_result":
+                        tool_name = self._guess_tool_name(block, messages, i)
+                        raw = str(block.get("content", ""))
+                        if tool_name == "Skill":
+                            b["content"] = self._truncate_text(raw, 500)
+                        elif tool_name == "run_command":
+                            b["content"] = self._truncate_text(raw, 300)
+                        else:
+                            b["content"] = self._truncate_text(raw, 800)
+                    new_blocks.append(b)
+                trimmed.append({"role": "user", "content": new_blocks})
+
+            else:
+                trimmed.append(msg)
+
+        return trimmed
+
+    @staticmethod
+    def _guess_tool_name(block: dict, messages: list[dict], msg_idx: int) -> str | None:
+        """通过 tool_use_id 反查工具名称。"""
+        tool_id = block.get("tool_use_id", "")
+        if not tool_id:
+            return None
+        # 向前查找最近的 assistant 消息中的 tool_use
+        for i in range(msg_idx - 1, -1, -1):
+            m = messages[i]
+            if m.get("role") != "assistant":
+                continue
+            content = m.get("content", [])
+            if not isinstance(content, list):
+                continue
+            for b in content:
+                if b.get("type") == "tool_use" and b.get("id") == tool_id:
+                    return b.get("name")
+        return None
+
+    def _extract_role_from_system(self) -> str:
+        """从 system_prompt 中提取角色定义（第一段），用于慢思考的精简 system。
+
+        截取到第一个 ``\n\n`` 或 ``##`` 标记为止，最多 200 字符。
+        """
+        prompt = self.system_prompt or ""
+        if isinstance(prompt, list):
+            # Anthropic cache_control 格式：取第一个 text block
+            for block in prompt:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    prompt = block.get("text", "")
+                    break
+            else:
+                return "请基于对话历史评估当前任务进展是否正常。"
+
+        # 截取到第一个段落分隔符或 Markdown 标题
+        for marker in ("\n\n", "\n##", "\n# "):
+            idx = prompt.find(marker)
+            if idx != -1:
+                prompt = prompt[:idx]
+                break
+
+        prompt = prompt.strip()
+        if len(prompt) > 200:
+            prompt = prompt[:200].rsplit("。", 1)[0] + "。"
+        return prompt + " 请基于对话历史评估当前任务进展是否正常。"
+
+    @staticmethod
+    def _truncate_text(text: str, max_chars: int) -> str:
+        if len(text) <= max_chars:
+            return text
+        return text[:max_chars] + "\n...[已截断]"
+
+    @staticmethod
+    def _truncate_reasoning(content: str, max_chars: int = 300) -> str:
+        """截断推理内容：短于 max_chars 完整保留，否则保留首尾各一半。"""
+        if len(content) <= max_chars:
+            return content
+        half = max_chars // 2
+        return content[:half] + "\n...[推理已截断]...\n" + content[-half:]
+
+    async def _do_slow_think(self, messages: list[dict], step: int) -> str | None:
+        """慢思考：仅发送最近消息 + 精简 system prompt，检查是否跑偏。
+
+        返回反思文本供调用方注入 messages，实现真正的课程纠正。
+        """
+        import logging
+        _log = logging.getLogger(__name__)
+
+        # 构建精简消息列表：原始用户问题 + 最近 5 轮
+        slim_messages = [messages[0]]  # 原始用户问题
+        # 从尾部取最近 5 条 assistant 消息及其后的 tool_result
+        assistant_positions = [
+            i for i, m in enumerate(messages) if m.get("role") == "assistant"
+        ]
+        keep_from = assistant_positions[-(5)] if len(assistant_positions) >= 5 else (
+            assistant_positions[0] if assistant_positions else 0
+        )
+        slim_messages.extend(messages[keep_from:])
+
         prompt = (
             f"[慢思考 @ step {step}] 请简要评估：\n"
             "1. 当前进度是否符合目标？\n"
@@ -212,15 +363,28 @@ class AgentEngine:
             "3. 是否存在风险或偏离？\n"
             "请用1-3句话回答，不要调用工具。"
         )
-        think_messages = messages + [{"role": "user", "content": prompt}]
+        slim_messages.append({"role": "user", "content": prompt})
+
+        # 精简 system prompt：从实际 system_prompt 中提取角色定义（第一段或前200字符）
+        minimal_system = self._extract_role_from_system()
+
         try:
-            think_kwargs: dict = {"messages": think_messages, "system": self.system_prompt}
+            think_kwargs: dict = {
+                "messages": self.provider._convert_messages(slim_messages),
+                "system": minimal_system,
+            }
             if self.temperature is not None:
                 think_kwargs["temperature"] = self.temperature
             if self.max_tokens is not None:
-                think_kwargs["max_tokens"] = self.max_tokens
+                think_kwargs["max_tokens"] = min(self.max_tokens, 512)
+            else:
+                think_kwargs["max_tokens"] = 512
             resp = await self.provider.chat(**think_kwargs)
+            self.total_input_tokens += resp.input_tokens
+            self.total_output_tokens += resp.output_tokens
             if resp.content:
-                yield {"type": "slow_think", "content": resp.content}
+                return resp.content.strip()
         except Exception:
-            pass
+            _log.warning("Slow think failed at step %d", step, exc_info=True)
+
+        return None

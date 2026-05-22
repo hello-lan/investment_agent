@@ -1,10 +1,11 @@
 {
   "engine": {
     "max_steps": 30,
-    "slow_think_interval": 3,
+    "slow_think_interval": 5,
     "token_budget": 100000,
     "loop_detection_threshold": 3,
-    "skill_body_ttl": 600
+    "skill_body_ttl": 600,
+    "context_trim_interval": 5
   },
   "context": {
     "enabled": true,
@@ -23,7 +24,7 @@
       "trigger_after_messages": 25
     },
     "caching": {
-      "enabled": false
+      "enabled": true
     }
   },
   "skills": {
