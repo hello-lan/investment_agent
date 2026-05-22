@@ -55,16 +55,24 @@ class ObservabilityHooks:
         )
 
     async def on_context_budget(self, context_result: Any) -> None:
+        detail = {
+            "system_prompt": context_result.system_prompt,
+            "tools": context_result.tools,
+            "system_tokens": context_result.system_tokens,
+            "tools_tokens": context_result.tools_tokens,
+            "messages_tokens": context_result.messages_tokens,
+            "total_tokens": context_result.total_tokens,
+            "model_max": context_result.model_max_tokens,
+            "warnings": context_result.warnings,
+        }
+        if context_result.did_summarize:
+            detail["did_summarize"] = True
+            detail["summary_tokens"] = context_result.summary_tokens
+            detail["new_summary"] = context_result.new_summary
+
         await log_trace(
             self.session_id, self.task_id, None, "context_budget",
-            {
-                "system_tokens": context_result.system_tokens,
-                "tools_tokens": context_result.tools_tokens,
-                "messages_tokens": context_result.messages_tokens,
-                "total_tokens": context_result.total_tokens,
-                "model_max": context_result.model_max_tokens,
-                "warnings": context_result.warnings,
-            },
+            detail,
             agent_name=self.agent_name,
         )
 

@@ -6,11 +6,10 @@ from ..db import get_db
 
 
 def _safe_detail(detail: dict | None) -> str:
-    """将 detail 字典序列化为 JSON 字符串，截断到 2000 字符"""
+    """将 detail 字典序列化为 JSON 字符串"""
     if not detail:
         return "{}"
-    text = json.dumps(detail, ensure_ascii=False)
-    return text[:2000]
+    return json.dumps(detail, ensure_ascii=False)
 
 
 async def log_trace(

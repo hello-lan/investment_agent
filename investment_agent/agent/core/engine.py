@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import uuid
 from collections import Counter
 from datetime import datetime
@@ -83,6 +84,11 @@ class AgentEngine:
 
             # —— 快循环：LLM 推理 ——
             try:
+                yield {
+                    "type": "llm_request",
+                    "step": step,
+                    "messages": messages,
+                }
                 chat_kwargs: dict = {
                     "messages": self.provider._convert_messages(messages),
                     "system": self.system_prompt,
@@ -102,6 +108,18 @@ class AgentEngine:
             self.total_cache_read_tokens += response.cache_read_tokens
             self.total_cache_creation_tokens += response.cache_creation_tokens
 
+            yield {
+                "type": "llm_response",
+                "step": step,
+                "input_tokens": response.input_tokens,
+                "output_tokens": response.output_tokens,
+                "cache_read_tokens": response.cache_read_tokens,
+                "cache_creation_tokens": response.cache_creation_tokens,
+                "content": response.content or "",
+                "reasoning": response.reasoning_content or "",
+                "tool_calls": [{"name": tc.name, "input": tc.input} for tc in (response.tool_calls or [])],
+            }
+
             # 输出文本增量
             if response.content:
                 yield {"type": "text_delta", "content": response.content}
@@ -113,6 +131,8 @@ class AgentEngine:
                     "usage": {
                         "input_tokens": self.total_input_tokens,
                         "output_tokens": self.total_output_tokens,
+                        "cache_read_tokens": self.total_cache_read_tokens,
+                        "cache_creation_tokens": self.total_cache_creation_tokens,
                     },
                 }
                 # 构造 assistant 消息（兼容 Anthropic 的 content block 格式）
@@ -147,15 +167,21 @@ class AgentEngine:
             recent_tool_calls = recent_tool_calls[-self.loop_threshold * 2:]  # 保持滑动窗口
             counts = Counter(loop_candidates[-self.loop_threshold:])
             if counts and counts.most_common(1)[0][1] >= self.loop_threshold:
-                yield {"type": "error", "message": f"Dead loop detected: '{counts.most_common(1)[0][0]}' called {self.loop_threshold} times in a row."}
+                yield {
+                    "type": "error",
+                    "message": f"Dead loop detected: '{counts.most_common(1)[0][0]}' called {self.loop_threshold} times in a row.",
+                    "recent_tool_calls": list(recent_tool_calls),
+                }
                 break
 
             # —— 执行工具 ——
             tool_results = []
             for tc in response.tool_calls:
                 yield {"type": "tool_call", "tool": tc.name, "input": tc.input}
+                t0 = time.monotonic()
                 result = await self._execute_tool(tc)
-                yield {"type": "tool_result", "tool": tc.name, "output": result}
+                duration_ms = int((time.monotonic() - t0) * 1000)
+                yield {"type": "tool_result", "tool": tc.name, "output": result, "duration_ms": duration_ms}
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": tc.id,

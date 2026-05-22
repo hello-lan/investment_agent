@@ -163,11 +163,33 @@ class AgentRunner:
                 # 每个事件触发 trace hook
                 if hooks and hasattr(hooks, "on_event"):
                     trace_detail: dict | None = None
-                    if event_type == "tool_call":
+                    if event_type == "llm_request":
+                        trace_detail = {"messages": event.get("messages")}
+                    elif event_type == "llm_response":
+                        trace_detail = {
+                            "input_tokens": event.get("input_tokens"),
+                            "output_tokens": event.get("output_tokens"),
+                            "cache_read_tokens": event.get("cache_read_tokens"),
+                            "cache_creation_tokens": event.get("cache_creation_tokens"),
+                            "content": event.get("content"),
+                            "reasoning": event.get("reasoning"),
+                            "tool_calls": event.get("tool_calls"),
+                        }
+                    elif event_type == "tool_call":
                         trace_detail = {"tool": event.get("tool"), "input": event.get("input")}
                     elif event_type == "tool_result":
-                        trace_detail = {"tool": event.get("tool"), "output": str(event.get("output", ""))[:500]}
-                    elif event_type in ("error", "slow_think"):
+                        trace_detail = {
+                            "tool": event.get("tool"),
+                            "output": str(event.get("output", ""))[:500],
+                            "duration_ms": event.get("duration_ms"),
+                        }
+                    elif event_type == "done":
+                        trace_detail = {"usage": event.get("usage")}
+                    elif event_type == "error":
+                        trace_detail = {"message": event.get("message")}
+                        if event.get("recent_tool_calls"):
+                            trace_detail["recent_tool_calls"] = event["recent_tool_calls"]
+                    elif event_type == "slow_think":
                         trace_detail = {"message": event.get("message") or event.get("content")}
                     await hooks.on_event(last_step or None, event_type, trace_detail)
 

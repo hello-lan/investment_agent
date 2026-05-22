@@ -1,3 +1,11 @@
+// ── Debug: script loaded indicator ──
+console.log('[DEBUG] observability.js loaded, version: 2026-05-22-v3');
+
+// ── Global error handler ──
+window.addEventListener('error', function(e) {
+  console.error('[DEBUG] Global error:', e.message, e.filename, e.lineno, e.colno, e.error);
+});
+
 // ── Utils ──
 
 function esc(s) {
@@ -43,6 +51,7 @@ var EVT_CATEGORY = {
   tool_call: 'tool', tool_result: 'tool',
   text_delta: 'engine', slow_think: 'engine', done: 'engine',
   error: 'engine', interrupted: 'engine',
+  llm_request: 'llm', llm_response: 'llm',
   context_budget: 'system', cache_metrics: 'system'
 };
 
@@ -161,6 +170,9 @@ async function loadTraces() {
       elEmpty.style.display = 'none';
       if (!rows.length) { elEmpty.style.display = ''; return; }
       var html = buildAllTracesHtml(rows);
+      console.log('[DEBUG] loadTraces: generated HTML length:', html.length);
+      console.log('[DEBUG] loadTraces: has obs-accordion:', html.indexOf('obs-accordion') !== -1);
+      console.log('[DEBUG] loadTraces: has toggleAcc:', html.indexOf('toggleAcc') !== -1);
       elContent.innerHTML = html;
       updateLastTraceTime(rows);
     }
@@ -269,21 +281,22 @@ function buildSessionAccordion(sessionId, taskMap) {
   var tFirst = times[0], tLast = times[times.length - 1];
 
   var html = '<div class="obs-accordion" data-sid="' + esc(sessionId) + '">';
-  html += '<div class="obs-acc-header session-level" onclick="toggleAcc(this)">';
-  html += '<span class="obs-arrow">▶</span>';
+  html += '<div class="obs-acc-header">';
+  html += '<span class="obs-arrow">▸</span>';
   html += '<span class="obs-session-id" title="' + esc(sessionId) + '">' + esc(shortId(sessionId)) + '</span>';
-  html += '<span class="obs-session-meta">';
-  html += '<span class="obs-meta-tasks">📋 ' + tasks.length + ' 个任务</span>';
-  if (totalIn != null) html += '<span class="obs-meta-in">🔤 输入 ' + formatNum(totalIn) + '</span>';
-  if (totalOut != null) html += '<span class="obs-meta-out">🔤 输出 ' + formatNum(totalOut) + '</span>';
-  html += '<span class="obs-meta-time">📅 ' + formatTime(tFirst) + ' ~ ' + formatTime(tLast) + '</span>';
+  html += '<div class="obs-session-meta">';
+  if (agentName) html += '<span class="obs-badge" style="background:#f0fdf4;color:#166534;">' + esc(agentName) + '</span>';
   if (model) html += '<span class="obs-badge obs-badge-model">' + esc(model) + '</span>';
-  if (agentName) html += '<span class="obs-badge" style="background:#e8eaf6;color:#3949ab;">' + esc(agentName) + '</span>';
-  html += '</span></div>';
+  html += '<span class="obs-meta-tasks">📋 <b>' + tasks.length + '</b> 个任务</span>';
+  if (totalIn != null) html += '<span class="obs-meta-in">🔤 输入 <b>' + formatNum(totalIn) + '</b></span>';
+  if (totalOut != null) html += '<span class="obs-meta-out">🔤 输出 <b>' + formatNum(totalOut) + '</b></span>';
+  html += '<span class="obs-meta-spacer"></span>';
+  html += '<span class="obs-meta-time">📅 ' + formatTime(tFirst) + ' ~ ' + formatTime(tLast) + '</span>';
+  html += '</div></div>';
 
-  html += '<div class="obs-acc-body"><div style="padding:4px 0;">';
+  html += '<div class="obs-acc-body">';
   tasks.forEach(function(steps) { html += renderTaskAccordion(steps); });
-  html += '</div></div></div>';
+  html += '</div></div>';
   return html;
 }
 
@@ -297,15 +310,11 @@ function groupTraces(rows) {
     if (!session.tasks.has(tid)) session.tasks.set(tid, []);
     session.tasks.get(tid).push(r);
   });
-  // Sort steps within each task
+  // Sort steps within each task by created_at descending (newest first)
   sessions.forEach(function(session) {
     session.tasks.forEach(function(steps) {
       steps.sort(function(a, b) {
-        var sa = a.step, sb = b.step;
-        if (sa == null && sb == null) return String(a.created_at || '').localeCompare(String(b.created_at || ''));
-        if (sa == null) return -1;
-        if (sb == null) return 1;
-        return sa - sb;
+        return String(b.created_at || '').localeCompare(String(a.created_at || ''));
       });
     });
   });
@@ -334,19 +343,20 @@ function renderTaskAccordion(steps) {
 
   // Time range
   var times = steps.map(function(s) { return s.created_at; }).filter(Boolean).sort();
-  var tFirst = times[0], tLast = times[times.length - 1];
+  var tFirst = times[0];
 
   var html = '<div class="obs-accordion" data-tid="' + esc(taskId) + '">';
-  html += '<div class="obs-acc-header task-level" onclick="toggleAcc(this)">';
-  html += '<span class="obs-arrow">▶</span>';
+  html += '<div class="obs-acc-header task-level">';
+  html += '<span class="obs-arrow">▸</span>';
   html += '<span class="obs-task-id" title="' + esc(taskId) + '">' + esc(shortId(taskId)) + '</span>';
-  html += '<span class="obs-task-meta">';
-  if (model) html += '<span>模型 ' + esc(model) + '</span>';
-  if (inTok != null) html += '<span>输入 ' + formatNum(inTok) + '</span>';
-  if (outTok != null) html += '<span>输出 ' + formatNum(outTok) + '</span>';
-  html += '<span>' + steps.length + ' 个事件</span>';
-  html += '<span>📅 ' + formatTime(tFirst) + '</span>';
-  html += '</span></div>';
+  html += '<div class="obs-task-meta">';
+  if (model) html += '<span style="color:#777;">模型 <b style="color:#555;">' + esc(model) + '</b></span>';
+  if (inTok != null) html += '<span style="color:#777;">输入 <b style="color:#555;">' + formatNum(inTok) + '</b></span>';
+  if (outTok != null) html += '<span style="color:#777;">输出 <b style="color:#555;">' + formatNum(outTok) + '</b></span>';
+  html += '<span style="color:#777;">' + steps.length + ' 个事件</span>';
+  html += '<span class="obs-meta-spacer"></span>';
+  html += '<span style="font-size:11px;color:#aaa;">📅 ' + formatFullTime(tFirst) + '</span>';
+  html += '</div></div>';
 
   html += '<div class="obs-acc-body">';
   html += ctxCard;
@@ -378,15 +388,18 @@ function renderContextBudget(detailJson) {
   var tools = d.tools_tokens != null ? formatNum(d.tools_tokens) : '-';
   var msgs = d.messages_tokens != null ? formatNum(d.messages_tokens) : '-';
   var total = d.total_tokens != null ? formatNum(d.total_tokens) : '-';
-  var maxT = d.model_max_tokens != null ? formatNum(d.model_max_tokens) : '-';
+  var maxT = d.model_max != null ? formatNum(d.model_max) : '-';
   var warnings = Array.isArray(d.warnings) ? d.warnings : [];
 
   var html = '<div class="obs-ctx-card">';
   html += '<div class="obs-ctx-title">📐 上下文预算</div>';
   html += '<div class="obs-ctx-grid">';
   html += '<div class="obs-ctx-item"><div class="obs-ctx-value">' + sys + '</div><div class="obs-ctx-label">System</div></div>';
+  html += '<div class="obs-ctx-divider"></div>';
   html += '<div class="obs-ctx-item"><div class="obs-ctx-value">' + tools + '</div><div class="obs-ctx-label">Tools</div></div>';
+  html += '<div class="obs-ctx-divider"></div>';
   html += '<div class="obs-ctx-item"><div class="obs-ctx-value">' + msgs + '</div><div class="obs-ctx-label">Messages</div></div>';
+  html += '<div class="obs-ctx-divider"></div>';
   html += '<div class="obs-ctx-item"><div class="obs-ctx-value">' + total + ' / ' + maxT + '</div><div class="obs-ctx-label">总计 / 上限</div></div>';
   html += '</div>';
   if (warnings.length) {
@@ -396,16 +409,26 @@ function renderContextBudget(detailJson) {
   return html;
 }
 
-function toggleAcc(header) {
-  var body = header.nextElementSibling;
-  if (!body || !body.classList.contains('obs-acc-body')) return;
-  var isOpen = body.classList.contains('open');
-  if (isOpen) {
-    body.classList.remove('open');
-    header.classList.remove('open');
-  } else {
-    body.classList.add('open');
-    header.classList.add('open');
+function handleTraceClick(e) {
+  // Accordion header click (session or task level)
+  var header = e.target.closest('.obs-acc-header');
+  if (header) {
+    var card = header.parentElement;
+    if (!card || !card.classList.contains('obs-accordion')) return;
+    card.classList.toggle('open');
+    // Visual feedback: briefly flash the header background
+    header.style.transition = 'background 0.15s';
+    header.style.background = '#e8f0fe';
+    setTimeout(function() { header.style.background = ''; }, 300);
+    return;
+  }
+
+  // Expandable step row click
+  var stepMain = e.target.closest('.obs-step-main');
+  if (stepMain) {
+    var row = stepMain.parentElement;
+    if (!row || !row.classList.contains('obs-expandable')) return;
+    row.classList.toggle('open');
   }
 }
 
@@ -414,28 +437,126 @@ function buildStepRow(step) {
   var timeStr = formatFullTime(step.created_at);
   var stepNum = step.step != null ? step.step : '—';
   var detailText = '';
+  var expandHtml = '';
   var detailObj = parseDetail(step.detail);
-  if (step.event_type === 'tool_call' && detailObj.tool_name) {
-    detailText = detailObj.tool_name;
-    if (detailObj.tool_input) {
-      var inputStr = typeof detailObj.tool_input === 'string' ? detailObj.tool_input : JSON.stringify(detailObj.tool_input);
+  var rowClass = 'obs-step-row';
+  var hasDuration = false;
+  if (step.event_type === 'tool_call' && detailObj.tool) {
+    detailText = detailObj.tool;
+    if (detailObj.input) {
+      var inputStr = typeof detailObj.input === 'string' ? detailObj.input : JSON.stringify(detailObj.input);
       detailText += '(' + inputStr.slice(0, 80) + ')';
     }
-  } else if (step.event_type === 'tool_result' && detailObj.tool_name) {
-    detailText = detailObj.tool_name + ' → ' + esc(String(detailObj.result_preview || '').slice(0, 100));
+  } else if (step.event_type === 'tool_result' && detailObj.tool) {
+    detailText = detailObj.tool + ' → ' + esc(String(detailObj.output || '').slice(0, 100));
+    if (detailObj.duration_ms != null) {
+      hasDuration = true;
+    }
   } else if (step.event_type === 'cache_metrics') {
     detailText = 'cache_read: ' + (detailObj.cache_read_tokens || 0) + ' / cache_creation: ' + (detailObj.cache_creation_tokens || 0);
   } else if (step.event_type === 'done' && detailObj.usage) {
-    detailText = '完成 — 输入 ' + formatNum(detailObj.usage.input_tokens) + ' / 输出 ' + formatNum(detailObj.usage.output_tokens);
+    var u = detailObj.usage;
+    detailText = '完成 — 输入 ' + formatNum(u.input_tokens) + ' / 输出 ' + formatNum(u.output_tokens);
+    if (u.cache_read_tokens) detailText += ' / cache读 ' + formatNum(u.cache_read_tokens);
+    if (u.cache_creation_tokens) detailText += ' / cache写 ' + formatNum(u.cache_creation_tokens);
+  } else if (step.event_type === 'llm_request') {
+    var msgCount = detailObj.messages ? detailObj.messages.length : 0;
+    detailText = '📤 → ' + msgCount + ' 条消息';
+    if (msgCount > 0) {
+      rowClass += ' obs-expandable';
+      expandHtml = buildMessagesExpand(detailObj.messages);
+    }
+  } else if (step.event_type === 'llm_response') {
+    detailText = '📥 ← 输入 ' + formatNum(detailObj.input_tokens) + ' / 输出 ' + formatNum(detailObj.output_tokens);
+    if (detailObj.cache_read_tokens) detailText += ' / cache读 ' + formatNum(detailObj.cache_read_tokens);
+    if (detailObj.cache_creation_tokens) detailText += ' / cache写 ' + formatNum(detailObj.cache_creation_tokens);
+    if (detailObj.tool_calls && detailObj.tool_calls.length) {
+      detailText += ' / 调用 ' + detailObj.tool_calls.map(function(tc) { return tc.name; }).join(', ');
+    }
+    if (detailObj.content || detailObj.reasoning) {
+      rowClass += ' obs-expandable';
+      expandHtml = buildResponseExpand(detailObj);
+    }
   } else {
     detailText = esc(String(step.detail || '').slice(0, 120));
   }
-  return '<div class="obs-step-row" data-trace-id="' + esc(step.id) + '">' +
+
+  var expandIcon = '';
+  if (rowClass.indexOf('obs-expandable') !== -1) {
+    expandIcon = '<span class="obs-step-expand-icon">▸</span>';
+  }
+
+  var durationHtml = '';
+  if (hasDuration) {
+    durationHtml = ' <span class="obs-step-duration">⏱ ' + detailObj.duration_ms + 'ms</span>';
+  }
+
+  return '<div class="' + rowClass + '" data-trace-id="' + esc(step.id) + '">' +
+    '<div class="obs-step-main">' +
     '<span class="obs-step-num">' + stepNum + '</span>' +
     '<span class="obs-step-time">' + esc(timeStr) + '</span>' +
-    '<span><span class="obs-evt-badge obs-evt-' + cat + '">' + esc(step.event_type) + '</span>' +
-    ' <span class="obs-step-detail">' + detailText + '</span></span>' +
+    '<span class="obs-step-badge-wrap"><span class="obs-evt-badge obs-evt-' + cat + '">' + esc(step.event_type) + '</span></span>' +
+    '<span class="obs-step-detail">' + detailText + durationHtml + '</span>' +
+    expandIcon +
+    '</div>' +
+    expandHtml +
     '</div>';
+}
+
+function buildMessagesExpand(messages) {
+  var html = '<div class="obs-step-expand"><div class="obs-step-expand-inner">';
+  messages.forEach(function(msg, i) {
+    var role = msg.role || 'unknown';
+    var content = msg.content;
+    var text = '';
+    var toolResultNote = '';
+    if (Array.isArray(content)) {
+      if (content.every(function(block) { return typeof block === 'object' && block.type === 'tool_result'; })) {
+        toolResultNote = ' <span style="color:#aaa;">(tool_result)</span>';
+      }
+      text = content.map(function(block) {
+        if (typeof block === 'string') return block;
+        var t = block.type || '';
+        if (t === 'text') return block.text || '';
+        if (t === 'tool_use') return '[调用: ' + (block.name || '?') + ' ' + JSON.stringify(block.input || {}).slice(0, 200) + ']';
+        if (t === 'tool_result') return '[结果: ' + String(block.content || '').slice(0, 300) + ']';
+        if (t === 'reasoning') return '[思考: ' + String(block.content || '').slice(0, 300) + ']';
+        return JSON.stringify(block).slice(0, 200);
+      }).join('\n');
+    } else {
+      text = String(content || '');
+    }
+    html += '<div class="obs-msg-item">' +
+      '<span class="obs-msg-role obs-role-' + esc(role) + '">' + esc(role) + ' (' + text.length + ' chars)' + toolResultNote + '</span>' +
+      '<pre class="obs-msg-content">' + esc(text) + '</pre>' +
+      '</div>';
+  });
+  html += '</div></div>';
+  return html;
+}
+
+function buildResponseExpand(detailObj) {
+  var html = '<div class="obs-step-expand"><div class="obs-step-expand-inner">';
+  if (detailObj.content) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">content</div>' +
+      '<pre class="obs-msg-content">' + esc(detailObj.content) + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.reasoning) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">reasoning</div>' +
+      '<pre class="obs-msg-content">' + esc(detailObj.reasoning) + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.tool_calls && detailObj.tool_calls.length) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">tool_calls</div>' +
+      '<pre class="obs-msg-content">' + esc(JSON.stringify(detailObj.tool_calls, null, 2)) + '</pre>' +
+      '</div>';
+  }
+  html += '</div></div>';
+  return html;
 }
 
 function updateSessionHeader(sessionEl, taskMap) {
@@ -447,7 +568,7 @@ function updateSessionHeader(sessionEl, taskMap) {
 
   // Update task count
   var tasksSpan = metaEl.querySelector('.obs-meta-tasks');
-  if (tasksSpan) tasksSpan.textContent = '📋 ' + tasks.length + ' 个任务';
+  if (tasksSpan) tasksSpan.innerHTML = '📋 <b>' + tasks.length + '</b> 个任务';
 
   // Update token count from first task with tokens
   var firstWithTokens = null;
@@ -463,18 +584,18 @@ function updateSessionHeader(sessionEl, taskMap) {
   var inSpan = metaEl.querySelector('.obs-meta-in');
   var outSpan = metaEl.querySelector('.obs-meta-out');
   if (firstWithTokens) {
-    if (inSpan) inSpan.textContent = '🔤 输入 ' + formatNum(firstWithTokens.input_tokens);
+    if (inSpan) inSpan.innerHTML = '🔤 输入 <b>' + formatNum(firstWithTokens.input_tokens) + '</b>';
     else if (firstWithTokens.input_tokens != null) {
       inSpan = document.createElement('span');
       inSpan.className = 'obs-meta-in';
-      inSpan.textContent = '🔤 输入 ' + formatNum(firstWithTokens.input_tokens);
+      inSpan.innerHTML = '🔤 输入 <b>' + formatNum(firstWithTokens.input_tokens) + '</b>';
       metaEl.insertBefore(inSpan, metaEl.querySelector('.obs-meta-time'));
     }
-    if (outSpan) outSpan.textContent = '🔤 输出 ' + formatNum(firstWithTokens.output_tokens);
+    if (outSpan) outSpan.innerHTML = '🔤 输出 <b>' + formatNum(firstWithTokens.output_tokens) + '</b>';
     else if (firstWithTokens.output_tokens != null) {
       outSpan = document.createElement('span');
       outSpan.className = 'obs-meta-out';
-      outSpan.textContent = '🔤 输出 ' + formatNum(firstWithTokens.output_tokens);
+      outSpan.innerHTML = '🔤 输出 <b>' + formatNum(firstWithTokens.output_tokens) + '</b>';
       metaEl.insertBefore(outSpan, metaEl.querySelector('.obs-meta-time'));
     }
   }
@@ -502,8 +623,8 @@ function mergeNewTraces(newRows) {
       elContent.insertAdjacentHTML('afterbegin', buildSessionAccordion(session.id, session.tasks));
       return;
     }
-    // Existing session — merge tasks
-    var sessionBody = sessionEl.querySelector(':scope > .obs-acc-body > div');
+    // Existing session — merge tasks (direct children of .obs-acc-body)
+    var sessionBody = sessionEl.querySelector(':scope > .obs-acc-body');
     if (!sessionBody) return;
 
     session.tasks.forEach(function(steps, taskId) {
@@ -524,7 +645,7 @@ function mergeNewTraces(newRows) {
       steps.forEach(function(s) {
         if (s.event_type === 'context_budget') return;
         if (existingIds[s.id]) return;
-        taskBody.insertAdjacentHTML('beforeend', buildStepRow(s));
+        taskBody.insertAdjacentHTML('afterbegin', buildStepRow(s));
       });
     });
 
@@ -533,7 +654,8 @@ function mergeNewTraces(newRows) {
     // Collect existing tasks (by data-tid)
     sessionBody.querySelectorAll(':scope > .obs-accordion[data-tid]').forEach(function(el) {
       var tid = el.dataset.tid;
-      mergedTaskMap.set(tid, [{ created_at: el.querySelector('.obs-step-row') ? el.querySelector('.obs-step-time').textContent : '' }]);
+      var timeEl = el.querySelector('.obs-step-time');
+      mergedTaskMap.set(tid, [{ created_at: timeEl ? timeEl.textContent : '' }]);
     });
     // Add/overwrite with new tasks
     session.tasks.forEach(function(steps, taskId) {
@@ -761,6 +883,7 @@ function resetTimer() {
 // ── Init ──
 
 function init() {
+  console.log('[DEBUG] init() called');
   try {
     document.querySelectorAll('.obs-tab').forEach(function(el) {
       el.addEventListener('click', function() { switchTab(this.dataset.tab); });
@@ -770,6 +893,7 @@ function init() {
     document.getElementById('sessionId').addEventListener('change', loadData);
     document.getElementById('taskId').addEventListener('change', loadData);
     document.getElementById('limit').addEventListener('change', loadData);
+    document.getElementById('traceContent').addEventListener('click', handleTraceClick);
     var selA = document.getElementById('compareSessionA');
     var selB = document.getElementById('compareSessionB');
     if (selA) selA.addEventListener('change', loadComparison);

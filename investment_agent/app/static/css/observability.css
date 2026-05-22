@@ -23,67 +23,164 @@
 .obs-tab-panel.active { display: block; }
 
 /* ═══════════════════════════════════════════════════════════════
-   Tab 1: 链路日志 — 折叠面板
+   Tab 1: 链路日志 — 卡片式布局
    ═══════════════════════════════════════════════════════════════ */
 
-.obs-accordion { margin-bottom: 4px; }
+/* ── Session 卡片 ── */
+.obs-accordion {
+  background: #fff; border: 1px solid #e2e5ea; border-radius: 10px;
+  margin-bottom: 12px; overflow: hidden;
+}
 .obs-acc-header {
-  display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-  background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px;
-  cursor: pointer; user-select: none; font-size: 13px; transition: background .12s;
+  display: flex; align-items: center; padding: 12px 16px;
+  cursor: pointer; user-select: none; transition: background .1s;
 }
-.obs-acc-header:hover { background: #eef1f6; }
-.obs-acc-header .obs-arrow { font-size: 11px; color: #999; width: 16px; text-align: center; transition: transform .15s; }
-.obs-acc-header.open { border-radius: 8px 8px 0 0; }
-.obs-acc-header.open .obs-arrow { transform: rotate(90deg); }
+.obs-acc-header:hover { background: #fafbfc; }
+.obs-acc-header .obs-arrow {
+  width: 16px; flex-shrink: 0; color: #aaa; font-size: 10px;
+}
+.obs-accordion.open > .obs-acc-header .obs-arrow { color: #555; }
 
-.obs-acc-body { display: none; border: 1px solid #e0e0e0; border-top: none; border-radius: 0 0 8px 8px; }
-.obs-acc-body.open { display: block; }
-.obs-acc-body .obs-accordion { margin-bottom: 0; }
+.obs-session-id {
+  font-family: "SF Mono", "Fira Code", monospace; font-size: 12px;
+  font-weight: 600; color: #555; flex-shrink: 0; width: 110px;
+}
+.obs-session-meta {
+  display: flex; align-items: center; gap: 20px; flex: 1; margin-left: 12px;
+}
+.obs-session-meta > * { flex-shrink: 0; white-space: nowrap; }
+.obs-session-meta .obs-meta-spacer { flex: 1; min-width: 6px; }
+.obs-session-meta .obs-meta-time { font-size: 11px; color: #aaa; }
 
-/* 会话级头部 */
-.obs-acc-header.session-level { gap: 16px; }
-.obs-session-id { font-weight: 600; font-family: monospace; }
-.obs-session-meta { display: flex; gap: 16px; font-size: 12px; color: #666; flex: 1; flex-wrap: wrap; align-items: center; }
-.obs-session-meta span { white-space: nowrap; }
+.obs-badge {
+  font-size: 10.5px; padding: 2px 8px; border-radius: 4px;
+  font-weight: 500; display: inline-block; white-space: nowrap;
+}
+.obs-badge-model { background: #eef2ff; color: #4f46e5; }
 
-/* 任务级头部（缩进） */
-.obs-acc-header.task-level { margin-left: 20px; }
-.obs-task-id { font-family: monospace; font-size: 12px; }
-.obs-task-meta { display: flex; gap: 12px; font-size: 11px; color: #777; flex-wrap: wrap; align-items: center; }
+/* ── Session body ── */
+.obs-acc-body { display: none; }
+.obs-accordion.open > .obs-acc-body { display: block; }
 
-/* ── 徽章 ── */
-.obs-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 500; display: inline-block; white-space: nowrap; }
-.obs-badge-model { background: #e3f2fd; color: #1565c0; }
+/* ── Task 卡片（嵌套在 session 内） ── */
+.obs-acc-body .obs-accordion {
+  border: none; border-radius: 0; border-top: 1px solid #f0f0f0; margin-bottom: 0;
+}
+.obs-acc-body .obs-accordion:first-child { border-top: 1px solid #f0f0f0; }
 
-/* ── context_budget 卡片 ── */
+.obs-acc-header.task-level {
+  padding: 10px 16px 10px 40px;
+}
+.obs-acc-header.task-level .obs-arrow { color: #bbb; font-size: 9px; }
+.obs-accordion.open > .obs-acc-header.task-level .obs-arrow { color: #777; }
+
+.obs-task-id {
+  font-family: "SF Mono", "Fira Code", monospace; font-size: 11px;
+  color: #888; flex-shrink: 0; width: 110px;
+}
+.obs-task-meta {
+  display: flex; align-items: center; gap: 18px; flex: 1; margin-left: 8px;
+  font-size: 11px;
+}
+.obs-task-meta > * { flex-shrink: 0; white-space: nowrap; }
+.obs-task-meta .obs-meta-spacer { flex: 1; min-width: 6px; }
+
+/* ── Context budget 卡片 ── */
 .obs-ctx-card {
-  background: #f0f4ff; border: 1px solid #c5cae9; border-radius: 8px;
-  padding: 12px 14px; margin: 8px 10px 8px 40px; font-size: 12px;
+  background: #f8faff; border: 1px solid #e0e7ff; border-radius: 8px;
+  margin: 8px 16px 8px 56px; padding: 12px 16px;
 }
-.obs-ctx-card .obs-ctx-title { font-weight: 600; color: #283593; margin-bottom: 8px; font-size: 11px; }
-.obs-ctx-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.obs-ctx-card .obs-ctx-title {
+  font-weight: 600; color: #4338ca; margin-bottom: 10px;
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
+}
+.obs-ctx-grid { display: flex; gap: 24px; }
 .obs-ctx-item { text-align: center; }
-.obs-ctx-value { font-weight: 600; font-size: 16px; color: #1a1a2e; }
-.obs-ctx-label { font-size: 10px; color: #888; margin-top: 2px; }
-.obs-ctx-warn { margin-top: 6px; font-size: 10px; color: #e65100; }
+.obs-ctx-value { font-weight: 700; font-size: 18px; color: #1a1a2e; }
+.obs-ctx-label { font-size: 10px; color: #999; margin-top: 2px; }
+.obs-ctx-divider { width: 1px; background: #e0e0e0; flex-shrink: 0; align-self: stretch; }
+.obs-ctx-warn {
+  margin-top: 10px; font-size: 10.5px; color: #d97706;
+  background: #fffbeb; padding: 6px 10px; border-radius: 4px;
+  border: 1px solid #fde68a;
+}
 
 /* ── 步骤行 ── */
-.obs-step-row {
-  display: grid; grid-template-columns: 50px 110px 1fr; gap: 10px;
-  padding: 5px 10px 5px 40px; border-bottom: 1px solid #f5f5f5;
-  font-size: 12px; align-items: center;
+.obs-step-row { border-bottom: 1px solid #f4f4f4; }
+.obs-step-main {
+  display: flex; align-items: center; padding: 8px 16px 8px 56px;
+  min-height: 36px;
 }
-.obs-step-num { color: #999; font-size: 11px; text-align: right; }
-.obs-step-time { color: #bbb; font-size: 11px; }
+.obs-step-row.obs-expandable .obs-step-main { cursor: pointer; }
+.obs-step-row.obs-expandable .obs-step-main:hover { background: #fafbfc; }
 
-/* 事件徽标颜色 */
-.obs-evt-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 500; display: inline-block; white-space: nowrap; }
-.obs-evt-tool { background: #e3f2fd; color: #1565c0; }
-.obs-evt-engine { background: #fff3e0; color: #e65100; }
-.obs-evt-system { background: #e8f5e9; color: #2e7d32; }
+.obs-step-num {
+  width: 36px; flex-shrink: 0; text-align: right;
+  font-size: 11px; color: #bbb;
+}
+.obs-step-time {
+  width: 148px; flex-shrink: 0; margin-left: 10px;
+  font-size: 11px; color: #aaa; white-space: nowrap;
+  font-family: "SF Mono", "Fira Code", monospace;
+}
+.obs-step-badge-wrap { width: 88px; flex-shrink: 0; margin-left: 10px; }
 
-.obs-step-detail { color: #aaa; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 500px; }
+.obs-evt-badge {
+  display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 4px;
+  font-weight: 500; white-space: nowrap;
+}
+.obs-evt-tool  { background: #eff6ff; color: #2563eb; }
+.obs-evt-llm   { background: #faf5ff; color: #9333ea; }
+.obs-evt-engine{ background: #fff7ed; color: #ea580c; }
+.obs-evt-system{ background: #f0fdf4; color: #16a34a; }
+
+.obs-step-detail {
+  flex: 1; margin-left: 10px; font-size: 11px; color: #666;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.obs-step-expand-icon {
+  width: 16px; flex-shrink: 0; text-align: center;
+  font-size: 10px; color: #ccc; margin-left: 6px;
+}
+.obs-step-row.obs-expandable.open .obs-step-expand-icon { color: #666; }
+
+.obs-step-duration { color: #f59e0b; font-size: 11px; margin-left: 6px; white-space: nowrap; }
+
+/* ── 步骤展开区 ── */
+.obs-step-expand { display: none; }
+.obs-step-row.open .obs-step-expand { display: block; }
+.obs-step-expand-inner {
+  margin: 0 16px 10px 72px; padding: 12px 14px;
+  background: #fafbfc; border: 1px solid #eceff4;
+  border-radius: 8px;
+}
+
+/* ── 消息内容展示 ── */
+.obs-msg-item { margin-bottom: 10px; }
+.obs-msg-item:last-child { margin-bottom: 0; }
+.obs-msg-role {
+  display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 4px;
+  font-weight: 600; margin-bottom: 4px;
+}
+.obs-role-user     { background: #dbeafe; color: #1e40af; }
+.obs-role-assistant{ background: #f3e8ff; color: #7c3aed; }
+.obs-role-system   { background: #ffedd5; color: #c2410c; }
+.obs-role-tool     { background: #dcfce7; color: #166534; }
+.obs-msg-content {
+  margin: 0; padding: 10px; background: #fff; border: 1px solid #e5e7eb;
+  border-radius: 6px; font-size: 11.5px; line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 360px; overflow: auto;
+  font-family: "SF Mono", "Fira Code", monospace;
+}
+
+/* ── LLM 响应展开区 ── */
+.obs-rsp-section { margin-bottom: 12px; }
+.obs-rsp-section:last-child { margin-bottom: 0; }
+.obs-rsp-label {
+  font-size: 10.5px; font-weight: 600; color: #888; margin-bottom: 4px;
+  text-transform: uppercase; letter-spacing: .03em;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    Tab 2: Token 分析
