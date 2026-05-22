@@ -63,7 +63,7 @@ class SqliteStorage:
         return msg_id
 
     async def load_messages(self, session_id: str) -> list[dict]:
-        """加载会话的所有历史消息（user + assistant）。"""
+        """加载会话的所有历史消息，合并连续同角色消息避免重试累积。"""
         async with get_db() as db:
             cursor = await db.execute(
                 "SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at",
@@ -74,7 +74,28 @@ class SqliteStorage:
         for r in rows:
             if r["role"] in ("user", "assistant"):
                 messages.append({"role": r["role"], "content": r["content"] or ""})
-        return messages
+        return self._dedupe_consecutive(messages)
+
+    @staticmethod
+    def _dedupe_consecutive(messages: list[dict]) -> list[dict]:
+        """当连续出现同角色消息（前次运行未完成就重试所致），仅保留最后一条。"""
+        if len(messages) <= 1:
+            return messages
+
+        result = []
+        i = len(messages) - 1
+        while i >= 0:
+            current = messages[i]
+            role = current.get("role", "")
+            # 跳过前面与当前同角色的连续消息
+            j = i - 1
+            while j >= 0 and messages[j].get("role") == role:
+                j -= 1
+            result.append(current)
+            i = j
+
+        result.reverse()
+        return result
 
     async def load_summary(self, session_id: str) -> str | None:
         """从 DB 加载已有摘要。"""
