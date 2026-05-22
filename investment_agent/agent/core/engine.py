@@ -46,6 +46,10 @@ class AgentEngine:
         self.total_cache_read_tokens = 0
         self.total_cache_creation_tokens = 0
 
+        self._orch_dependencies: set[str] = set()  # orch skill 的子技能名称集合
+        self._messages: list[dict] = []             # 当前步骤的消息列表快照
+        self._pending_events: list[dict] = []       # 子Agent进度事件缓冲
+
     def register_tool(self, schema: dict, handler: Callable) -> None:
         """注册工具：schema 给 LLM 看，handler 执行实际逻辑"""
         self.tools.append(schema)
@@ -77,6 +81,7 @@ class AgentEngine:
                 break
 
             step += 1
+            self._messages = messages
             yield {"type": "step_start", "step": step}
 
             # —— 运行时上下文整理：每 N 步裁剪旧消息 ——
@@ -192,6 +197,9 @@ class AgentEngine:
                 t0 = time.monotonic()
                 result = await self._execute_tool(tc)
                 duration_ms = int((time.monotonic() - t0) * 1000)
+                # 透传子Agent进度事件
+                while self._pending_events:
+                    yield self._pending_events.pop(0)
                 yield {"type": "tool_result", "tool": tc.name, "output": result, "duration_ms": duration_ms}
                 tool_results.append({
                     "type": "tool_result",
@@ -206,14 +214,115 @@ class AgentEngine:
             yield {"type": "error", "message": f"Max steps ({self.max_steps}) reached."}
 
     async def _execute_tool(self, tc: ToolCall) -> str:
+        # —— 透明 SubAgent：orch 依赖的子技能在隔离引擎中执行 ——
+        if tc.name == "Skill":
+            skill_name = tc.input.get("name", "")
+            if skill_name in self._orch_dependencies:
+                return await self._run_skill_in_subagent(skill_name)
+
         handler = self.tool_handlers.get(tc.name)
         if not handler:
             return f"Tool '{tc.name}' not found."
         try:
             result = await handler(**tc.input)
+
+            # —— 检测 orch skill 加载，记录其依赖 ——
+            if tc.name == "Skill":
+                skill_name = tc.input.get("name", "")
+                from ..skills.loader import get_skill
+                skill = get_skill(skill_name)
+                if skill and skill.skill_type == "orch" and skill.depends_on:
+                    for dep in skill.depends_on:
+                        self._orch_dependencies.add(dep)
+
             return str(result)
         except Exception as e:
             return f"Tool error: {e}"
+
+    async def _run_skill_in_subagent(self, skill_name: str) -> str:
+        """在隔离引擎中执行子技能，仅返回最终结果。"""
+        from ..skills.loader import get_skill
+        from ..skills.cache import get_cache
+        from ..tools.run_command import RunCommandTool
+
+        skill = get_skill(skill_name)
+        if not skill:
+            return f"Skill '{skill_name}' not found."
+
+        cache = get_cache()
+        body = cache.get(skill_name, skill.main_md_path, skill.skill_dir)
+
+        # 构造子Agent消息（不含原始用户请求，避免子Agent误判任务范围）
+        sub_messages: list[dict] = []
+        # 提取最近 assistant 消息中的步骤上下文（含文件路径、参数）
+        for m in reversed(self._messages):
+            if m.get("role") == "assistant":
+                text = self._extract_text_from_content(m.get("content", ""))
+                if text.strip():
+                    sub_messages.append({"role": "user", "content": text})
+                break
+        # 明确子Agent角色和约束
+        sub_messages.append({"role": "user", "content": (
+            "你是一个子Agent，负责执行上述步骤。\n\n"
+            "关键规则：\n"
+            "1. 你已拥有完整的技能说明（system prompt），直接使用其中指令\n"
+            "2. 不要加载 Skill 或编排技能\n"
+            "3. 直接执行任务并返回结果，不要询问确认\n"
+            "4. 只使用 run_command 工具执行具体操作"
+        )})
+
+        sub = AgentEngine(
+            session_id=f"sub_{uuid.uuid4().hex[:8]}",
+            system_prompt=body,
+            provider=self.provider,
+            max_steps=self.max_steps,
+            slow_think_interval=0,
+            token_budget=self.token_budget,
+            context_trim_interval=0,
+        )
+        run_tool = RunCommandTool()
+        sub.register_tool(run_tool.schema, run_tool.run)
+
+        result_text = ""
+        async for event in sub.run(sub_messages):
+            if event["type"] == "text_delta":
+                result_text += event["content"]
+            elif event["type"] in ("tool_call", "tool_result"):
+                self._pending_events.append({
+                    "type": f"sub_{event['type']}",
+                    "tool": event.get("tool", ""),
+                    "input": str(event.get("input", "")),
+                    "output": str(event.get("output", "")),
+                    "duration_ms": event.get("duration_ms", 0),
+                })
+            elif event["type"] == "error":
+                return f"子任务执行错误: {event['message']}"
+            elif event["type"] == "done":
+                break
+
+        # 子引擎 token 计入主引擎
+        self.total_input_tokens += sub.total_input_tokens
+        self.total_output_tokens += sub.total_output_tokens
+        self.total_cache_read_tokens += sub.total_cache_read_tokens
+        self.total_cache_creation_tokens += sub.total_cache_creation_tokens
+
+        return result_text.strip() or "(子任务完成，无文本输出)"
+
+    @staticmethod
+    def _extract_text_from_content(content) -> str:
+        """从 Anthropic content blocks 中提取纯文本。"""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        parts.append(block.get("text", ""))
+                    elif block.get("type") == "reasoning":
+                        parts.append(block.get("content", ""))
+            return "\n".join(parts)
+        return str(content)
 
     def _trim_context(self, messages: list[dict], current_step: int, keep_recent: int = 5) -> list[dict]:
         """运行时上下文裁剪：保留最近 N 轮对话，旧消息剥离 reasoning 并截断 tool_result。
