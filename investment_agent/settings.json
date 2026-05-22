@@ -5,7 +5,18 @@
     "token_budget": 100000,
     "loop_detection_threshold": 3,
     "skill_body_ttl": 600,
-    "context_trim_interval": 5
+    "context_trim_interval": 5,
+    "tool_trim_limits": {
+      "get_income_statement": 6000,
+      "get_balance_sheet": 6000,
+      "get_cash_flow": 5000,
+      "get_valuation": 4000,
+      "get_financial_indicators": 4000,
+      "get_stock_info": 2000,
+      "get_stock_price": 3000,
+      "Skill": 4000,
+      "run_command": 1000
+    }
   },
   "context": {
     "enabled": true,

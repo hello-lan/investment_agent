@@ -78,6 +78,7 @@ class AgentRunner:
             token_budget=config.token_budget,
             loop_detection_threshold=config.loop_detection_threshold,
             context_trim_interval=config.context_trim_interval,
+            tool_trim_limits=config.tool_trim_limits,
         )
 
         # 4. 注册全部工具

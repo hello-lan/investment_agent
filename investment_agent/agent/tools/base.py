@@ -6,6 +6,7 @@ class BaseTool(ABC):
     name: str
     description: str
     risk_level: int = 0  # 风险等级 L0-L4，L0 只读，L2 可执行命令
+    trim_max_chars: int | None = None  # 运行时裁剪的推荐截断长度（None=使用全局默认）
 
     @property
     @abstractmethod

@@ -24,6 +24,7 @@ class AgentEngine:
         token_budget: int = 100000,
         loop_detection_threshold: int = 3,
         context_trim_interval: int = 0,
+        tool_trim_limits: dict | None = None,
     ):
         self.session_id = session_id
         self.task_id = str(uuid.uuid4())
@@ -40,6 +41,7 @@ class AgentEngine:
         self.token_budget = token_budget
         self.loop_threshold = loop_detection_threshold
         self.context_trim_interval = context_trim_interval  # 0 = disabled
+        self.tool_trim_limits = tool_trim_limits or {}
 
         self.total_input_tokens = 0
         self.total_output_tokens = 0
@@ -397,12 +399,9 @@ class AgentEngine:
                     if block.get("type") == "tool_result":
                         tool_name = self._guess_tool_name(block, messages, i)
                         raw = str(block.get("content", ""))
-                        if tool_name == "Skill":
-                            b["content"] = self._truncate_text(raw, 500)
-                        elif tool_name == "run_command":
-                            b["content"] = self._truncate_text(raw, 300)
-                        else:
-                            b["content"] = self._truncate_text(raw, 800)
+                        from ..context.trim_limits import resolve_limit
+                        limit = resolve_limit(tool_name, self.tool_trim_limits)
+                        b["content"] = self._truncate_text(raw, limit)
                     new_blocks.append(b)
                 trimmed.append({"role": "user", "content": new_blocks})
 

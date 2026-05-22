@@ -39,6 +39,9 @@ class AgentRunConfig:
     loop_detection_threshold: int = 3
     context_trim_interval: int = 0
 
+    # ── 工具裁剪参数 ──
+    tool_trim_limits: dict = field(default_factory=dict)
+
     # ── 上下文参数 ──
     context: dict = field(default_factory=dict)
 
