@@ -2,6 +2,7 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 
 let availableModels = [];
 let availableSkills = [];
+let availableTools = [];
 
 function modelNameById(id) {
   const m = availableModels.find(x => x.id === id);
@@ -19,8 +20,13 @@ async function loadSkillsCatalog() {
   return availableSkills;
 }
 
+async function loadToolsCatalog() {
+  availableTools = await fetch('/api/tools').then(r => r.json());
+  return availableTools;
+}
+
 async function loadAgents(){
-  await Promise.all([loadModels(), loadSkillsCatalog()]);
+  await Promise.all([loadModels(), loadSkillsCatalog(), loadToolsCatalog()]);
   const agents = await fetch('/api/agents').then(r => r.json());
   const grid = document.getElementById('agentGrid');
   if(!agents.length){
@@ -74,14 +80,53 @@ function renderSkillOptions(selected = []) {
   }).join('');
 }
 
+function renderToolOptions(selected = []) {
+  const box = document.getElementById('agentTools');
+  if (!availableTools.length) {
+    box.innerHTML = '<div style="padding:12px;text-align:center;"><span class="hint">暂无可用工具</span></div>';
+    return;
+  }
+  const selectedSet = new Set(selected || []);
+  box.innerHTML = availableTools.map(t => {
+    const isAuto = t.auto_bound;
+    let cls = 'skill-item';
+    if (isAuto) {
+      cls += ' selected disabled';
+    } else if (selectedSet.has(t.name)) {
+      cls += ' selected';
+    }
+    return `<div class="${cls}" data-skill="${esc(t.name)}" data-auto="${isAuto ? '1' : '0'}">
+      <span class="skill-mark">&#10003;</span>
+      <div class="skill-item-text">
+        <span>${esc(t.name)}</span>
+        <span class="skill-deps">${esc(t.description)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function switchTab(tabName) {
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === tabName);
+  });
+  document.querySelectorAll('.tab-panel').forEach(p => {
+    p.classList.toggle('active', p.id === (tabName === 'skills' ? 'agentSkills' : 'agentTools'));
+  });
+}
+
 document.addEventListener('click', function(e) {
   const item = e.target.closest('.skill-item');
   if (!item) return;
+  if (item.classList.contains('disabled')) return;
   item.classList.toggle('selected');
 });
 
 function selectedSkills() {
   return Array.from(document.querySelectorAll('#agentSkills .skill-item.selected')).map(el => el.dataset.skill);
+}
+
+function selectedTools() {
+  return Array.from(document.querySelectorAll('#agentTools .skill-item.selected:not(.disabled)')).map(el => el.dataset.skill);
 }
 
 function toNullableInt(value) {
@@ -198,6 +243,8 @@ function openModal(agent){
   fillContextFields(compressConfig);
   fillEngineFields(engineConfig);
   renderSkillOptions(agent?.skills || []);
+  renderToolOptions(agent?.tools || []);
+  switchTab('skills');
   document.getElementById('modalOverlay').classList.add('open');
 }
 
@@ -211,6 +258,11 @@ async function editAgent(id){
     agent.skills = JSON.parse(agent.skills || '[]');
   } catch {
     agent.skills = [];
+  }
+  try {
+    agent.tools = JSON.parse(agent.tools || '[]');
+  } catch {
+    agent.tools = [];
   }
   openModal(agent);
 }
@@ -277,6 +329,7 @@ async function saveAgent(){
     temperature: parseFloat(document.getElementById('agentTemp').value),
     max_tokens: parseInt(document.getElementById('agentMaxTokens').value),
     skills: selectedSkills(),
+    tools: selectedTools(),
     compress_config: compressConfig,
     engine_config: engineConfig,
   };

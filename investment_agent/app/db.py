@@ -137,6 +137,9 @@ async def init_db() -> None:
         if "engine_config" not in columns:
             await db.execute("ALTER TABLE agents ADD COLUMN engine_config TEXT")
             changed = True
+        if "tools" not in columns:
+            await db.execute("ALTER TABLE agents ADD COLUMN tools TEXT DEFAULT '[]'")
+            changed = True
         if changed:
             await db.commit()
 

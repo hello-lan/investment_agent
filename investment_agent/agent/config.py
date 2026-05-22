@@ -39,6 +39,9 @@ class AgentRunConfig:
     loop_detection_threshold: int = 3
     context_trim_interval: int = 0
 
+    # ── Agent 级工具选择（空列表=全部工具，向后兼容）──
+    tools: list[str] = field(default_factory=list)
+
     # ── 工具裁剪参数 ──
     tool_trim_limits: dict = field(default_factory=dict)
 

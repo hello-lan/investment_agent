@@ -110,6 +110,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
     agent_name = None
     model_id = None
     enabled_skill_names: list[str] = []
+    enabled_tool_names: list[str] = []
     agent_engine_config: dict | None = None
     agent_compress_config: dict | None = None
     temperature: float | None = None
@@ -126,6 +127,10 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
             enabled_skill_names = json.loads(agent_row["skills"] or "[]")
         except Exception:
             enabled_skill_names = []
+        try:
+            enabled_tool_names = json.loads(agent_row["tools"] or "[]")
+        except Exception:
+            enabled_tool_names = []
         try:
             raw_engine = agent_row["engine_config"]
             if isinstance(raw_engine, str) and raw_engine.strip():
@@ -190,6 +195,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         token_budget=engine_params["token_budget"],
         loop_detection_threshold=engine_params["loop_detection_threshold"],
         context_trim_interval=engine_params["context_trim_interval"],
+        tools=enabled_tool_names,
         tool_trim_limits=engine_params["tool_trim_limits"],
         context=context_cfg,
         input_price=getattr(provider, "_input_price", None),

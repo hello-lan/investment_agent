@@ -31,8 +31,24 @@ _register(FinancialIndicatorTool())
 _register(RunCommandTool())
 
 
+# 始终自动绑定的基础设施工具（Skill 加载 + 命令执行）
+AUTO_BOUND_TOOLS: set[str] = {"Skill", "run_command"}
+
+
 def get_all_tools() -> list[BaseTool]:
     return list(_registry.values())
+
+
+def get_all_tool_infos() -> list[dict]:
+    """返回所有已注册工具的元信息（供前端展示）"""
+    return [
+        {
+            "name": t.name,
+            "description": t.description,
+            "auto_bound": t.name in AUTO_BOUND_TOOLS,
+        }
+        for t in _registry.values()
+    ]
 
 
 def get_tool(name: str) -> BaseTool | None:
@@ -42,3 +58,8 @@ def get_tool(name: str) -> BaseTool | None:
 def get_schemas() -> list[dict]:
     """返回所有工具的 Anthropic tool schema 列表，用于注入 LLM 请求"""
     return [t.schema for t in _registry.values()]
+
+
+def get_schemas_for_names(names: set[str]) -> list[dict]:
+    """只返回指定名称的工具 schema"""
+    return [t.schema for t in _registry.values() if t.name in names]

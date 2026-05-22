@@ -13,7 +13,8 @@ from .config import AgentRunConfig
 from .context.manager import ContextManager, ContextResult
 from .core.engine import AgentEngine
 from .protocols import ExecutionLoop, LifecycleHooks, Storage
-from .tools.registry import get_schemas, get_tool
+from .tools.registry import AUTO_BOUND_TOOLS, get_schemas_for_names, get_tool
+from .tools.registry import get_all_tools as _get_all_tools
 
 
 class AgentRunner:
@@ -81,8 +82,12 @@ class AgentRunner:
             tool_trim_limits=config.tool_trim_limits,
         )
 
-        # 4. 注册全部工具
-        for tool_schema in get_schemas():
+        # 4. 注册工具：空列表=全部工具（向后兼容），非空=仅选中+自动绑定
+        if config.tools:
+            allowed_tools = AUTO_BOUND_TOOLS | set(config.tools)
+        else:
+            allowed_tools = {t.name for t in _get_all_tools()}
+        for tool_schema in get_schemas_for_names(allowed_tools):
             tool = get_tool(tool_schema["name"])
             if tool:
                 engine.register_tool(tool_schema, tool.run)

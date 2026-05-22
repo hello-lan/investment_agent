@@ -13,6 +13,7 @@ from .app.api.agents import router as agents_router
 from .app.api.skills import router as skills_router
 from .app.api.files import router as files_router
 from .app.api.observability import router as observability_router
+from .app.api.tools import router as tools_router
 from .agent.skills.loader import init_skills_dir
 from .agent.tools.run_command import set_project_root
 from .config import get_settings
@@ -69,6 +70,7 @@ app.include_router(agents_router)
 app.include_router(skills_router)
 app.include_router(files_router)
 app.include_router(observability_router)
+app.include_router(tools_router)
 
 # —— 静态文件（前端 HTML/JS/CSS）——
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
