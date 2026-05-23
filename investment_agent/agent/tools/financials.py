@@ -1,5 +1,6 @@
 import asyncio
 from .base import BaseTool
+from .registry import register_tool
 
 
 def _run_sync(func, *args, **kwargs):
@@ -8,6 +9,7 @@ def _run_sync(func, *args, **kwargs):
     return loop.run_in_executor(None, lambda: func(*args, **kwargs))
 
 
+@register_tool
 class IncomeStatementTool(BaseTool):
     name = "get_income_statement"
     description = "获取A股上市公司利润表数据，包括营收、净利润、毛利率等核心指标。"
@@ -37,6 +39,8 @@ class IncomeStatementTool(BaseTool):
             return f"获取利润表失败: {e}"
 
 
+
+@register_tool
 class BalanceSheetTool(BaseTool):
     name = "get_balance_sheet"
     description = "获取A股上市公司资产负债表，包括总资产、负债、净资产等。"
@@ -66,6 +70,8 @@ class BalanceSheetTool(BaseTool):
             return f"获取资产负债表失败: {e}"
 
 
+
+@register_tool
 class CashFlowTool(BaseTool):
     name = "get_cash_flow"
     description = "获取A股上市公司现金流量表，包括经营/投资/筹资活动现金流。"
@@ -95,6 +101,8 @@ class CashFlowTool(BaseTool):
             return f"获取现金流量表失败: {e}"
 
 
+
+@register_tool
 class ValuationTool(BaseTool):
     name = "get_valuation"
     description = "获取A股股票估值指标，包括PE、PB、PS、股息率等。"
@@ -130,6 +138,8 @@ class ValuationTool(BaseTool):
             return f"获取估值指标失败: {e}"
 
 
+
+@register_tool
 class FinancialIndicatorTool(BaseTool):
     name = "get_financial_indicators"
     description = "获取A股股票核心财务指标，包括ROE、ROA、毛利率、净利率等。"

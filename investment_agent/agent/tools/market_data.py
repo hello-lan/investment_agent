@@ -1,6 +1,7 @@
 import asyncio
 import json
 from .base import BaseTool
+from .registry import register_tool
 
 
 def _run_sync(func, *args, **kwargs):
@@ -9,6 +10,7 @@ def _run_sync(func, *args, **kwargs):
     return loop.run_in_executor(None, lambda: func(*args, **kwargs))
 
 
+@register_tool
 class StockInfoTool(BaseTool):
     name = "get_stock_info"
     description = "获取A股股票基本信息，包括股票名称、行业、市值等。输入股票代码（如 '600519' 或 '000001'）。"
@@ -38,6 +40,8 @@ class StockInfoTool(BaseTool):
             return f"获取股票信息失败: {e}"
 
 
+
+@register_tool
 class StockPriceTool(BaseTool):
     name = "get_stock_price"
     description = "获取A股股票历史行情数据（日K线）。返回最近N个交易日的开高低收量数据。"

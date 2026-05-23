@@ -208,6 +208,8 @@ function fillEngineFields(cfg) {
   const slowThink = document.getElementById('agentSlowThink');
   const tokenBudget = document.getElementById('agentTokenBudget');
   const loopThreshold = document.getElementById('agentLoopThreshold');
+  const trimStrategy = document.getElementById('agentTrimStrategy');
+  const trimInterval = document.getElementById('agentTrimInterval');
 
   if (!cfg) {
     maxSteps.value = 30;
@@ -217,6 +219,9 @@ function fillEngineFields(cfg) {
     tokenBudget.value = '';
     loopThreshold.value = 3;
     document.getElementById('agentLoopVal').textContent = '3';
+    trimStrategy.value = 'default';
+    trimInterval.value = 0;
+    document.getElementById('agentTrimIntervalVal').textContent = '0';
     return;
   }
 
@@ -227,6 +232,9 @@ function fillEngineFields(cfg) {
   tokenBudget.value = cfg.token_budget ?? '';
   loopThreshold.value = cfg.loop_detection_threshold ?? 3;
   document.getElementById('agentLoopVal').textContent = cfg.loop_detection_threshold ?? 3;
+  trimStrategy.value = cfg.runtime_trim_strategy || 'default';
+  trimInterval.value = cfg.context_trim_interval ?? 0;
+  document.getElementById('agentTrimIntervalVal').textContent = cfg.context_trim_interval ?? 0;
 }
 
 function openModal(agent){
@@ -311,14 +319,19 @@ async function saveAgent(){
   const engineSlowThink = toNullableInt(document.getElementById('agentSlowThink').value);
   const engineTokenBudget = toNullableInt(document.getElementById('agentTokenBudget').value);
   const engineLoopThreshold = toNullableInt(document.getElementById('agentLoopThreshold').value);
+  const trimStrategy = document.getElementById('agentTrimStrategy').value;
+  const trimInterval = toNullableInt(document.getElementById('agentTrimInterval').value);
 
   let engineConfig = null;
-  if (engineMaxSteps !== null || engineSlowThink !== null || engineTokenBudget !== null || engineLoopThreshold !== null) {
+  if (engineMaxSteps !== null || engineSlowThink !== null || engineTokenBudget !== null
+      || engineLoopThreshold !== null || trimStrategy !== 'default' || trimInterval !== null) {
     engineConfig = {};
     if (engineMaxSteps !== null) engineConfig.max_steps = engineMaxSteps;
     if (engineSlowThink !== null) engineConfig.slow_think_interval = engineSlowThink;
     if (engineTokenBudget !== null) engineConfig.token_budget = engineTokenBudget;
     if (engineLoopThreshold !== null) engineConfig.loop_detection_threshold = engineLoopThreshold;
+    if (trimStrategy !== 'default') engineConfig.runtime_trim_strategy = trimStrategy;
+    if (trimInterval !== null) engineConfig.context_trim_interval = trimInterval;
   }
 
   const body = {

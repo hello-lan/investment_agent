@@ -1,6 +1,7 @@
 import asyncio
 
 from .base import BaseTool
+from .registry import register_tool
 
 # 项目根目录，由 app 层在启动时注入
 _project_root: str | None = None
@@ -11,6 +12,7 @@ def set_project_root(path: str) -> None:
     _project_root = path
 
 
+@register_tool
 class RunCommandTool(BaseTool):
     """Shell 命令执行工具：允许 Agent 在项目根目录执行命令。风险等级 L2，运行脚本、下载文件等。"""
     name = "run_command"

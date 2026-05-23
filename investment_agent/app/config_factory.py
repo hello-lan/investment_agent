@@ -74,6 +74,7 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
         "token_budget": agent_cfg.get("token_budget") or global_cfg.get("token_budget", 100000),
         "loop_detection_threshold": agent_cfg.get("loop_detection_threshold") or global_cfg.get("loop_detection_threshold", 3),
         "context_trim_interval": agent_cfg.get("context_trim_interval") or global_cfg.get("context_trim_interval", 0),
+        "runtime_trim_strategy": agent_cfg.get("runtime_trim_strategy") or global_cfg.get("runtime_trim_strategy", "default"),
         "tool_trim_limits": agent_cfg.get("tool_trim_limits") or global_cfg.get("tool_trim_limits", {}),
     }
 
@@ -195,6 +196,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         token_budget=engine_params["token_budget"],
         loop_detection_threshold=engine_params["loop_detection_threshold"],
         context_trim_interval=engine_params["context_trim_interval"],
+        runtime_trim_strategy=engine_params["runtime_trim_strategy"],
         tools=enabled_tool_names,
         tool_trim_limits=engine_params["tool_trim_limits"],
         context=context_cfg,

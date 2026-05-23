@@ -33,6 +33,28 @@
 .tab-panel.active{display:block;}
 .skill-item.disabled{background:#f5f5f5;color:#aaa;cursor:not-allowed;}
 .skill-item.disabled .skill-mark{color:#ccc;}
+
+/* 配置分组 */
+.config-group{margin:20px 0;border:1px solid #eee;border-radius:8px;overflow:hidden;}
+.config-group-header{display:flex;align-items:center;gap:8px;padding:12px 16px;background:#fafafa;border-bottom:1px solid #eee;}
+.config-group-header .group-num{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;flex-shrink:0;}
+.config-group-header .group-title{font-size:13px;font-weight:600;color:#1a1a2e;}
+.config-group-header .group-badge{font-size:10px;color:#999;font-weight:400;background:#f0f0f0;padding:1px 6px;border-radius:8px;}
+.config-group-body{padding:14px 16px;}
+.config-group-desc{font-size:12px;color:#888;margin-bottom:12px;line-height:1.6;padding:6px 10px;background:#fafafa;border-radius:6px;}
+.config-sub-block{margin-bottom:12px;padding:10px 12px;border-radius:6px;border-left:3px solid #ddd;}
+.config-sub-block:last-child{margin-bottom:0;}
+.config-sub-block.csb-compress{border-left-color:#e65100;background:#fffbf0;}
+.config-sub-block.csb-summary{border-left-color:#e65100;background:#fffbf0;}
+.config-sub-block.csb-cache{border-left-color:#e65100;background:#fffbf0;}
+.config-sub-block.csb-trim{border-left-color:#7c3aed;background:#faf7ff;}
+.config-sub-block.csb-boundary{border-left-color:#7c3aed;background:#faf7ff;}
+.config-sub-block.csb-safety{border-left-color:#7c3aed;background:#faf7ff;}
+.config-sub-block .sub-title{font-size:12px;font-weight:600;margin-bottom:8px;}
+.csb-compress .sub-title,.csb-summary .sub-title,.csb-cache .sub-title{color:#e65100;}
+.csb-trim .sub-title,.csb-boundary .sub-title,.csb-safety .sub-title{color:#7c3aed;}
+.form-row-2col{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media (max-width:480px){.form-row-2col{grid-template-columns:1fr;}}
 </style>
 {% endblock %}
 {% block content %}
@@ -47,110 +69,203 @@
 </div>
 
 <div class="modal-overlay" id="modalOverlay">
-  <div class="modal">
+  <div class="modal" style="width:600px;">
     <div class="modal-title" id="modalTitle">新建 Agent</div>
     <input type="hidden" id="agentId">
-    <div class="form-row">
-      <label>名称 *</label>
-      <input type="text" id="agentName" placeholder="如：A股基本面分析师">
-    </div>
-    <div class="form-row">
-      <label>描述</label>
-      <input type="text" id="agentDesc" placeholder="简短描述这个 Agent 的用途">
-    </div>
-    <div class="form-row">
-      <label>系统提示词</label>
-      <textarea id="agentPrompt" rows="6" style="width:100%;border:1px solid #ddd;border-radius:6px;padding:9px 12px;font-size:14px;outline:none;font-family:inherit;resize:vertical;" placeholder="定义 Agent 的角色、能力和行为规范..."></textarea>
-    </div>
-    <div class="form-row">
-      <label>模型</label>
-      <select id="agentModel"></select>
-      <div class="hint">在<a href="/model" style="color:#1a1a2e">模型</a>管理可用模型</div>
-    </div>
-    <div class="form-row">
-      <label>挂载 Skill / 工具</label>
-      <div class="tabs">
-        <button class="tab-btn active" data-tab="skills" onclick="switchTab('skills')">Skill</button>
-        <button class="tab-btn" data-tab="tools" onclick="switchTab('tools')">工具</button>
+
+    <!-- ===== 1. 基础信息 ===== -->
+    <div class="config-group">
+      <div class="config-group-header">
+        <span class="group-num" style="background:#1a73e8;">1</span>
+        <span class="group-title">基础信息</span>
       </div>
-      <div id="agentSkills" class="skill-list tab-panel active"></div>
-      <div id="agentTools" class="skill-list tab-panel"></div>
-      <div class="hint">Skill 和 run_command 工具自动绑定，无需手动选择</div>
-    </div>
-    <div class="form-row">
-      <label>Temperature</label>
-      <input type="number" id="agentTemp" value="0.7" min="0" max="1" step="0.1">
-    </div>
-    <div class="form-row">
-      <label>Max Tokens</label>
-      <input type="number" id="agentMaxTokens" value="4096" min="512" max="32000" step="512">
-    </div>
-    <div class="form-section-title">上下文管理</div>
-    <div class="form-row">
-      <label>上下文压缩</label>
-      <select id="agentCtxEnabled">
-        <option value="inherit">使用默认</option>
-        <option value="true">开启</option>
-        <option value="false">关闭</option>
-      </select>
-      <div class="hint">关闭则不做任何压缩/裁剪，所有历史消息完整保留</div>
-    </div>
-    <div class="form-row">
-      <label>保留最近消息条数</label>
-      <input type="number" id="agentCtxRecentKeep" min="0" max="100" step="1" placeholder="留空=默认 15">
-      <div class="hint">最近 N 条消息保留原文（不截断），更早的消息会被摘要或截断</div>
-    </div>
-    <div class="form-row">
-      <label>系统提示词预算 (tokens)</label>
-      <input type="number" id="agentCtxSystemBudget" min="4000" max="100000" step="1000" placeholder="留空=默认 40000">
-      <div class="hint">包含技能正文的系统提示词最大 token 数，超出时按比例裁剪技能正文</div>
+      <div class="config-group-body">
+        <div class="form-row">
+          <label>名称 *</label>
+          <input type="text" id="agentName" placeholder="如：A股基本面分析师">
+        </div>
+        <div class="form-row">
+          <label>描述</label>
+          <input type="text" id="agentDesc" placeholder="简短描述这个 Agent 的用途">
+        </div>
+      </div>
     </div>
 
-    <div class="form-section-title">对话摘要</div>
-    <div class="form-row">
-      <label>启用摘要</label>
-      <select id="agentSumEnabled">
-        <option value="inherit">使用默认</option>
-        <option value="true">开启</option>
-        <option value="false">关闭</option>
-      </select>
-      <div class="hint">对话过长时自动用 LLM 生成语义摘要替代旧消息截断，显著提升长对话质量与连贯性</div>
-    </div>
-    <div class="form-row">
-      <label>触发摘要的消息数阈值</label>
-      <input type="number" id="agentSumTrigger" min="10" max="100" step="5" placeholder="留空=默认 25">
-      <div class="hint">总消息数超过此值时自动触发摘要生成</div>
+    <!-- ===== 2. 模型与提示词 ===== -->
+    <div class="config-group">
+      <div class="config-group-header">
+        <span class="group-num" style="background:#ea4335;">2</span>
+        <span class="group-title">模型与提示词</span>
+      </div>
+      <div class="config-group-body">
+        <div class="form-row">
+          <label>模型</label>
+          <select id="agentModel"></select>
+          <div class="hint">在<a href="/model" style="color:#1a1a2e">模型</a>管理可用模型</div>
+        </div>
+        <div class="form-row">
+          <label>系统提示词</label>
+          <textarea id="agentPrompt" rows="6" style="width:100%;border:1px solid #ddd;border-radius:6px;padding:9px 12px;font-size:14px;outline:none;font-family:inherit;resize:vertical;" placeholder="定义 Agent 的角色、能力和行为规范..."></textarea>
+        </div>
+        <div class="form-row-2col">
+          <div class="form-row">
+            <label>Temperature</label>
+            <input type="number" id="agentTemp" value="0.7" min="0" max="1" step="0.1">
+          </div>
+          <div class="form-row">
+            <label>Max Tokens</label>
+            <input type="number" id="agentMaxTokens" value="4096" min="512" max="32000" step="512">
+          </div>
+        </div>
+      </div>
     </div>
 
-    <div class="form-section-title">Prompt Caching（仅 Anthropic）</div>
-    <div class="form-row">
-      <label>启用缓存</label>
-      <select id="agentCacheEnabled">
-        <option value="inherit">使用默认</option>
-        <option value="true">开启</option>
-        <option value="false">关闭</option>
-      </select>
-      <div class="hint">缓存系统提示词和已生成的摘要，节省约 90% 输入 token 成本（仅对 Claude 模型生效）</div>
+    <!-- ===== 3. Skill / 工具 ===== -->
+    <div class="config-group">
+      <div class="config-group-header">
+        <span class="group-num" style="background:#34a853;">3</span>
+        <span class="group-title">Skill / 工具</span>
+      </div>
+      <div class="config-group-body">
+        <div class="form-row">
+          <label>挂载 Skill / 工具</label>
+          <div class="tabs">
+            <button class="tab-btn active" data-tab="skills" onclick="switchTab('skills')">Skill</button>
+            <button class="tab-btn" data-tab="tools" onclick="switchTab('tools')">工具</button>
+          </div>
+          <div id="agentSkills" class="skill-list tab-panel active"></div>
+          <div id="agentTools" class="skill-list tab-panel"></div>
+          <div class="hint">Skill 和 run_command 工具自动绑定，无需手动选择</div>
+        </div>
+      </div>
     </div>
-    <div class="form-row">
-      <label>最大步数</label>
-      <div class="range-row"><input type="range" id="agentMaxSteps" min="5" max="100" step="5" oninput="document.getElementById('agentMaxStepsVal').textContent=this.value"><span class="range-val" id="agentMaxStepsVal">30</span></div>
-      <div class="hint">留空=默认 30</div>
+
+    <!-- ===== 4. 运行前上下文管理 ===== -->
+    <div class="config-group">
+      <div class="config-group-header">
+        <span class="group-num" style="background:#e65100;">4</span>
+        <span class="group-title">运行前上下文管理</span>
+        <span class="group-badge">pre-flight</span>
+      </div>
+      <div class="config-group-body">
+        <div class="config-group-desc">在每轮对话<b>开始前</b>，对历史消息做预算规划和压缩，防止超出模型上下文窗口。不影响对话进行中的实时裁剪。</div>
+
+        <div class="config-sub-block csb-compress">
+          <div class="sub-title">消息压缩</div>
+          <div class="form-row">
+            <label>上下文压缩</label>
+            <select id="agentCtxEnabled">
+              <option value="inherit">使用默认</option>
+              <option value="true">开启</option>
+              <option value="false">关闭</option>
+            </select>
+            <div class="hint">关闭则不做任何压缩/裁剪，所有历史消息完整保留</div>
+          </div>
+          <div class="form-row">
+            <label>保留最近消息条数</label>
+            <input type="number" id="agentCtxRecentKeep" min="0" max="100" step="1" placeholder="留空=默认 15">
+            <div class="hint">最近 N 条消息保留原文（不截断），更早的消息会被摘要或截断</div>
+          </div>
+          <div class="form-row">
+            <label>系统提示词预算 (tokens)</label>
+            <input type="number" id="agentCtxSystemBudget" min="4000" max="100000" step="1000" placeholder="留空=默认 40000">
+            <div class="hint">包含技能正文的系统提示词最大 token 数，超出时按比例裁剪技能正文</div>
+          </div>
+        </div>
+
+        <div class="config-sub-block csb-summary">
+          <div class="sub-title">对话摘要</div>
+          <div class="form-row">
+            <label>启用摘要</label>
+            <select id="agentSumEnabled">
+              <option value="inherit">使用默认</option>
+              <option value="true">开启</option>
+              <option value="false">关闭</option>
+            </select>
+            <div class="hint">对话过长时自动用 LLM 生成语义摘要替代旧消息截断，显著提升长对话质量与连贯性</div>
+          </div>
+          <div class="form-row">
+            <label>触发摘要的消息数阈值</label>
+            <input type="number" id="agentSumTrigger" min="10" max="100" step="5" placeholder="留空=默认 25">
+            <div class="hint">总消息数超过此值时自动触发摘要生成</div>
+          </div>
+        </div>
+
+        <div class="config-sub-block csb-cache">
+          <div class="sub-title">Prompt Caching（仅 Anthropic）</div>
+          <div class="form-row">
+            <label>启用缓存</label>
+            <select id="agentCacheEnabled">
+              <option value="inherit">使用默认</option>
+              <option value="true">开启</option>
+              <option value="false">关闭</option>
+            </select>
+            <div class="hint">缓存系统提示词和已生成的摘要，节省约 90% 输入 token 成本（仅对 Claude 模型生效）</div>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="form-row">
-      <label>慢思考间隔（每N步）</label>
-      <div class="range-row"><input type="range" id="agentSlowThink" min="1" max="10" step="1" oninput="document.getElementById('agentSlowThinkVal').textContent=this.value"><span class="range-val" id="agentSlowThinkVal">3</span></div>
-      <div class="hint">留空=默认 3</div>
+
+    <!-- ===== 5. 运行时控制 ===== -->
+    <div class="config-group">
+      <div class="config-group-header">
+        <span class="group-num" style="background:#7c3aed;">5</span>
+        <span class="group-title">运行时控制</span>
+        <span class="group-badge">runtime</span>
+      </div>
+      <div class="config-group-body">
+        <div class="config-group-desc">在对话<b>进行中</b>控制 Agent 行为：裁剪旧消息释放空间、限制步数和 token 防止失控、慢思考定期纠偏。</div>
+
+        <div class="config-sub-block csb-trim">
+          <div class="sub-title">上下文裁剪</div>
+          <div class="form-row">
+            <label>裁剪策略</label>
+            <select id="agentTrimStrategy">
+              <option value="default">默认裁剪</option>
+              <option value="none">不裁剪</option>
+            </select>
+            <div class="hint">默认裁剪：每 N 步剥离旧 reasoning、截断旧 tool_result；不裁剪：所有历史消息完整保留</div>
+          </div>
+          <div class="form-row">
+            <label>裁剪间隔步数</label>
+            <div class="range-row"><input type="range" id="agentTrimInterval" min="0" max="20" step="1" oninput="document.getElementById('agentTrimIntervalVal').textContent=this.value"><span class="range-val" id="agentTrimIntervalVal">0</span></div>
+            <div class="hint">0=禁用运行时裁剪，留空使用默认值</div>
+          </div>
+        </div>
+
+        <div class="config-sub-block csb-boundary">
+          <div class="sub-title">执行边界</div>
+          <div class="form-row-2col">
+            <div class="form-row">
+              <label>最大步数</label>
+              <div class="range-row"><input type="range" id="agentMaxSteps" min="5" max="100" step="5" oninput="document.getElementById('agentMaxStepsVal').textContent=this.value"><span class="range-val" id="agentMaxStepsVal">30</span></div>
+              <div class="hint">留空=默认 30</div>
+            </div>
+            <div class="form-row">
+              <label>Token 预算</label>
+              <input type="number" id="agentTokenBudget" min="10000" max="500000" step="10000" placeholder="留空=默认 100000">
+            </div>
+          </div>
+        </div>
+
+        <div class="config-sub-block csb-safety">
+          <div class="sub-title">安全策略</div>
+          <div class="form-row-2col">
+            <div class="form-row">
+              <label>慢思考间隔（每N步）</label>
+              <div class="range-row"><input type="range" id="agentSlowThink" min="1" max="10" step="1" oninput="document.getElementById('agentSlowThinkVal').textContent=this.value"><span class="range-val" id="agentSlowThinkVal">3</span></div>
+              <div class="hint">留空=默认 3</div>
+            </div>
+            <div class="form-row">
+              <label>死循环检测阈值</label>
+              <div class="range-row"><input type="range" id="agentLoopThreshold" min="2" max="10" step="1" oninput="document.getElementById('agentLoopVal').textContent=this.value"><span class="range-val" id="agentLoopVal">3</span></div>
+              <div class="hint">留空=默认 3</div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="form-row">
-      <label>Token 预算</label>
-      <input type="number" id="agentTokenBudget" min="10000" max="500000" step="10000" placeholder="留空=默认 100000">
-    </div>
-    <div class="form-row">
-      <label>死循环检测阈值</label>
-      <div class="range-row"><input type="range" id="agentLoopThreshold" min="2" max="10" step="1" oninput="document.getElementById('agentLoopVal').textContent=this.value"><span class="range-val" id="agentLoopVal">3</span></div>
-      <div class="hint">留空=默认 3</div>
-    </div>
+
     <div class="modal-footer">
       <button class="btn btn-cancel" onclick="closeModal()">取消</button>
       <button class="btn btn-primary" onclick="saveAgent()">保存</button>

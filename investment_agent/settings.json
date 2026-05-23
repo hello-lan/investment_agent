@@ -6,6 +6,7 @@
     "loop_detection_threshold": 3,
     "skill_body_ttl": 600,
     "context_trim_interval": 5,
+    "runtime_trim_strategy": "default",
     "tool_trim_limits": {
       "get_income_statement": 6000,
       "get_balance_sheet": 6000,

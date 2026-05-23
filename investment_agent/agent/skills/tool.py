@@ -1,10 +1,12 @@
 """Skill 加载工具：LLM 按需加载 Skill 的完整 body。"""
 
 from ..tools.base import BaseTool
+from ..tools.registry import register_tool
 from .loader import _registry
 from .cache import get_cache
 
 
+@register_tool
 class SkillTool(BaseTool):
     """按需加载 Skill body。调用时传入 skill 名称，返回该 skill 的完整使用说明。"""
     name = "Skill"

@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import AsyncGenerator, Callable
 
 from .models import ModelProvider, LLMResponse, ToolCall
+from ..context.runtime_trimmer import RuntimeTrimmer, NoOpRuntimeTrimmer
 
 
 class AgentEngine:
@@ -25,6 +26,7 @@ class AgentEngine:
         loop_detection_threshold: int = 3,
         context_trim_interval: int = 0,
         tool_trim_limits: dict | None = None,
+        runtime_trimmer: RuntimeTrimmer | None = None,
     ):
         self.session_id = session_id
         self.task_id = str(uuid.uuid4())
@@ -42,6 +44,7 @@ class AgentEngine:
         self.loop_threshold = loop_detection_threshold
         self.context_trim_interval = context_trim_interval  # 0 = disabled
         self.tool_trim_limits = tool_trim_limits or {}
+        self._runtime_trimmer = runtime_trimmer
 
         self.total_input_tokens = 0
         self.total_output_tokens = 0
@@ -87,8 +90,8 @@ class AgentEngine:
             yield {"type": "step_start", "step": step}
 
             # —— 运行时上下文整理：每 N 步裁剪旧消息 ——
-            if self.context_trim_interval > 0 and step > 1 and step % self.context_trim_interval == 0:
-                messages = self._trim_context(messages, step)
+            if self._runtime_trimmer is not None and self.context_trim_interval > 0 and step > 1 and step % self.context_trim_interval == 0:
+                messages = self._runtime_trimmer.trim(messages, step)
                 yield {"type": "context_trim", "step": step}
 
             # —— 慢思考：每 N 步触发一次全局复盘 ——
@@ -298,6 +301,7 @@ class AgentEngine:
             slow_think_interval=0,
             token_budget=self.token_budget,
             context_trim_interval=0,
+            runtime_trimmer=NoOpRuntimeTrimmer(),
         )
         run_tool = RunCommandTool()
         sub.register_tool(run_tool.schema, run_tool.run)
@@ -351,84 +355,6 @@ class AgentEngine:
             return "\n".join(parts)
         return str(content)
 
-    def _trim_context(self, messages: list[dict], current_step: int, keep_recent: int = 5) -> list[dict]:
-        """运行时上下文裁剪：保留最近 N 轮对话，旧消息剥离 reasoning 并截断 tool_result。
-
-        "一轮" = 一条 assistant 消息 + 其后的一条 user(tool_result) 消息。
-        messages[0]（原始用户问题）始终完整保留。
-        """
-        if len(messages) <= 1:
-            return messages
-
-        # 从尾部向前数 keep_recent 个 assistant 消息，标记保留边界
-        assistant_indices = [
-            i for i, m in enumerate(messages) if m.get("role") == "assistant"
-        ]
-        if len(assistant_indices) <= keep_recent:
-            return messages
-
-        # retain_from 及之后的消息完整保留（含对应的 user 消息）
-        retain_from = assistant_indices[-(keep_recent)]
-
-        trimmed = []
-        for i, msg in enumerate(messages):
-            if i == 0 or i >= retain_from:
-                # 原始用户问题 + 最近 N 轮：完整保留
-                trimmed.append(msg)
-                continue
-
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-
-            if role == "assistant" and isinstance(content, list):
-                new_blocks = []
-                for block in content:
-                    if block.get("type") == "reasoning":
-                        # 剥离旧 reasoning，保留占位标记
-                        new_blocks.append(
-                            {"type": "reasoning", "content": "[推理过程已压缩]"}
-                        )
-                    else:
-                        new_blocks.append(block)
-                trimmed.append({"role": "assistant", "content": new_blocks})
-
-            elif role == "user" and isinstance(content, list):
-                new_blocks = []
-                for block in content:
-                    b = dict(block)
-                    if block.get("type") == "tool_result":
-                        tool_name = self._guess_tool_name(block, messages, i)
-                        raw = str(block.get("content", ""))
-                        from ..context.trim_limits import resolve_limit
-                        limit = resolve_limit(tool_name, self.tool_trim_limits)
-                        b["content"] = self._truncate_text(raw, limit)
-                    new_blocks.append(b)
-                trimmed.append({"role": "user", "content": new_blocks})
-
-            else:
-                trimmed.append(msg)
-
-        return trimmed
-
-    @staticmethod
-    def _guess_tool_name(block: dict, messages: list[dict], msg_idx: int) -> str | None:
-        """通过 tool_use_id 反查工具名称。"""
-        tool_id = block.get("tool_use_id", "")
-        if not tool_id:
-            return None
-        # 向前查找最近的 assistant 消息中的 tool_use
-        for i in range(msg_idx - 1, -1, -1):
-            m = messages[i]
-            if m.get("role") != "assistant":
-                continue
-            content = m.get("content", [])
-            if not isinstance(content, list):
-                continue
-            for b in content:
-                if b.get("type") == "tool_use" and b.get("id") == tool_id:
-                    return b.get("name")
-        return None
-
     def _extract_role_from_system(self) -> str:
         """从 system_prompt 中提取角色定义（第一段），用于慢思考的精简 system。
 
@@ -455,12 +381,6 @@ class AgentEngine:
         if len(prompt) > 200:
             prompt = prompt[:200].rsplit("。", 1)[0] + "。"
         return prompt + " 请基于对话历史评估当前任务进展是否正常。"
-
-    @staticmethod
-    def _truncate_text(text: str, max_chars: int) -> str:
-        if len(text) <= max_chars:
-            return text
-        return text[:max_chars] + "\n...[已截断]"
 
     @staticmethod
     def _truncate_reasoning(content: str, max_chars: int = 300) -> str:

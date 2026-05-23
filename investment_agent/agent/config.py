@@ -38,6 +38,7 @@ class AgentRunConfig:
     token_budget: int = 100000
     loop_detection_threshold: int = 3
     context_trim_interval: int = 0
+    runtime_trim_strategy: str = "default"
 
     # ── Agent 级工具选择（空列表=全部工具，向后兼容）──
     tools: list[str] = field(default_factory=list)
