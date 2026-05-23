@@ -202,19 +202,9 @@ class TaskManager:
         if not state.accumulated_text:
             return
 
-        from .db import get_db
-        import uuid
-        from datetime import datetime, timezone
-
-        msg_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc).isoformat()
-        async with get_db() as db:
-            await db.execute(
-                "INSERT INTO messages (id, session_id, role, content, created_at) "
-                "VALUES (?, ?, 'assistant', ?, ?)",
-                (msg_id, state.session_id, state.accumulated_text, now),
-            )
-            await db.commit()
+        msg_id = await state.runner._storage.save_assistant_message(
+            state.session_id, state.accumulated_text,
+        )
 
         # 保存摘要（如果有上下文管理结果）
         result = state.runner._context_result

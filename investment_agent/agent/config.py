@@ -1,13 +1,23 @@
-"""AgentRunConfig — 一次 Agent 运行所需的全部已解析配置。
-
-纯数据 dataclass，不含任何 DB 访问或文件读取。
-构建工作由 app/config_factory.py 的 load_agent_run_config() 完成。
-"""
+"""Agent 配置：运行数据结构和默认值。"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+
+
+DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
+你可以调用工具获取股票行情、财务报表、估值指标等数据，帮助用户进行基本面分析。
+分析时请做到：数据驱动、逻辑清晰、结论明确。
+最终输出请使用 Markdown 格式。"""
+
+SUBAGENT_SYSTEM_PROMPT = """你是一个专业的子Agent，负责执行父Agent分配的独立任务。
+
+关键规则：
+1. 已注入的 skill 说明包含完整操作指令，直接遵循执行
+2. 可使用 Skill(name="...") 加载技能的补充材料（如 references/）
+3. 使用 run_command 执行脚本命令
+4. 直接执行任务并返回结果，不要询问确认"""
 
 
 @dataclass

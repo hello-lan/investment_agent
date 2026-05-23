@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import time
 import uuid
 from collections import Counter
@@ -7,16 +8,10 @@ from datetime import datetime
 from typing import AsyncGenerator, Callable
 
 from .models import ModelProvider, LLMResponse, ToolCall
+from ..config import SUBAGENT_SYSTEM_PROMPT
 from ..context.runtime_trimmer import RuntimeTrimmer, NoOpRuntimeTrimmer
 
-
-SUBAGENT_SYSTEM_PROMPT = """你是一个专业的子Agent，负责执行父Agent分配的独立任务。
-
-关键规则：
-1. 已注入的 skill 说明包含完整操作指令，直接遵循执行
-2. 可使用 Skill(name="...") 加载技能的补充材料（如 references/）
-3. 使用 run_command 执行脚本命令
-4. 直接执行任务并返回结果，不要询问确认"""
+_log = logging.getLogger(__name__)
 
 
 class AgentEngine:
@@ -87,18 +82,30 @@ class AgentEngine:
 
     @property
     def system_prompt(self) -> str:
-        """动态拼接：基础 prompt + 已注册 skill 的名称/描述"""
+        """动态拼接：基础 prompt + 项目路径 + 已注册 skill 的名称/描述"""
+        prompt = self._system_prompt
+
+        # 追加项目路径信息（固定部分，始终注入）
+        if "## 项目路径" not in prompt:
+            from ...config import PROJECT_ROOT
+            prompt += (
+                f"\n\n## 项目路径\n\n"
+                f"PROJECT_ROOT = {PROJECT_ROOT}\n\n"
+                f"## 当前时间\n"
+                f"{datetime.now()}\n"
+            )
+
         if not self._skills:
-            return self._system_prompt
-        if "# 可用技能" in self._system_prompt:
-            return self._system_prompt
+            return prompt
+        if "# 可用技能" in prompt:
+            return prompt
         lines = []
         for s in self._skills:
             prefix = "[orch] " if s.skill_type == "orch" else ""
             deps = f"（含 {len(s.depends_on)} 个子流程）" if s.depends_on else ""
             lines.append(f"- {prefix}**{s.name}**: {s.description}{deps}")
         return (
-            self._system_prompt
+            prompt
             + "\n\n---\n\n# 可用技能\n\n"
             + "\n".join(lines)
             + "\n\n> 使用 Skill 工具加载技能完整说明后再执行。"
@@ -333,8 +340,6 @@ class AgentEngine:
         使用轻量 LLM 调用提炼父Agent的对话上下文，生成适合子Agent的任务说明。
         失败时 fallback 到 LLM 传入的原始 task 描述。
         """
-        import logging
-        _log = logging.getLogger(__name__)
 
         if not self._messages:
             return task
@@ -520,8 +525,6 @@ class AgentEngine:
 
         返回反思文本供调用方注入 messages，实现真正的课程纠正。
         """
-        import logging
-        _log = logging.getLogger(__name__)
 
         # 构建精简消息列表：原始用户问题 + 最近 5 轮
         slim_messages = [messages[0]]  # 原始用户问题

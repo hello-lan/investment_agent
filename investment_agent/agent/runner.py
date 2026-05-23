@@ -67,41 +67,8 @@ class AgentRunner:
         # 2. 保存用户消息
         await self._storage.save_user_message(session_id, message)
 
-        # 3. 运行时裁剪策略
-        runtime_trimmer = get_runtime_trimmer(
-            config.runtime_trim_strategy, config.tool_trim_limits
-        )
-
-        # 4. 创建引擎
-        engine = AgentEngine(
-            session_id=session_id,
-            system_prompt=config.system_prompt,
-            provider=config.provider,
-            temperature=config.temperature,
-            max_tokens=config.max_tokens,
-            max_steps=config.max_steps,
-            slow_think_interval=config.slow_think_interval,
-            token_budget=config.token_budget,
-            loop_detection_threshold=config.loop_detection_threshold,
-            context_trim_interval=config.context_trim_interval,
-            tool_trim_limits=config.tool_trim_limits,
-            runtime_trimmer=runtime_trimmer,
-        )
-
-        # 5. 注册工具：AUTO_BOUND_TOOLS + agent 配置中选中的工具
-        allowed_tools = AUTO_BOUND_TOOLS | set(config.tools)
-        for tool_schema in get_schemas_for_names(allowed_tools):
-            tool = get_tool(tool_schema["name"])
-            if tool:
-                engine.register_tool(tool_schema, tool.run)
-
-        # 6. 注册技能
-        if config.skills:
-            from .skills.loader import get_skill
-            for name in config.skills:
-                skill = get_skill(name)
-                if skill:
-                    engine.register_skill(skill)
+        # 3. 创建引擎（含工具/技能注册）
+        engine = self._create_engine(config, session_id)
 
         self._engines[engine.task_id] = engine
         return engine.task_id, session_id
@@ -124,41 +91,8 @@ class AgentRunner:
             title="",  # 重试时不更新标题
         )
 
-        # 2. 运行时裁剪策略
-        runtime_trimmer = get_runtime_trimmer(
-            config.runtime_trim_strategy, config.tool_trim_limits
-        )
-
-        # 3. 创建引擎
-        engine = AgentEngine(
-            session_id=session_id,
-            system_prompt=config.system_prompt,
-            provider=config.provider,
-            temperature=config.temperature,
-            max_tokens=config.max_tokens,
-            max_steps=config.max_steps,
-            slow_think_interval=config.slow_think_interval,
-            token_budget=config.token_budget,
-            loop_detection_threshold=config.loop_detection_threshold,
-            context_trim_interval=config.context_trim_interval,
-            tool_trim_limits=config.tool_trim_limits,
-            runtime_trimmer=runtime_trimmer,
-        )
-
-        # 4. 注册工具
-        allowed_tools = AUTO_BOUND_TOOLS | set(config.tools)
-        for tool_schema in get_schemas_for_names(allowed_tools):
-            tool = get_tool(tool_schema["name"])
-            if tool:
-                engine.register_tool(tool_schema, tool.run)
-
-        # 5. 注册技能
-        if config.skills:
-            from .skills.loader import get_skill
-            for name in config.skills:
-                skill = get_skill(name)
-                if skill:
-                    engine.register_skill(skill)
+        # 2. 创建引擎（含工具/技能注册）
+        engine = self._create_engine(config, session_id)
 
         self._engines[engine.task_id] = engine
         return engine.task_id, session_id
@@ -402,6 +336,38 @@ class AgentRunner:
         return False
 
     # ── Internal helpers ──────────────────────────────────────────────────
+
+    def _create_engine(self, config: AgentRunConfig, session_id: str) -> AgentEngine:
+        """创建引擎并注册工具/技能。start() 和 setup() 共用。"""
+        runtime_trimmer = get_runtime_trimmer(
+            config.runtime_trim_strategy, config.tool_trim_limits,
+        )
+        engine = AgentEngine(
+            session_id=session_id,
+            system_prompt=config.system_prompt,
+            provider=config.provider,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+            max_steps=config.max_steps,
+            slow_think_interval=config.slow_think_interval,
+            token_budget=config.token_budget,
+            loop_detection_threshold=config.loop_detection_threshold,
+            context_trim_interval=config.context_trim_interval,
+            tool_trim_limits=config.tool_trim_limits,
+            runtime_trimmer=runtime_trimmer,
+        )
+        allowed_tools = AUTO_BOUND_TOOLS | set(config.tools)
+        for tool_schema in get_schemas_for_names(allowed_tools):
+            tool = get_tool(tool_schema["name"])
+            if tool:
+                engine.register_tool(tool_schema, tool.run)
+        if config.skills:
+            from .skills.loader import get_skill
+            for name in config.skills:
+                skill = get_skill(name)
+                if skill:
+                    engine.register_skill(skill)
+        return engine
 
     @classmethod
     def _get_session_id(cls, task_id: str) -> str | None:

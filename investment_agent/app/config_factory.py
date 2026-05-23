@@ -6,12 +6,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
-from ..agent.config import AgentRunConfig
+from ..agent.config import AgentRunConfig, DEFAULT_SYSTEM_PROMPT
 from ..agent.core.models import ClaudeProvider, ModelProvider, OpenAICompatProvider
 from ..agent.skills.cache import get_cache
-from ..config import PROJECT_ROOT, get_settings
+from ..config import get_settings
 from .db import get_db
 
 
@@ -43,23 +42,6 @@ async def get_provider(model_id: str | None = None) -> ModelProvider:
     provider._output_price = cfg["output_price"] if cfg["output_price"] is not None else None
     provider._currency = cfg["currency"] or "USD"
     return provider
-
-
-DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
-你可以调用工具获取股票行情、财务报表、估值指标等数据，帮助用户进行基本面分析。
-分析时请做到：数据驱动、逻辑清晰、结论明确。
-最终输出请使用 Markdown 格式。
-
-## 项目路径
-
-PROJECT_ROOT = {PROJECT_ROOT}
-
-## 文件输出规范
-- PDF 财报文件保存到 {PROJECT_ROOT}/data/reports/pdf/{股票代码}/
-- Markdown 分析报告保存到 {PROJECT_ROOT}/data/reports/
-- 图表保存到 {PROJECT_ROOT}/data/reports/charts/
-- 临时文件放到 {PROJECT_ROOT}/data/tmp/
-- 调用 download-a-share-reports 技能下载财报时，必须传递 --save-dir {PROJECT_ROOT}/data/reports/pdf/"""
 
 
 def _resolve_engine_params(agent_cfg: dict | None) -> dict:
@@ -106,7 +88,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
             agent_row = await row.fetchone()
 
     # —— System prompt ——
-    system_prompt = DEFAULT_SYSTEM_PROMPT.replace("{PROJECT_ROOT}", str(PROJECT_ROOT))
+    system_prompt = DEFAULT_SYSTEM_PROMPT
     agent_name = None
     model_id = None
     enabled_skill_names: list[str] = []

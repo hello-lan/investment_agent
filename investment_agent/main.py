@@ -16,10 +16,8 @@ from .app.api.observability import router as observability_router
 from .app.api.tools import router as tools_router
 from .agent.skills.loader import init_skills_dir
 from .agent.tools.run_command import set_project_root
-from .config import get_settings
+from .config import PROJECT_ROOT, get_settings
 
-# 项目根目录（investment_agent/ 的上一级）
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = PROJECT_ROOT / "investment_agent" / "app" / "static"
 TEMPLATE_DIR = PROJECT_ROOT / "investment_agent" / "app" / "templates"
 OUTPUT_DIR = PROJECT_ROOT / "output"
