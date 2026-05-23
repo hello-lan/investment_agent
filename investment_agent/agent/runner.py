@@ -248,6 +248,14 @@ class AgentRunner:
                             "output": str(event.get("output", ""))[:500],
                             "duration_ms": event.get("duration_ms"),
                         }
+                    elif event_type == "sub_tool_call":
+                        trace_detail = {"tool": event.get("tool"), "input": event.get("input")}
+                    elif event_type == "sub_tool_result":
+                        trace_detail = {
+                            "tool": event.get("tool"),
+                            "output": str(event.get("output", ""))[:500],
+                            "duration_ms": event.get("duration_ms"),
+                        }
                     elif event_type == "done":
                         trace_detail = {"usage": event.get("usage")}
                     elif event_type == "error":
