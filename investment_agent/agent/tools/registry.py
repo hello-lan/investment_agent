@@ -34,6 +34,7 @@ from .financials import (  # noqa: F401
     ValuationTool, FinancialIndicatorTool,
 )
 from .run_command import RunCommandTool  # noqa: F401
+from .delegate_task import DelegateTaskTool  # noqa: F401
 from ..skills.tool import SkillTool  # noqa: F401
 
 

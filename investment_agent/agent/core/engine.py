@@ -10,14 +10,13 @@ from .models import ModelProvider, LLMResponse, ToolCall
 from ..context.runtime_trimmer import RuntimeTrimmer, NoOpRuntimeTrimmer
 
 
-SUBAGENT_SYSTEM_PROMPT = """你是一个专业的子Agent，负责执行父Agent分配的独立任务。你已经拥有所需技能的完整说明，请严格按照指令执行。"""
-
-SUBAGENT_INSTRUCTION = """你是一个子Agent，负责执行上述任务。
+SUBAGENT_SYSTEM_PROMPT = """你是一个专业的子Agent，负责执行父Agent分配的独立任务。
 
 关键规则：
-1. 已注入的 skill body 包含完整操作指令，直接遵循执行
-2. 可以使用 Skill(name="...") 加载更多 skill 的详细说明
-3. 直接执行任务并返回结果，不要询问确认"""
+1. 已注入的 skill 说明包含完整操作指令，直接遵循执行
+2. 可使用 Skill(name="...") 加载技能的补充材料（如 references/）
+3. 使用 run_command 执行脚本命令
+4. 直接执行任务并返回结果，不要询问确认"""
 
 
 class AgentEngine:
@@ -65,6 +64,7 @@ class AgentEngine:
         self._orch_dependencies: set[str] = set()  # orch skill 的子技能名称集合
         self._messages: list[dict] = []             # 当前步骤的消息列表快照
         self._subagent_queue: asyncio.Queue | None = None  # 子Agent实时事件队列
+        self._delegate_registered: bool = False     # DelegateTask 工具是否已注册
 
     def register_tool(self, schema: dict, handler: Callable) -> None:
         """注册工具：schema 给 LLM 看，handler 执行实际逻辑"""
@@ -74,6 +74,16 @@ class AgentEngine:
     def register_skill(self, skill) -> None:
         """注册技能：记录 skill 对象，供 system_prompt property 拼接 prompt"""
         self._skills.append(skill)
+
+    def _register_delegate_tool(self) -> None:
+        """动态注册 DelegateTask 工具到引擎，使 LLM 可在下一步调用它来委派子任务。"""
+        if self._delegate_registered:
+            return
+        from ..tools.registry import get_tool
+        tool = get_tool("DelegateTask")
+        if tool:
+            self.register_tool(tool.schema, tool.run)
+            self._delegate_registered = True
 
     @property
     def system_prompt(self) -> str:
@@ -280,21 +290,22 @@ class AgentEngine:
             yield {"type": "error", "message": f"Max steps ({self.max_steps}) reached."}
 
     async def _execute_tool(self, tc: ToolCall) -> str | None:
-        # —— 透明 SubAgent：orch 依赖的子技能在隔离引擎中执行 ——
-        if tc.name == "Skill":
-            skill_name = tc.input.get("name", "")
-            if skill_name in self._orch_dependencies:
-                from ..skills.loader import _registry as skill_registry
-                # 只传入父Agent明确选择的skill（即orch的depends_on），排除orch类型
-                skill_names = [
-                    name for name in self._orch_dependencies
-                    if skill_registry.get(name) and skill_registry[name].skill_type != "orch"
-                ]
-                prompt = self._extract_text_from_content(
-                    self._messages[-1].get("content", "")
-                ) if self._messages else ""
-                self._start_subagent(skill_names, prompt)
-                return None  # 信号：子Agent在后台运行，主循环需轮询 _subagent_queue
+        # —— DelegateTask：将子任务委派给隔离子Agent执行 ——
+        if tc.name == "DelegateTask":
+            from ..skills.loader import _registry as skill_registry
+            raw_skill_names = tc.input.get("skill_names", []) or []
+            task = tc.input.get("task", "")
+            # 过滤：只保留 orch 依赖中存在的非 orch 技能
+            skill_names = [
+                name for name in raw_skill_names
+                if name in self._orch_dependencies
+                and skill_registry.get(name)
+                and skill_registry[name].skill_type != "orch"
+            ]
+            # 基于对话上下文生成子Agent的任务指令
+            prompt = await self._generate_task_instruction(task, skill_names)
+            self._start_subagent(skill_names, prompt)
+            return None  # 信号：子Agent在后台运行，主循环需轮询 _subagent_queue
 
         handler = self.tool_handlers.get(tc.name)
         if not handler:
@@ -302,7 +313,7 @@ class AgentEngine:
         try:
             result = await handler(**tc.input)
 
-            # —— 检测 orch skill 加载，记录其依赖 ——
+            # —— 检测 orch skill 加载，记录其依赖并注册 DelegateTask ——
             if tc.name == "Skill":
                 skill_name = tc.input.get("name", "")
                 from ..skills.loader import get_skill
@@ -310,10 +321,77 @@ class AgentEngine:
                 if skill and skill.skill_type == "orch" and skill.depends_on:
                     for dep in skill.depends_on:
                         self._orch_dependencies.add(dep)
+                    self._register_delegate_tool()
 
             return str(result)
         except Exception as e:
             return f"Tool error: {e}"
+
+    async def _generate_task_instruction(self, task: str, skill_names: list[str]) -> str:
+        """基于对话上下文为子Agent生成聚焦的任务指令。
+
+        使用轻量 LLM 调用提炼父Agent的对话上下文，生成适合子Agent的任务说明。
+        失败时 fallback 到 LLM 传入的原始 task 描述。
+        """
+        import logging
+        _log = logging.getLogger(__name__)
+
+        if not self._messages:
+            return task
+
+        # 构建精简纯文本消息：提取文本内容，丢弃 tool_use/tool_result blocks，
+        # 避免 OpenAI 兼容 Provider 因 tool pair 不完整而报错 (400 Bad Request)
+        # 取首条用户问题 + 最近5条（去重避免重叠）
+        def _msg_text(msg: dict) -> dict | None:
+            role = msg.get("role", "")
+            text = self._extract_text_from_content(msg.get("content", ""))
+            return {"role": role, "content": text} if text.strip() else None
+
+        text_messages: list[dict] = []
+        seen = {0}  # 首条必取
+        t = _msg_text(self._messages[0])
+        if t:
+            text_messages.append(t)
+        tail_start = max(1, len(self._messages) - 5)
+        for i in range(tail_start, len(self._messages)):
+            if i not in seen:
+                t = _msg_text(self._messages[i])
+                if t:
+                    text_messages.append(t)
+
+        skill_info = f"将使用技能: {', '.join(skill_names)}" if skill_names else "无指定技能"
+        prompt = (
+            f"你是一个任务规划者。请基于以下对话上下文，为子Agent生成一条聚焦的任务指令。\n\n"
+            f"父Agent要求: {task}\n"
+            f"{skill_info}\n\n"
+            f"要求：\n"
+            f"1. 从对话上下文中提取子Agent执行所需的关键信息（如股票代码、文件路径、年份等）\n"
+            f"2. 明确说明输入和期望输出\n"
+            f"3. 不要添加多余的解释，直接输出任务指令\n"
+            f"4. 用中文输出"
+        )
+        text_messages.append({"role": "user", "content": prompt})
+
+        try:
+            kwargs: dict = {
+                "messages": text_messages,
+                "system": "你是一个任务规划助手，负责为子Agent生成精确的任务指令。",
+            }
+            if self.temperature is not None:
+                kwargs["temperature"] = self.temperature
+            if self.max_tokens is not None:
+                kwargs["max_tokens"] = min(self.max_tokens, 256)
+            else:
+                kwargs["max_tokens"] = 256
+            resp = await self.provider.chat(**kwargs)
+            self.total_input_tokens += resp.input_tokens
+            self.total_output_tokens += resp.output_tokens
+            if resp.content:
+                return resp.content.strip()
+        except Exception:
+            _log.warning("Task instruction generation failed, using fallback", exc_info=True)
+
+        return task
 
     def _start_subagent(self, skill_names: list[str], prompt: str) -> None:
         """启动子Agent后台任务，事件通过 _subagent_queue 实时转发。"""
@@ -324,15 +402,8 @@ class AgentEngine:
     async def _run_subagent_task(self, skill_names: list[str], prompt: str, queue: asyncio.Queue) -> None:
         """子Agent后台任务：运行隔离引擎，事件入队，完成/错误时发哨兵事件。"""
         from ..skills.tool import SkillTool
+        from ..skills.loader import _registry as skill_registry
         from ..tools.run_command import RunCommandTool
-
-        # 构建 system_prompt：通用角色定义（skill body 通过 Skill 工具按需加载）
-
-        # 构造子Agent消息
-        sub_messages: list[dict] = [
-            {"role": "user", "content": prompt},
-            {"role": "user", "content": SUBAGENT_INSTRUCTION},
-        ]
 
         sub = AgentEngine(
             session_id=f"sub_{uuid.uuid4().hex[:8]}",
@@ -344,10 +415,21 @@ class AgentEngine:
             context_trim_interval=0,
             runtime_trimmer=NoOpRuntimeTrimmer(),
         )
+        # 注册基础工具
         run_tool = RunCommandTool()
         sub.register_tool(run_tool.schema, run_tool.run)
         skill_tool = SkillTool()
         sub.register_tool(skill_tool.schema, skill_tool.run)
+        # 注册父Agent传入的技能 → body 自动注入 sub.system_prompt
+        for name in skill_names:
+            skill = skill_registry.get(name)
+            if skill:
+                sub.register_skill(skill)
+
+        # 构造子Agent消息（仅包含任务指令，规则已在 system_prompt 中）
+        sub_messages: list[dict] = [
+            {"role": "user", "content": prompt},
+        ]
 
         result_text = ""
         try:

@@ -11,9 +11,7 @@ depends_on:
 
 # 完整财报分析流程（编排）
 
-**核心规则：每个步骤必须先调用 `Skill(name="子技能名")` 加载完整指令，然后严格按子技能的指令执行。** 不要跳过 Skill 调用直接在 orch 上下文中执行——子技能包含关键的边界条件处理，缺失会导致结果出错。
-
-串行执行以下 4 个步骤，每步完成后再进入下一步。任一步骤失败时停止并报告用户。
+每个步骤必须委派给子Agent执行。串行执行以下 4 个步骤，每步完成后再进入下一步。任一步骤失败时停止并报告用户。
 
 ## 前置确认
 
@@ -26,11 +24,7 @@ depends_on:
 
 ## 步骤 1：下载财报 PDF
 
-```
-Skill(name="download-a-share-reports")
-```
-
-按子技能指令下载指定年份的财报 PDF。遵循增量策略：已有文件跳过，仅下载缺失年份。
+用 **download-a-share-reports** 技能下载指定股票的年度报告 PDF 文件。
 
 **输入**：股票代码、年份范围
 **输出**：`data/reports/pdf/{股票代码}/` 目录下的 PDF 文件路径列表
@@ -39,11 +33,7 @@ Skill(name="download-a-share-reports")
 
 ## 步骤 2：PDF 转 Markdown
 
-```
-Skill(name="pdf-to-markdown")
-```
-
-按子技能指令将步骤 1 的每个 PDF 转换为 Markdown。已有 `.md` 文件则跳过。
+用 **pdf-to-markdown** 技能将步骤 1 下载的每个 PDF 文件转换为 Markdown 格式。已有 `.md` 文件则跳过。
 
 **输入**：步骤 1 输出的 PDF 路径列表
 **输出**：`data/reports/pdf/{股票代码}/` 目录下的 `.pdf.md` 文件路径列表
@@ -52,11 +42,7 @@ Skill(name="pdf-to-markdown")
 
 ## 步骤 3：财报章节切割
 
-```
-Skill(name="split-financial-report")
-```
-
-按子技能指令将步骤 2 的每个 `.md` 文件按章节目录切割为独立章节文件。已有切割结果则跳过。
+用 **split-financial-report** 技能将步骤 2 的每个 `.md` 文件按章节目录切割为独立章节文件。已有切割结果则跳过。
 
 **输入**：步骤 2 输出的 `.md` 文件路径列表
 **输出**：`data/reports/split/{股票代码}/` 目录下的切割文件列表
@@ -65,11 +51,7 @@ Skill(name="split-financial-report")
 
 ## 步骤 4：财务排雷分析
 
-```
-Skill(name="a-share-financial-forensic")
-```
-
-按子技能指令基于步骤 3 切割后的章节文件执行完整的财务排雷分析。每次均需执行（分析基于最新数据）。
+用 **a-share-financial-forensic** 技能基于步骤 3 切割后的章节文件执行完整的财务排雷分析。每次均需执行（分析基于最新数据）。
 
 **输入**：步骤 3 输出的切割文件目录路径
 **输出**：结构化排雷分析报告
@@ -92,4 +74,4 @@ Skill(name="a-share-financial-forensic")
 - 步骤1：已有 PDF → 跳过下载
 - 步骤2：已有 `.md` → 跳过转换
 - 步骤3：已有切割目录 → 跳过切割
-- 步骤4：始终执行（分析需基于最新数据）
+- 步骤4：始终执行（分析基于最新数据）

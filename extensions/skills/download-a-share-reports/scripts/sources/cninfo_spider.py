@@ -235,7 +235,8 @@ class CninfoSpider:
             if any(kw in a.get("announcementTitle", "") for kw in keywords)
         ]
 
-        # 按年份去重（每年只保留一条）
+        # 按年份去重（每年只保留一条，完整报告优先于摘要）
+        all_announcements.sort(key=lambda x: (0 if "摘要" not in x.get("announcementTitle", "") else 1))
         seen_years = set()
         deduped = []
         for a in all_announcements:
