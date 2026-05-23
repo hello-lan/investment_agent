@@ -219,9 +219,10 @@ function fillEngineFields(cfg) {
     tokenBudget.value = '';
     loopThreshold.value = 3;
     document.getElementById('agentLoopVal').textContent = '3';
-    trimStrategy.value = 'default';
-    trimInterval.value = 0;
-    document.getElementById('agentTrimIntervalVal').textContent = '0';
+    trimStrategy.value = 'none';
+    trimInterval.value = 5;
+    document.getElementById('agentTrimIntervalVal').textContent = '5';
+    toggleTrimInterval();
     return;
   }
 
@@ -232,9 +233,21 @@ function fillEngineFields(cfg) {
   tokenBudget.value = cfg.token_budget ?? '';
   loopThreshold.value = cfg.loop_detection_threshold ?? 3;
   document.getElementById('agentLoopVal').textContent = cfg.loop_detection_threshold ?? 3;
-  trimStrategy.value = cfg.runtime_trim_strategy || 'default';
-  trimInterval.value = cfg.context_trim_interval ?? 0;
-  document.getElementById('agentTrimIntervalVal').textContent = cfg.context_trim_interval ?? 0;
+  const strategy = cfg.runtime_trim_strategy || 'none';
+  trimStrategy.value = strategy;
+  trimInterval.value = cfg.context_trim_interval || 5;
+  document.getElementById('agentTrimIntervalVal').textContent = cfg.context_trim_interval || 5;
+  toggleTrimInterval();
+}
+
+function toggleTrimInterval() {
+  const strategy = document.getElementById('agentTrimStrategy').value;
+  const row = document.getElementById('trimIntervalRow');
+  if (strategy === 'none') {
+    row.classList.add('hidden');
+  } else {
+    row.classList.remove('hidden');
+  }
 }
 
 function openModal(agent){
@@ -315,24 +328,21 @@ async function saveAgent(){
     }
   }
 
-  const engineMaxSteps = toNullableInt(document.getElementById('agentMaxSteps').value);
-  const engineSlowThink = toNullableInt(document.getElementById('agentSlowThink').value);
+  const engineMaxSteps = parseInt(document.getElementById('agentMaxSteps').value) || 30;
+  const engineSlowThink = parseInt(document.getElementById('agentSlowThink').value) || 3;
   const engineTokenBudget = toNullableInt(document.getElementById('agentTokenBudget').value);
-  const engineLoopThreshold = toNullableInt(document.getElementById('agentLoopThreshold').value);
+  const engineLoopThreshold = parseInt(document.getElementById('agentLoopThreshold').value) || 3;
   const trimStrategy = document.getElementById('agentTrimStrategy').value;
-  const trimInterval = toNullableInt(document.getElementById('agentTrimInterval').value);
+  const trimInterval = parseInt(document.getElementById('agentTrimInterval').value) || 5;
 
-  let engineConfig = null;
-  if (engineMaxSteps !== null || engineSlowThink !== null || engineTokenBudget !== null
-      || engineLoopThreshold !== null || trimStrategy !== 'default' || trimInterval !== null) {
-    engineConfig = {};
-    if (engineMaxSteps !== null) engineConfig.max_steps = engineMaxSteps;
-    if (engineSlowThink !== null) engineConfig.slow_think_interval = engineSlowThink;
-    if (engineTokenBudget !== null) engineConfig.token_budget = engineTokenBudget;
-    if (engineLoopThreshold !== null) engineConfig.loop_detection_threshold = engineLoopThreshold;
-    if (trimStrategy !== 'default') engineConfig.runtime_trim_strategy = trimStrategy;
-    if (trimInterval !== null) engineConfig.context_trim_interval = trimInterval;
-  }
+  const engineConfig = {
+    max_steps: engineMaxSteps,
+    slow_think_interval: engineSlowThink,
+    token_budget: engineTokenBudget,
+    loop_detection_threshold: engineLoopThreshold,
+    runtime_trim_strategy: trimStrategy,
+    context_trim_interval: trimInterval,
+  };
 
   const body = {
     name,

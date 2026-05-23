@@ -220,16 +220,16 @@
           <div class="sub-title">上下文裁剪</div>
           <div class="form-row">
             <label>裁剪策略</label>
-            <select id="agentTrimStrategy">
-              <option value="default">默认裁剪</option>
-              <option value="none">不裁剪</option>
+            <select id="agentTrimStrategy" onchange="toggleTrimInterval()">
+              <option value="none">默认(不裁剪)</option>
+              <option value="default">裁剪</option>
             </select>
-            <div class="hint">默认裁剪：每 N 步剥离旧 reasoning、截断旧 tool_result；不裁剪：所有历史消息完整保留</div>
+            <div class="hint">默认不裁剪，所有历史消息完整保留；选择裁剪后每 N 步剥离旧 reasoning、截断旧 tool_result</div>
           </div>
-          <div class="form-row">
+          <div class="form-row" id="trimIntervalRow">
             <label>裁剪间隔步数</label>
-            <div class="range-row"><input type="range" id="agentTrimInterval" min="0" max="20" step="1" oninput="document.getElementById('agentTrimIntervalVal').textContent=this.value"><span class="range-val" id="agentTrimIntervalVal">0</span></div>
-            <div class="hint">0=禁用运行时裁剪，留空使用默认值</div>
+            <div class="range-row"><input type="range" id="agentTrimInterval" min="1" max="20" step="1" oninput="document.getElementById('agentTrimIntervalVal').textContent=this.value"><span class="range-val" id="agentTrimIntervalVal">5</span></div>
+            <div class="hint">每 N 步执行一次裁剪，默认为 5</div>
           </div>
         </div>
 
