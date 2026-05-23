@@ -145,8 +145,20 @@ class AgentEngine:
             if response.content:
                 yield {"type": "text_delta", "content": response.content}
 
-            # 无工具调用 → 任务结束
+            # 无工具调用 → 任务结束（除非因 max_tokens 耗尽被截断）
             if not response.tool_calls:
+                if response.stop_reason == "length":
+                    # 输出被截断，注入"继续"提示让模型从断开处恢复
+                    if response.content:
+                        assistant_msg = {"role": "assistant", "content": response.content}
+                        messages.append(assistant_msg)
+                    messages.append({
+                        "role": "user",
+                        "content": "你的上一次回复因达到token上限被截断，请继续完成未完成的部分。",
+                    })
+                    yield {"type": "text_delta", "content": "\n\n[输出被截断，自动请求继续...]\n\n"}
+                    continue
+
                 yield {
                     "type": "done",
                     "usage": {

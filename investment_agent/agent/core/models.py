@@ -190,16 +190,45 @@ class OpenAICompatProvider(ModelProvider):
         resp = await self.client.chat.completions.create(**kwargs)
         msg = resp.choices[0].message
 
+        import logging
+        _log = logging.getLogger(__name__)
+
         content = msg.content or ""
         reasoning = getattr(msg, "reasoning_content", None) or None
         tool_calls = []
         if msg.tool_calls:
             for tc in msg.tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    _log.warning(
+                        "Skipping malformed tool call arguments from model %s: %s",
+                        self.model, tc.function.arguments[:200]
+                    )
+                    continue
                 tool_calls.append(ToolCall(
                     id=tc.id,
                     name=tc.function.name,
-                    input=json.loads(tc.function.arguments),
+                    input=args,
                 ))
+
+        # 映射 OpenAI finish_reason → 统一 stop_reason
+        raw_reason = (resp.choices[0].finish_reason or "end_turn")
+        if raw_reason == "stop":
+            stop_reason = "end_turn"
+        elif raw_reason == "tool_calls":
+            stop_reason = "tool_use"
+        elif raw_reason == "length":
+            # max_tokens 耗尽：输出被截断，tool_calls 可能不完整 → 丢弃
+            if tool_calls:
+                _log.warning(
+                    "Response truncated (finish_reason=length), discarding %d tool calls",
+                    len(tool_calls),
+                )
+                tool_calls.clear()
+            stop_reason = "length"
+        else:
+            stop_reason = raw_reason
 
         return LLMResponse(
             content=content,
@@ -207,5 +236,5 @@ class OpenAICompatProvider(ModelProvider):
             reasoning_content=reasoning,
             input_tokens=resp.usage.prompt_tokens if resp.usage else 0,
             output_tokens=resp.usage.completion_tokens if resp.usage else 0,
-            stop_reason="tool_use" if tool_calls else "end_turn",
+            stop_reason=stop_reason,
         )
