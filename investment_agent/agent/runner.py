@@ -95,6 +95,14 @@ class AgentRunner:
             if tool:
                 engine.register_tool(tool_schema, tool.run)
 
+        # 6. 注册技能
+        if config.skills:
+            from .skills.loader import get_skill
+            for name in config.skills:
+                skill = get_skill(name)
+                if skill:
+                    engine.register_skill(skill)
+
         self._engines[engine.task_id] = engine
         return engine.task_id, session_id
 

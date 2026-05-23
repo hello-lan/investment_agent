@@ -10,6 +10,16 @@ from .models import ModelProvider, LLMResponse, ToolCall
 from ..context.runtime_trimmer import RuntimeTrimmer, NoOpRuntimeTrimmer
 
 
+SUBAGENT_SYSTEM_PROMPT = """你是一个专业的子Agent，负责执行父Agent分配的独立任务。你已经拥有所需技能的完整说明，请严格按照指令执行。"""
+
+SUBAGENT_INSTRUCTION = """你是一个子Agent，负责执行上述任务。
+
+关键规则：
+1. 已注入的 skill body 包含完整操作指令，直接遵循执行
+2. 可以使用 Skill(name="...") 加载更多 skill 的详细说明
+3. 直接执行任务并返回结果，不要询问确认"""
+
+
 class AgentEngine:
     """双循环执行引擎：快循环（LLM推理→工具调用→结果追加）+ 慢思考（定期全局复盘）"""
 
@@ -30,10 +40,11 @@ class AgentEngine:
     ):
         self.session_id = session_id
         self.task_id = str(uuid.uuid4())
-        self.system_prompt = system_prompt
+        self._system_prompt = system_prompt
         self.provider = provider
         self.tools: list[dict] = []
         self.tool_handlers: dict[str, Callable] = {}
+        self._skills: list = []
         self._interrupt = asyncio.Event()
 
         self.temperature = temperature
@@ -59,6 +70,33 @@ class AgentEngine:
         """注册工具：schema 给 LLM 看，handler 执行实际逻辑"""
         self.tools.append(schema)
         self.tool_handlers[schema["name"]] = handler
+
+    def register_skill(self, skill) -> None:
+        """注册技能：记录 skill 对象，供 system_prompt property 拼接 prompt"""
+        self._skills.append(skill)
+
+    @property
+    def system_prompt(self) -> str:
+        """动态拼接：基础 prompt + 已注册 skill 的名称/描述"""
+        if not self._skills:
+            return self._system_prompt
+        if "# 可用技能" in self._system_prompt:
+            return self._system_prompt
+        lines = []
+        for s in self._skills:
+            prefix = "[orch] " if s.skill_type == "orch" else ""
+            deps = f"（含 {len(s.depends_on)} 个子流程）" if s.depends_on else ""
+            lines.append(f"- {prefix}**{s.name}**: {s.description}{deps}")
+        return (
+            self._system_prompt
+            + "\n\n---\n\n# 可用技能\n\n"
+            + "\n".join(lines)
+            + "\n\n> 使用 Skill 工具加载技能完整说明后再执行。"
+        )
+
+    @system_prompt.setter
+    def system_prompt(self, value: str) -> None:
+        self._system_prompt = value
 
     def interrupt(self) -> None:
         """发送中断信号，优雅停止当前任务"""
@@ -246,7 +284,16 @@ class AgentEngine:
         if tc.name == "Skill":
             skill_name = tc.input.get("name", "")
             if skill_name in self._orch_dependencies:
-                self._start_subagent(skill_name)
+                from ..skills.loader import _registry as skill_registry
+                # 只传入父Agent明确选择的skill（即orch的depends_on），排除orch类型
+                skill_names = [
+                    name for name in self._orch_dependencies
+                    if skill_registry.get(name) and skill_registry[name].skill_type != "orch"
+                ]
+                prompt = self._extract_text_from_content(
+                    self._messages[-1].get("content", "")
+                ) if self._messages else ""
+                self._start_subagent(skill_names, prompt)
                 return None  # 信号：子Agent在后台运行，主循环需轮询 _subagent_queue
 
         handler = self.tool_handlers.get(tc.name)
@@ -268,46 +315,28 @@ class AgentEngine:
         except Exception as e:
             return f"Tool error: {e}"
 
-    def _start_subagent(self, skill_name: str) -> None:
+    def _start_subagent(self, skill_names: list[str], prompt: str) -> None:
         """启动子Agent后台任务，事件通过 _subagent_queue 实时转发。"""
         queue: asyncio.Queue = asyncio.Queue()
         self._subagent_queue = queue
-        asyncio.ensure_future(self._run_subagent_task(skill_name, queue))
+        asyncio.ensure_future(self._run_subagent_task(skill_names, prompt, queue))
 
-    async def _run_subagent_task(self, skill_name: str, queue: asyncio.Queue) -> None:
+    async def _run_subagent_task(self, skill_names: list[str], prompt: str, queue: asyncio.Queue) -> None:
         """子Agent后台任务：运行隔离引擎，事件入队，完成/错误时发哨兵事件。"""
-        from ..skills.loader import get_skill
-        from ..skills.cache import get_cache
+        from ..skills.tool import SkillTool
         from ..tools.run_command import RunCommandTool
 
-        skill = get_skill(skill_name)
-        if not skill:
-            await queue.put({"type": "__subagent_error__", "message": f"Skill '{skill_name}' not found."})
-            return
+        # 构建 system_prompt：通用角色定义（skill body 通过 Skill 工具按需加载）
 
-        cache = get_cache()
-        body = cache.get(skill_name, skill.main_md_path, skill.skill_dir)
-
-        # 构造子Agent消息（不含原始用户请求，避免子Agent误判任务范围）
-        sub_messages: list[dict] = []
-        for m in reversed(self._messages):
-            if m.get("role") == "assistant":
-                text = self._extract_text_from_content(m.get("content", ""))
-                if text.strip():
-                    sub_messages.append({"role": "user", "content": text})
-                break
-        sub_messages.append({"role": "user", "content": (
-            "你是一个子Agent，负责执行上述步骤。\n\n"
-            "关键规则：\n"
-            "1. 你已拥有完整的技能说明（system prompt），直接使用其中指令\n"
-            "2. 不要加载 Skill 或编排技能\n"
-            "3. 直接执行任务并返回结果，不要询问确认\n"
-            "4. 只使用 run_command 工具执行具体操作"
-        )})
+        # 构造子Agent消息
+        sub_messages: list[dict] = [
+            {"role": "user", "content": prompt},
+            {"role": "user", "content": SUBAGENT_INSTRUCTION},
+        ]
 
         sub = AgentEngine(
             session_id=f"sub_{uuid.uuid4().hex[:8]}",
-            system_prompt=body,
+            system_prompt=SUBAGENT_SYSTEM_PROMPT,
             provider=self.provider,
             max_steps=self.max_steps,
             slow_think_interval=0,
@@ -317,6 +346,8 @@ class AgentEngine:
         )
         run_tool = RunCommandTool()
         sub.register_tool(run_tool.schema, run_tool.run)
+        skill_tool = SkillTool()
+        sub.register_tool(skill_tool.schema, skill_tool.run)
 
         result_text = ""
         try:

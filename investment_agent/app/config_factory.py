@@ -11,7 +11,6 @@ from pathlib import Path
 from ..agent.config import AgentRunConfig
 from ..agent.core.models import ClaudeProvider, ModelProvider, OpenAICompatProvider
 from ..agent.skills.cache import get_cache
-from ..agent.skills.loader import get_skill
 from ..config import PROJECT_ROOT, get_settings
 from .db import get_db
 
@@ -149,25 +148,6 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         except Exception:
             agent_compress_config = None
 
-    # —— 注入 Skill meta 到 system prompt（仅名称+描述，不含 body） ——
-    if enabled_skill_names:
-        skill_lines = []
-        for name in enabled_skill_names:
-            skill = get_skill(name)
-            if skill:
-                prefix = "[orch] " if skill.skill_type == "orch" else ""
-                deps_hint = ""
-                if skill.depends_on:
-                    deps_hint = f"（含 {len(skill.depends_on)} 个子流程）"
-                skill_lines.append(
-                    f"- {prefix}**{skill.name}**: {skill.description}{deps_hint}"
-                )
-        if skill_lines:
-            system_prompt += (
-                "\n\n---\n\n# 可用技能\n\n"
-                + "\n".join(skill_lines)
-                + "\n\n> 使用 Skill 工具加载技能完整说明后再执行。"
-            )
 
     # —— 配置 Skill body 缓存 TTL ——
     ttl = get_settings().get("engine", {}).get("skill_body_ttl", 600)
@@ -198,6 +178,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         context_trim_interval=engine_params["context_trim_interval"],
         runtime_trim_strategy=engine_params["runtime_trim_strategy"],
         tools=enabled_tool_names,
+        skills=enabled_skill_names,
         tool_trim_limits=engine_params["tool_trim_limits"],
         context=context_cfg,
         input_price=getattr(provider, "_input_price", None),
