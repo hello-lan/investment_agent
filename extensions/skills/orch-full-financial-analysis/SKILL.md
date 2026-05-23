@@ -24,28 +24,30 @@ depends_on:
 
 ## 步骤 1：下载财报 PDF
 
-用 **download-a-share-reports** 技能下载指定股票的年度报告 PDF 文件。
+用 **download-a-share-reports** 技能下载指定股票的年度报告 PDF 文件，保存位置为 `data/reports/{股票代码}/1_pdf/`。
 
 **输入**：股票代码、年份范围
-**输出**：`data/reports/pdf/{股票代码}/` 目录下的 PDF 文件路径列表
+**输出**：`data/reports/{股票代码}/1_pdf/` 目录下的 PDF 文件路径列表
 
 ---
 
 ## 步骤 2：PDF 转 Markdown
 
-用 **pdf-to-markdown** 技能将步骤 1 下载的每个 PDF 文件转换为 Markdown 格式。已有 `.md` 文件则跳过。
+- 用 **pdf-to-markdown** 技能将步骤 1 下载的每个 PDF 文件转换为 Markdown 格式, 保存位置为 `data/reports/{股票代码}/2_markdown/{年份}/`
+- 已有 `.md` 文件则跳过
 
 **输入**：步骤 1 输出的 PDF 路径列表
-**输出**：`data/reports/pdf/{股票代码}/` 目录下的 `.pdf.md` 文件路径列表
+**输出**：`data/reports/{股票代码}/2_markdown/{年份}/` 目录下的 `.md` 文件路径列表
 
 ---
 
 ## 步骤 3：财报章节切割
 
-用 **split-financial-report** 技能将步骤 2 的每个 `.md` 文件按章节目录切割为独立章节文件。已有切割结果则跳过。
+- 用 **split-financial-report** 技能将步骤 2 的每个 `.md` 文件按章节目录切割为独立章节文件,切割文件保存路径为`data/reports/{股票代码}/3_split/{年份}/`
+- 已有切割结果则跳过
 
 **输入**：步骤 2 输出的 `.md` 文件路径列表
-**输出**：`data/reports/split/{股票代码}/` 目录下的切割文件列表
+**输出**：`data/reports/{股票代码}/3_split/{年份}/` 目录下的切割文件列表
 
 ---
 
@@ -58,14 +60,20 @@ depends_on:
 
 ---
 
+## 报告输出
+
+将 **步骤4**输出的报告写入本地： `data/reports/{code}/4_output/{股票代码}_{年份或年份范围}_财务分析报告.md`
+
+---
+
 ## 数据流
 
 ```
 用户输入（股票名称/代码）
-  → 步骤1: PDF 文件（data/reports/pdf/{code}/*.pdf）
-    → 步骤2: Markdown 文件（data/reports/pdf/{code}/*.md）
-      → 步骤3: 切割文件（data/reports/split/{code}/*.md）
-        → 步骤4: 排雷报告
+  → 步骤1: PDF 文件（data/reports/{code}/1_pdf/{year}/*.pdf）
+    → 步骤2: Markdown 文件（data/reports/{code}/2_markdown/{year}/*.md）
+      → 步骤3: 切割文件（data/reports/{code}/3_split/{year}/*.md）
+        → 步骤4: 排雷报告 (data/reports/{code}/4_output/{股票代码}_{年份或年份范围}_财务分析报告.md)
 ```
 
 ## 增量策略
