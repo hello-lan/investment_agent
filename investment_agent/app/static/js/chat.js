@@ -163,13 +163,16 @@ async function loadSessions(){
 
   list.innerHTML = filtered.map(s => {
     const active = s.id === currentSessionId ? ' active' : '';
+    const running = s.status === 'running';
+    const runningCls = running ? ' is-running' : '';
+    const spinner = running ? '<span class="running-spinner"></span>' : '';
     const title = s.title || '未命名';
     const date = (s.created_at || '').slice(0, 16);
-    return `<div class="session-row${active}" data-sid="${s.id}" onclick="loadSession('${s.id}')">
-      <div class="sess-title">${escapeHtml(title)}</div>
+    return `<div class="session-row${active}${runningCls}" data-sid="${s.id}" onclick="loadSession('${s.id}')">
+      <div class="sess-title">${spinner}${escapeHtml(title)}</div>
       <div class="sess-meta"><span>${date}</span></div>
       <div class="sess-actions">
-        <button class="btn-continue" onclick="event.stopPropagation();loadSession('${s.id}')">继续对话</button>
+        <button class="btn-continue" onclick="event.stopPropagation();loadSession('${s.id}')">${running ? '查看进度' : '继续对话'}</button>
         <button class="btn-del" onclick="event.stopPropagation();deleteSession('${s.id}')">删除</button>
       </div>
     </div>`;
@@ -177,7 +180,18 @@ async function loadSessions(){
 }
 
 async function loadSession(sid){
+  // 如果有正在运行的 SSE 连接，先关闭
+  if (currentEventSource){ currentEventSource.close(); currentEventSource = null; }
+
   currentSessionId = sid;
+
+  // 检查是否是运行中的会话
+  const sessionData = allSessions.find(s => s.id === sid);
+  if (sessionData && sessionData.status === 'running' && sessionData.current_task_id) {
+    await reconnectToTask(sid, sessionData.current_task_id);
+    return;
+  }
+
   try {
     const data = await fetch('/api/sessions/' + sid).then(r => r.json());
     if (data.session && data.session.agent_id && data.session.agent_id !== currentAgentId) {
@@ -190,6 +204,7 @@ async function loadSession(sid){
       if (m.role === 'user') appendUserMsg(m.content);
       else if (m.role === 'assistant') appendAssistantMsg(m.content);
     });
+    setRunning(false);
     loadSessions();
   } catch(e) {
     console.error('loadSession', e);
@@ -208,9 +223,11 @@ async function deleteSession(sid){
 }
 
 function newSession(){
+  if (currentEventSource){ currentEventSource.close(); currentEventSource = null; }
   currentSessionId = null;
   document.getElementById('messages').innerHTML = '<div id="welcome" style="text-align:center;color:#999;margin-top:60px;font-size:14px;">输入股票代码或公司名称，开始分析</div>';
   totalInputTokens = 0; totalOutputTokens = 0; updateStats();
+  setRunning(false);
   loadSessions();
 }
 
@@ -286,6 +303,9 @@ function _createReplyBlock(){
         '<div class="think-summary" style="display:none"></div>' +
         '<div class="think-steps" style="display:none"></div>' +
       '</div>' +
+    '</div>' +
+    '<div class="retry-area" style="display:none">' +
+      '<button class="btn-retry" onclick="retryTask()">🔄 重试</button>' +
     '</div>';
   document.getElementById('messages').appendChild(container);
   return {
@@ -295,6 +315,7 @@ function _createReplyBlock(){
     currentEl: container.querySelector('.think-current'),
     stepsEl: container.querySelector('.think-steps'),
     summaryEl: container.querySelector('.think-summary'),
+    retryEl: container.querySelector('.retry-area'),
   };
 }
 
@@ -362,6 +383,215 @@ function stopTask(){
   removeThinking(); setRunning(false);
 }
 
+/* ====== 共享 SSE 事件处理 ====== */
+
+function _connectToStream(taskId, state){
+  const es = new EventSource('/api/chat/' + taskId + '/stream');
+  currentEventSource = es;
+
+  es.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    if (ev.type === '_ping') return;  // 心跳，忽略
+
+    _handleStreamEvent(ev, state);
+  };
+
+  es.onerror = () => {
+    removeThinking();
+    finishStream();
+  };
+
+  return es;
+}
+
+function _handleStreamEvent(ev, state){
+  const { getState, setState } = state;
+  const s = getState();
+
+  if (ev.type === 'text_delta'){
+    const b = _ensureBlock(s, setState);
+    const spin = b.bodyEl.querySelector('.thinking-inline');
+    if (spin) spin.remove();
+    // 隐藏重试按钮（如果有）
+    if (b.retryEl) b.retryEl.style.display = 'none';
+    s.aText += ev.content;
+    b.bodyEl.innerHTML = renderMarkdown(s.aText);
+    document.getElementById('messages').scrollTop = 99999;
+  } else if (ev.type === 'tool_call'){
+    const b = _ensureBlock(s, setState);
+    const spin = b.bodyEl.querySelector('.thinking-inline');
+    if (spin) spin.remove();
+    s.pendingTool = ev;
+  } else if (ev.type === 'tool_result'){
+    _addThinkStep(_ensureBlock(s, setState), s.thinkSteps, '🔧', s.pendingTool?.tool || ev.tool, ev.output);
+    s.pendingTool = null;
+  } else if (ev.type === 'slow_think'){
+    _addThinkStep(_ensureBlock(s, setState), s.thinkSteps, '💭', '策略复盘', ev.content);
+  } else if (ev.type === 'done'){
+    const b = s.replyBlock;
+    if (b) {
+      const spin = b.bodyEl.querySelector('.thinking-inline');
+      if (spin) spin.remove();
+      _collapseThink(b, s.thinkSteps);
+    } else { removeThinking(); }
+    totalInputTokens += (ev.usage?.input_tokens || 0);
+    totalOutputTokens += (ev.usage?.output_tokens || 0);
+    updateStats(); finishStream();
+  } else if (ev.type === 'interrupted'){
+    removeThinking();
+    if (ev.message) _append('<div style="text-align:center;color:#999;font-size:12px;padding:8px">' + escapeHtml(ev.message) + '</div>');
+    const b = s.replyBlock;
+    if (b) _collapseThink(b, s.thinkSteps);
+    finishStream();
+  } else if (ev.type === 'error'){
+    removeThinking();
+    const b = s.replyBlock;
+    if (b) _collapseThink(b, s.thinkSteps);
+    // 显示错误信息
+    const errorEl = _append('<div class="stream-error" style="text-align:center;color:#e53935;font-size:12px;padding:8px">' + escapeHtml(ev.message || '执行出错') + '</div>');
+    // 显示重试按钮
+    _showRetryButton(b, errorEl);
+    finishStream();
+  }
+}
+
+function _ensureBlock(s, setState){
+  if (!s.replyBlock) {
+    removeThinking();
+    const block = _createReplyBlock();
+    setState({ replyBlock: block });
+    // 同时更新外层引用
+    s.replyBlock = block;
+  }
+  return s.replyBlock;
+}
+
+function _showRetryButton(replyBlock, errorEl){
+  if (replyBlock && replyBlock.retryEl) {
+    replyBlock.retryEl.style.display = '';
+    replyBlock._errorEl = errorEl;
+  } else {
+    // 没有 reply block（错误发生在第一个 text_delta 之前），追加一个重试区域
+    const container = document.createElement('div');
+    container.className = 'msg assistant';
+    container.innerHTML =
+      '<div class="retry-area">' +
+        '<button class="btn-retry" onclick="retryTask()">🔄 重试</button>' +
+      '</div>';
+    document.getElementById('messages').appendChild(container);
+    container._errorEl = errorEl;
+    // 记录为当前 replyBlock 以便 retryTask 找到
+    window._orphanRetryContainer = container;
+  }
+}
+
+/* ====== 重试 ====== */
+
+async function retryTask(){
+  if (!currentSessionId) return;
+
+  // 找到并隐藏所有重试按钮和错误信息
+  document.querySelectorAll('.retry-area').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.stream-error').forEach(el => el.remove());
+  if (window._orphanRetryContainer) {
+    window._orphanRetryContainer.remove();
+    window._orphanRetryContainer = null;
+  }
+
+  // 重置状态
+  showThinking(); setRunning(true);
+  totalInputTokens = 0; totalOutputTokens = 0; updateStats();
+
+  try {
+    const res = await fetch('/api/chat/retry', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({session_id: currentSessionId}),
+    });
+    const data = await res.json();
+
+    if (!data?.task_id){
+      removeThinking();
+      const msg = data?.detail || data?.error || '重试请求失败';
+      _append('<div style="text-align:center;color:#e53935;font-size:12px;padding:8px">' + escapeHtml(msg) + '</div>');
+      setRunning(false);
+      return;
+    }
+
+    currentTaskId = data.task_id;
+
+    // 创建新的回复块用于重试输出
+    const replyBlock = _createReplyBlock();
+    const s = {
+      replyBlock: replyBlock,
+      aText: '',
+      pendingTool: null,
+      thinkSteps: [],
+    };
+
+    _connectToStream(currentTaskId, {
+      getState: () => s,
+      setState: (updates) => Object.assign(s, updates),
+    });
+
+  } catch(e) {
+    removeThinking();
+    _append('<div style="text-align:center;color:#e53935;font-size:12px;padding:8px">重试请求失败: ' + escapeHtml(e.message) + '</div>');
+    setRunning(false);
+  }
+}
+
+/* ====== 重连运行中的任务 ====== */
+
+async function reconnectToTask(sessionId, taskId){
+  currentSessionId = sessionId;
+  currentTaskId = taskId;
+
+  // 更新会话高亮
+  document.querySelectorAll('.session-row').forEach(el => el.classList.remove('active'));
+  const row = document.querySelector(`.session-row[data-sid="${sessionId}"]`);
+  if (row) row.classList.add('active');
+
+  // 加载历史消息
+  const c = document.getElementById('messages');
+  c.innerHTML = '';
+
+  try {
+    const data = await fetch('/api/sessions/' + sessionId).then(r => r.json());
+    if (data.session && data.session.agent_id && data.session.agent_id !== currentAgentId) {
+      currentAgentId = data.session.agent_id;
+      selectAgent(data.session.agent_id, true);
+    }
+    (data.messages || []).forEach(m => {
+      if (m.role === 'user') appendUserMsg(m.content);
+      else if (m.role === 'assistant') appendAssistantMsg(m.content);
+    });
+  } catch(e) {
+    console.error('reconnectToTask: load messages failed', e);
+  }
+
+  // 设置运行状态
+  showThinking(); setRunning(true);
+
+  // 创建回复块用于接收回放+实时事件
+  const replyBlock = _createReplyBlock();
+  const s = {
+    replyBlock: replyBlock,
+    aText: '',
+    pendingTool: null,
+    thinkSteps: [],
+  };
+
+  _connectToStream(taskId, {
+    getState: () => s,
+    setState: (updates) => Object.assign(s, updates),
+  });
+
+  loadSessions();
+}
+
+/* ====== 发送消息 ====== */
+
 async function sendMessage(){
   const input = document.getElementById('inputBox');
   const text = input.value.trim();
@@ -401,62 +631,50 @@ async function sendMessage(){
   currentTaskId = data.task_id;
   currentSessionId = data.session_id;
 
-  let replyBlock = null, aText = '', pendingTool = null, thinkSteps = [];
-
-  function _ensureBlock(){
-    if (!replyBlock) { removeThinking(); replyBlock = _createReplyBlock(); }
-    return replyBlock;
-  }
-
-  currentEventSource = new EventSource('/api/chat/' + currentTaskId + '/stream');
-  currentEventSource.onmessage = (e) => {
-    const ev = JSON.parse(e.data);
-    if (ev.type === 'text_delta'){
-      const b = _ensureBlock();
-      const spin = b.bodyEl.querySelector('.thinking-inline');
-      if (spin) spin.remove();
-      aText += ev.content;
-      b.bodyEl.innerHTML = renderMarkdown(aText);
-      document.getElementById('messages').scrollTop = 99999;
-    } else if (ev.type === 'tool_call'){
-      const b = _ensureBlock();
-      const spin = b.bodyEl.querySelector('.thinking-inline');
-      if (spin) spin.remove();
-      pendingTool = ev;
-    } else if (ev.type === 'tool_result'){
-      _addThinkStep(_ensureBlock(), thinkSteps, '🔧', pendingTool?.tool || ev.tool, ev.output);
-      pendingTool = null;
-    } else if (ev.type === 'slow_think'){
-      _addThinkStep(_ensureBlock(), thinkSteps, '💭', '策略复盘', ev.content);
-    } else if (ev.type === 'done'){
-      if (replyBlock) {
-        const spin = replyBlock.bodyEl.querySelector('.thinking-inline');
-        if (spin) spin.remove();
-        _collapseThink(replyBlock, thinkSteps);
-      } else { removeThinking(); }
-      totalInputTokens += (ev.usage?.input_tokens || 0);
-      totalOutputTokens += (ev.usage?.output_tokens || 0);
-      updateStats(); finishStream();
-    } else if (ev.type === 'error' || ev.type === 'interrupted'){
-      removeThinking();
-      if (ev.message) _append('<div style="text-align:center;color:#e53935;font-size:12px;padding:8px">' + escapeHtml(ev.message) + '</div>');
-      if (replyBlock) _collapseThink(replyBlock, thinkSteps);
-      finishStream();
-    }
+  const replyBlock = null;
+  const s = {
+    replyBlock: replyBlock,
+    aText: '',
+    pendingTool: null,
+    thinkSteps: [],
   };
-  currentEventSource.onerror = () => { removeThinking(); finishStream(); };
+
+  _connectToStream(currentTaskId, {
+    getState: () => s,
+    setState: (updates) => Object.assign(s, updates),
+  });
+
+  // 刷新会话列表以显示运行中状态
+  loadSessions();
 }
 
 function handleKey(e){ if (e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); } }
 function autoResize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight, 120) + 'px'; }
+
+/* ====== 页面初始化 ====== */
 
 window.addEventListener('DOMContentLoaded', () => {
   const params = new URLSearchParams(location.search);
   const sid = params.get('session');
   const aid = params.get('agent');
   if (aid) currentAgentId = aid;
-  loadAgents().then(() => {
-    if (sid) loadSession(sid);
-    else loadSessions();
+  loadAgents().then(async () => {
+    if (sid) {
+      await loadSession(sid);
+    } else {
+      await loadSessions();
+      // 检查是否有运行中的会话，自动重连
+      _autoReconnectRunning();
+    }
   });
 });
+
+function _autoReconnectRunning(){
+  if (!currentAgentId) return;
+  const running = allSessions.find(s =>
+    s.agent_id === currentAgentId && s.status === 'running' && s.current_task_id
+  );
+  if (running) {
+    reconnectToTask(running.id, running.current_task_id);
+  }
+}

@@ -143,6 +143,19 @@ async def init_db() -> None:
         if changed:
             await db.commit()
 
+        # 迁移：sessions 可能缺少 current_task_id 列（后台任务追踪）
+        cursor = await db.execute("PRAGMA table_info(sessions)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "current_task_id" not in columns:
+            await db.execute("ALTER TABLE sessions ADD COLUMN current_task_id TEXT")
+            await db.commit()
+
+        # 恢复：服务器重启时，将遗留的 running 会话重置为 active
+        await db.execute(
+            "UPDATE sessions SET status = 'active', current_task_id = NULL WHERE status = 'running'"
+        )
+        await db.commit()
+
         # 迁移：trace_log 可能缺少 agent_name 列
         cursor = await db.execute("PRAGMA table_info(trace_log)")
         columns = {row[1] for row in await cursor.fetchall()}

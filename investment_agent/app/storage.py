@@ -165,3 +165,26 @@ class SqliteStorage:
             if session:
                 return session["agent_id"]
         return None
+
+    async def update_session_task(
+        self, session_id: str, *, status: str, task_id: str | None = None,
+    ) -> None:
+        """更新会话的运行状态和当前 task_id。"""
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE sessions SET status = ?, current_task_id = ? WHERE id = ?",
+                (status, task_id, session_id),
+            )
+            await db.commit()
+
+    async def get_session_running_task(self, session_id: str) -> str | None:
+        """查询会话当前运行中的 task_id（仅 status='running' 时返回）。"""
+        async with get_db() as db:
+            row = await db.execute(
+                "SELECT current_task_id FROM sessions WHERE id = ? AND status = 'running'",
+                (session_id,),
+            )
+            session = await row.fetchone()
+            if session:
+                return session["current_task_id"]
+        return None

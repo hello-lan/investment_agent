@@ -106,6 +106,119 @@ class AgentRunner:
         self._engines[engine.task_id] = engine
         return engine.task_id, session_id
 
+    async def setup(
+        self,
+        session_id: str,
+        config: AgentRunConfig,
+    ) -> tuple[str, str]:
+        """准备重试对话：复用已有会话（不重复保存用户消息），创建新引擎。
+
+        与 start() 相同但跳过 save_user_message()，因为用户消息已在 DB 中。
+        """
+        self._config = config
+
+        # 1. 复用已有会话
+        await self._storage.create_or_get_session(
+            session_id=session_id,
+            agent_id=config.agent_id,
+            title="",  # 重试时不更新标题
+        )
+
+        # 2. 运行时裁剪策略
+        runtime_trimmer = get_runtime_trimmer(
+            config.runtime_trim_strategy, config.tool_trim_limits
+        )
+
+        # 3. 创建引擎
+        engine = AgentEngine(
+            session_id=session_id,
+            system_prompt=config.system_prompt,
+            provider=config.provider,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+            max_steps=config.max_steps,
+            slow_think_interval=config.slow_think_interval,
+            token_budget=config.token_budget,
+            loop_detection_threshold=config.loop_detection_threshold,
+            context_trim_interval=config.context_trim_interval,
+            tool_trim_limits=config.tool_trim_limits,
+            runtime_trimmer=runtime_trimmer,
+        )
+
+        # 4. 注册工具
+        allowed_tools = AUTO_BOUND_TOOLS | set(config.tools)
+        for tool_schema in get_schemas_for_names(allowed_tools):
+            tool = get_tool(tool_schema["name"])
+            if tool:
+                engine.register_tool(tool_schema, tool.run)
+
+        # 5. 注册技能
+        if config.skills:
+            from .skills.loader import get_skill
+            for name in config.skills:
+                skill = get_skill(name)
+                if skill:
+                    engine.register_skill(skill)
+
+        self._engines[engine.task_id] = engine
+        return engine.task_id, session_id
+
+    async def prepare_context(
+        self,
+        task_id: str,
+        *,
+        hooks: LifecycleHooks | None = None,
+    ) -> list[dict]:
+        """准备上下文：加载历史消息、运行上下文管理、应用到引擎。
+
+        从 run() 中提取的前半部分，供 TaskManager 调用。
+        返回准备好的消息列表。
+        """
+        engine = self._engines.get(task_id)
+        if not engine:
+            return []
+
+        # 0. 填充 hooks 的 session_id / agent_name
+        if hooks:
+            hooks.session_id = getattr(hooks, "session_id", "") or engine.session_id
+            if self._config and hasattr(hooks, "agent_name"):
+                hooks.agent_name = hooks.agent_name or self._config.agent_name
+
+        # 1. 加载历史消息
+        messages = await self._storage.load_messages(engine.session_id)
+
+        # 2. 上下文管理
+        context_mgr = self._context or ContextManager(
+            self._config.context if self._config else {},
+            provider_type=getattr(engine.provider, "provider_type", "anthropic"),
+            model_name=getattr(engine.provider, "model", "unknown"),
+        )
+        existing_summary = await self._storage.load_summary(engine.session_id)
+
+        result = await context_mgr.prepare(
+            system_prompt=engine.system_prompt,
+            tools=engine.tools,
+            messages=messages,
+            provider=engine.provider,
+            existing_summary=existing_summary,
+        )
+        self._context_result = result
+
+        # 应用上下文管理结果
+        engine.system_prompt = result.system_prompt
+        if "tools_reduced" in result.warnings:
+            engine.tools = result.tools
+            kept_names = {t["name"] for t in result.tools}
+            for name in list(engine.tool_handlers):
+                if name not in kept_names:
+                    del engine.tool_handlers[name]
+
+        # 3. 触发 context_budget hook
+        if hooks and hasattr(hooks, "on_context_budget"):
+            await hooks.on_context_budget(result)
+
+        return result.messages
+
     async def run(
         self,
         task_id: str,
