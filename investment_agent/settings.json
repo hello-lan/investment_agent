@@ -7,6 +7,9 @@
     "skill_body_ttl": 600,
     "context_trim_interval": 5,
     "runtime_trim_strategy": "default",
+    "max_subagent_depth": 3,
+    "max_concurrent_subagents": 3,
+    "sub_agent_mode": "serial",
     "tool_trim_limits": {
       "get_income_statement": 6000,
       "get_balance_sheet": 6000,

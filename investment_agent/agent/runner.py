@@ -248,10 +248,17 @@ class AgentRunner:
                             "output": str(event.get("output", ""))[:500],
                             "duration_ms": event.get("duration_ms"),
                         }
-                    elif event_type == "sub_tool_call":
-                        trace_detail = {"tool": event.get("tool"), "input": event.get("input")}
-                    elif event_type == "sub_tool_result":
+                    elif event_type.startswith("sub_") and "tool_call" in event_type:
                         trace_detail = {
+                            "delegate_id": event.get("delegate_id"),
+                            "depth": event.get("depth"),
+                            "tool": event.get("tool"),
+                            "input": event.get("input"),
+                        }
+                    elif event_type.startswith("sub_") and "tool_result" in event_type:
+                        trace_detail = {
+                            "delegate_id": event.get("delegate_id"),
+                            "depth": event.get("depth"),
                             "tool": event.get("tool"),
                             "output": str(event.get("output", ""))[:500],
                             "duration_ms": event.get("duration_ms"),
@@ -363,6 +370,9 @@ class AgentRunner:
             context_trim_interval=config.context_trim_interval,
             tool_trim_limits=config.tool_trim_limits,
             runtime_trimmer=runtime_trimmer,
+            max_subagent_depth=config.max_subagent_depth,
+            max_concurrent_subagents=config.max_concurrent_subagents,
+            sub_agent_mode=config.sub_agent_mode,
         )
         allowed_tools = AUTO_BOUND_TOOLS | set(config.tools)
         for tool_schema in get_schemas_for_names(allowed_tools):

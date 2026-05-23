@@ -62,6 +62,11 @@ class AgentRunConfig:
     # ── 上下文参数 ──
     context: dict = field(default_factory=dict)
 
+    # ── 子Agent配置 ──
+    max_subagent_depth: int = 3
+    max_concurrent_subagents: int = 3
+    sub_agent_mode: str = "serial"
+
     # ── Provider 定价信息 ──
     input_price: float | None = None
     output_price: float | None = None

@@ -13,8 +13,8 @@ from .base import BaseTool
 # 工具编目：工具名 → 工具实例（类定义时由 @register_tool 自动填入）
 _tool_registry: dict[str, BaseTool] = {}
 
-# 始终自动绑定的基础设施工具（Skill 加载 + 命令执行）
-AUTO_BOUND_TOOLS: set[str] = {"Skill", "run_command"}
+# 始终自动绑定的基础设施工具（Skill 加载 + 命令执行 + 任务委派）
+AUTO_BOUND_TOOLS: set[str] = {"Skill", "run_command", "DelegateTask"}
 
 
 def register_tool(cls):

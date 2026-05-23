@@ -146,8 +146,8 @@ class TaskManager:
                     await self._fire_terminal_hooks(hooks, state.engine, state.last_step, event)
                     cost_logged = True
 
-                # 缓冲渲染事件并广播给订阅者
-                if event_type in _RENDER_EVENTS:
+                # 缓冲渲染事件并广播给订阅者（包括子Agent事件）
+                if event_type in _RENDER_EVENTS or event_type.startswith("sub_"):
                     await self._broadcast(state, event)
 
                 if event_type == "error":
@@ -254,10 +254,17 @@ class TaskManager:
                 "output": str(event.get("output", ""))[:500],
                 "duration_ms": event.get("duration_ms"),
             }
-        elif event_type == "sub_tool_call":
-            trace_detail = {"tool": event.get("tool"), "input": event.get("input")}
-        elif event_type == "sub_tool_result":
+        elif event_type.startswith("sub_") and "tool_call" in event_type:
             trace_detail = {
+                "delegate_id": event.get("delegate_id"),
+                "depth": event.get("depth"),
+                "tool": event.get("tool"),
+                "input": event.get("input"),
+            }
+        elif event_type.startswith("sub_") and "tool_result" in event_type:
+            trace_detail = {
+                "delegate_id": event.get("delegate_id"),
+                "depth": event.get("depth"),
                 "tool": event.get("tool"),
                 "output": str(event.get("output", ""))[:500],
                 "duration_ms": event.get("duration_ms"),

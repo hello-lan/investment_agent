@@ -14,6 +14,33 @@ from ..context.runtime_trimmer import RuntimeTrimmer, NoOpRuntimeTrimmer
 _log = logging.getLogger(__name__)
 
 
+class SubAgentPool:
+    """子Agent并发池：asyncio.Semaphore 控制同层并发数。
+
+    Phase 2 新增：用于管理多个 DelegateTask 的并发执行。
+    每层 Agent 拥有独立的 pool（独立 semaphore），不存在跨层死锁。
+    """
+
+    def __init__(self, max_concurrent: int):
+        self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._active: dict[str, asyncio.Task] = {}
+
+    async def submit(self, delegate_id: str, coro) -> asyncio.Task:
+        """提交子Agent任务，受信号量控制。"""
+        await self._semaphore.acquire()
+        task = asyncio.create_task(self._wrap(delegate_id, coro))
+        self._active[delegate_id] = task
+        return task
+
+    async def _wrap(self, delegate_id: str, coro):
+        """包装协程：完成后释放信号量。"""
+        try:
+            return await coro
+        finally:
+            self._semaphore.release()
+            self._active.pop(delegate_id, None)
+
+
 class AgentEngine:
     """双循环执行引擎：快循环（LLM推理→工具调用→结果追加）+ 慢思考（定期全局复盘）"""
 
@@ -31,6 +58,10 @@ class AgentEngine:
         context_trim_interval: int = 0,
         tool_trim_limits: dict | None = None,
         runtime_trimmer: RuntimeTrimmer | None = None,
+        subagent_depth: int = 0,
+        max_subagent_depth: int = 3,
+        max_concurrent_subagents: int = 3,
+        sub_agent_mode: str = "serial",
     ):
         self.session_id = session_id
         self.task_id = str(uuid.uuid4())
@@ -56,10 +87,14 @@ class AgentEngine:
         self.total_cache_read_tokens = 0
         self.total_cache_creation_tokens = 0
 
-        self._orch_dependencies: set[str] = set()  # orch skill 的子技能名称集合
+        # ── 子Agent配置 ──
+        self.subagent_depth = subagent_depth              # 当前嵌套深度（根=0）
+        self.max_subagent_depth = max_subagent_depth      # 最大嵌套深度
+        self.max_concurrent_subagents = max_concurrent_subagents  # 同层最大并发
+        self.sub_agent_mode = sub_agent_mode              # "serial" | "concurrent"
+        self._subagent_pool: SubAgentPool | None = None   # 延迟初始化（仅 concurrent 模式使用）
+
         self._messages: list[dict] = []             # 当前步骤的消息列表快照
-        self._subagent_queue: asyncio.Queue | None = None  # 子Agent实时事件队列
-        self._delegate_registered: bool = False     # DelegateTask 工具是否已注册
 
     def register_tool(self, schema: dict, handler: Callable) -> None:
         """注册工具：schema 给 LLM 看，handler 执行实际逻辑"""
@@ -69,16 +104,6 @@ class AgentEngine:
     def register_skill(self, skill) -> None:
         """注册技能：记录 skill 对象，供 system_prompt property 拼接 prompt"""
         self._skills.append(skill)
-
-    def _register_delegate_tool(self) -> None:
-        """动态注册 DelegateTask 工具到引擎，使 LLM 可在下一步调用它来委派子任务。"""
-        if self._delegate_registered:
-            return
-        from ..tools.registry import get_tool
-        tool = get_tool("DelegateTask")
-        if tool:
-            self.register_tool(tool.schema, tool.run)
-            self._delegate_registered = True
 
     @property
     def system_prompt(self) -> str:
@@ -263,32 +288,23 @@ class AgentEngine:
                 break
 
             # —— 执行工具 ——
-            tool_results = []
-            for tc in response.tool_calls:
-                yield {"type": "tool_call", "tool": tc.name, "input": tc.input}
-                t0 = time.monotonic()
-                result = await self._execute_tool(tc)
-                # 子Agent在后台运行时，实时转发其进度事件
-                if result is None:
-                    while self._subagent_queue is not None:
-                        event = await self._subagent_queue.get()
-                        if event["type"] == "__subagent_done__":
-                            result = event["result"]
-                            self._subagent_queue = None
-                            break
-                        elif event["type"] == "__subagent_error__":
-                            result = f"子任务执行错误: {event['message']}"
-                            self._subagent_queue = None
-                            break
-                        else:
-                            yield event
-                duration_ms = int((time.monotonic() - t0) * 1000)
-                yield {"type": "tool_result", "tool": tc.name, "output": result, "duration_ms": duration_ms}
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": tc.id,
-                    "content": result,
-                })
+            # Phase 2: 并发模式下，如果包含 DelegateTask，走并发路径
+            if self.sub_agent_mode == "concurrent" and any(
+                tc.name == "DelegateTask" for tc in response.tool_calls
+            ):
+                tool_results = []
+                async for event in self._execute_tools_concurrent(response.tool_calls):
+                    if event.get("_internal_result"):
+                        tool_results = event["_internal_result"]
+                    else:
+                        yield event
+            else:
+                tool_results = []
+                async for event in self._execute_tools_serial(response.tool_calls):
+                    if event.get("_internal_result"):
+                        tool_results = event["_internal_result"]
+                    else:
+                        yield event
 
             # 工具结果作为 user 消息追加到上下文
             messages.append({"role": "user", "content": tool_results})
@@ -296,43 +312,186 @@ class AgentEngine:
         else:
             yield {"type": "error", "message": f"Max steps ({self.max_steps}) reached."}
 
-    async def _execute_tool(self, tc: ToolCall) -> str | None:
-        # —— DelegateTask：将子任务委派给隔离子Agent执行 ——
-        if tc.name == "DelegateTask":
-            from ..skills.loader import _registry as skill_registry
-            raw_skill_names = tc.input.get("skill_names", []) or []
-            task = tc.input.get("task", "")
-            # 过滤：只保留 orch 依赖中存在的非 orch 技能
-            skill_names = [
-                name for name in raw_skill_names
-                if name in self._orch_dependencies
-                and skill_registry.get(name)
-                and skill_registry[name].skill_type != "orch"
-            ]
-            # 基于对话上下文生成子Agent的任务指令
-            prompt = await self._generate_task_instruction(task, skill_names)
-            self._start_subagent(skill_names, prompt)
-            return None  # 信号：子Agent在后台运行，主循环需轮询 _subagent_queue
-
+    async def _execute_tool(self, tc: ToolCall) -> str:
+        """执行单个工具调用（DelegateTask 由主循环处理，不经过此方法）"""
         handler = self.tool_handlers.get(tc.name)
         if not handler:
             return f"Tool '{tc.name}' not found."
         try:
             result = await handler(**tc.input)
-
-            # —— 检测 orch skill 加载，记录其依赖并注册 DelegateTask ——
-            if tc.name == "Skill":
-                skill_name = tc.input.get("name", "")
-                from ..skills.loader import get_skill
-                skill = get_skill(skill_name)
-                if skill and skill.skill_type == "orch" and skill.depends_on:
-                    for dep in skill.depends_on:
-                        self._orch_dependencies.add(dep)
-                    self._register_delegate_tool()
-
             return str(result)
         except Exception as e:
             return f"Tool error: {e}"
+
+    async def _execute_tools_serial(self, tool_calls: list[ToolCall]):
+        """串行执行工具列表（Phase 1 逻辑提取为独立方法）。
+
+        DelegateTask 逐个执行，阻塞等待完成。
+        非 DelegateTask 直接调用 _execute_tool。
+        最终结果通过 _internal_result 事件返回。
+        """
+        tool_results = []
+        for tc in tool_calls:
+            yield {"type": "tool_call", "tool": tc.name, "input": tc.input}
+            t0 = time.monotonic()
+
+            if tc.name == "DelegateTask":
+                if self.subagent_depth >= self.max_subagent_depth:
+                    result = (
+                        f"错误：已达到最大委派深度 {self.max_subagent_depth}，"
+                        f"无法创建子Agent"
+                    )
+                else:
+                    raw_skill_names = tc.input.get("skill_names", []) or []
+                    task_desc = tc.input.get("task", "")
+                    from ..skills.loader import _registry as skill_registry
+                    skill_names = [
+                        n for n in raw_skill_names
+                        if skill_registry.get(n) and skill_registry[n].skill_type != "orch"
+                    ]
+                    prompt = await self._generate_task_instruction(task_desc, skill_names)
+                    delegate_id = f"delegate_{uuid.uuid4().hex[:8]}"
+                    event_queue = asyncio.Queue()
+                    asyncio.ensure_future(
+                        self._run_subagent_task(
+                            skill_names, prompt, event_queue, delegate_id
+                        )
+                    )
+                    result = ""
+                    while True:
+                        event = await event_queue.get()
+                        if event["type"] == "__delegate_done__":
+                            result = event["result"]
+                            break
+                        elif event["type"] == "__delegate_error__":
+                            result = f"子任务执行错误: {event['message']}"
+                            break
+                        else:
+                            yield event
+            else:
+                result = await self._execute_tool(tc)
+
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            yield {
+                "type": "tool_result",
+                "tool": tc.name,
+                "output": result,
+                "duration_ms": duration_ms,
+            }
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": tc.id,
+                "content": result,
+            })
+        yield {"_internal_result": tool_results}
+
+    async def _execute_tools_concurrent(self, tool_calls: list[ToolCall]):
+        """并发执行工具列表（Phase 2）。
+
+        DelegateTask 通过 SubAgentPool 并发启动，非 DelegateTask 顺序执行。
+        共享 event_queue 收集所有 delegate 的实时事件，统一转发。
+        结果按原始顺序返回，通过 _internal_result 事件返回。
+        """
+        # 延迟初始化 pool
+        if self._subagent_pool is None:
+            self._subagent_pool = SubAgentPool(self.max_concurrent_subagents)
+
+        event_queue = asyncio.Queue()
+        delegate_tasks = []  # [(idx, tc, asyncio.Task, result_queue, t0)]
+        ordered_results = [None] * len(tool_calls)
+
+        # 第一遍：分离 delegate 和非 delegate
+        for idx, tc in enumerate(tool_calls):
+            yield {"type": "tool_call", "tool": tc.name, "input": tc.input}
+            t0 = time.monotonic()
+
+            if tc.name == "DelegateTask":
+                if self.subagent_depth >= self.max_subagent_depth:
+                    result = (
+                        f"错误：已达到最大委派深度 {self.max_subagent_depth}，"
+                        f"无法创建子Agent"
+                    )
+                    yield {
+                        "type": "tool_result",
+                        "tool": tc.name,
+                        "output": result,
+                        "duration_ms": int((time.monotonic() - t0) * 1000),
+                    }
+                    ordered_results[idx] = {
+                        "type": "tool_result",
+                        "tool_use_id": tc.id,
+                        "content": result,
+                    }
+                    continue
+
+                raw_skill_names = tc.input.get("skill_names", []) or []
+                task_desc = tc.input.get("task", "")
+                from ..skills.loader import _registry as skill_registry
+                skill_names = [
+                    n for n in raw_skill_names
+                    if skill_registry.get(n) and skill_registry[n].skill_type != "orch"
+                ]
+                prompt = await self._generate_task_instruction(task_desc, skill_names)
+                delegate_id = f"delegate_{uuid.uuid4().hex[:8]}"
+                result_queue = asyncio.Queue()
+                task = await self._subagent_pool.submit(
+                    delegate_id,
+                    self._run_subagent_task(
+                        skill_names, prompt, event_queue, delegate_id, result_queue
+                    ),
+                )
+                delegate_tasks.append((idx, tc, task, result_queue, t0))
+            else:
+                # 非 delegate：顺序执行
+                result = await self._execute_tool(tc)
+                duration_ms = int((time.monotonic() - t0) * 1000)
+                yield {
+                    "type": "tool_result",
+                    "tool": tc.name,
+                    "output": result,
+                    "duration_ms": duration_ms,
+                }
+                ordered_results[idx] = {
+                    "type": "tool_result",
+                    "tool_use_id": tc.id,
+                    "content": result,
+                }
+
+        # 第二遍：转发实时事件直到所有 delegate 完成
+        done_count = 0
+        while done_count < len(delegate_tasks):
+            event = await event_queue.get()
+            if event["type"] == "__delegate_done__":
+                done_count += 1
+            elif event["type"] == "__delegate_error__":
+                done_count += 1
+                yield event
+            else:
+                yield event
+
+        # 第三遍：按原始顺序收集结果
+        for idx, tc, task, result_queue, t0 in delegate_tasks:
+            await task  # 确保完成
+            result_event = await result_queue.get()
+            if result_event["type"] == "__delegate_done__":
+                result = result_event["result"]
+            else:
+                result = f"子任务执行错误: {result_event['message']}"
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            yield {
+                "type": "tool_result",
+                "tool": tc.name,
+                "output": result,
+                "duration_ms": duration_ms,
+                "delegate_id": result_event.get("delegate_id", ""),
+            }
+            ordered_results[idx] = {
+                "type": "tool_result",
+                "tool_use_id": tc.id,
+                "content": result,
+            }
+
+        yield {"_internal_result": ordered_results}
 
     async def _generate_task_instruction(self, task: str, skill_names: list[str]) -> str:
         """基于对话上下文为子Agent生成聚焦的任务指令。
@@ -398,20 +557,34 @@ class AgentEngine:
 
         return task
 
-    def _start_subagent(self, skill_names: list[str], prompt: str) -> None:
-        """启动子Agent后台任务，事件通过 _subagent_queue 实时转发。"""
-        queue: asyncio.Queue = asyncio.Queue()
-        self._subagent_queue = queue
-        asyncio.ensure_future(self._run_subagent_task(skill_names, prompt, queue))
+    async def _run_subagent_task(
+        self,
+        skill_names: list[str],
+        prompt: str,
+        event_queue: asyncio.Queue,
+        delegate_id: str,
+        result_queue: asyncio.Queue | None = None,
+    ) -> None:
+        """子Agent后台任务：运行隔离引擎，事件入队，完成/错误时发哨兵事件。
 
-    async def _run_subagent_task(self, skill_names: list[str], prompt: str, queue: asyncio.Queue) -> None:
-        """子Agent后台任务：运行隔离引擎，事件入队，完成/错误时发哨兵事件。"""
+        支持嵌套委派：子引擎可注册 DelegateTask 工具，进一步创建孙Agent。
+        事件前缀根据嵌套深度自动累加（depth=1: sub_tool_call, depth=2: sub_sub_tool_call）。
+
+        Args:
+            result_queue: 并发模式下用于接收完成/错误信号（与 event_queue 分离）。
+                         串行模式下为 None，完成/错误信号写入 event_queue。
+        """
         from ..skills.tool import SkillTool
         from ..skills.loader import _registry as skill_registry
         from ..tools.run_command import RunCommandTool
+        from ..tools.registry import get_tool
+
+        depth = self.subagent_depth + 1
+        # 完成/错误信号的目标队列
+        signal_queue = result_queue if result_queue is not None else event_queue
 
         sub = AgentEngine(
-            session_id=f"sub_{uuid.uuid4().hex[:8]}",
+            session_id=f"sub_{delegate_id}",
             system_prompt=SUBAGENT_SYSTEM_PROMPT,
             provider=self.provider,
             max_steps=self.max_steps,
@@ -419,12 +592,21 @@ class AgentEngine:
             token_budget=self.token_budget,
             context_trim_interval=0,
             runtime_trimmer=NoOpRuntimeTrimmer(),
+            subagent_depth=depth,
+            max_subagent_depth=self.max_subagent_depth,
+            max_concurrent_subagents=self.max_concurrent_subagents,
+            sub_agent_mode=self.sub_agent_mode,
         )
         # 注册基础工具
         run_tool = RunCommandTool()
         sub.register_tool(run_tool.schema, run_tool.run)
         skill_tool = SkillTool()
         sub.register_tool(skill_tool.schema, skill_tool.run)
+        # 始终注册 DelegateTask（深度未达上限时允许嵌套委派）
+        if depth < self.max_subagent_depth:
+            delegate_tool = get_tool("DelegateTask")
+            if delegate_tool:
+                sub.register_tool(delegate_tool.schema, delegate_tool.run)
         # 注册父Agent传入的技能 → body 自动注入 sub.system_prompt
         for name in skill_names:
             skill = skill_registry.get(name)
@@ -436,26 +618,63 @@ class AgentEngine:
             {"role": "user", "content": prompt},
         ]
 
+        # 事件前缀：depth=1 → "sub_", depth=2 → "sub_sub_"
+        prefix = "sub_" * depth
+
         result_text = ""
         try:
             async for event in sub.run(sub_messages):
-                if event["type"] == "text_delta":
+                event_type = event["type"]
+                if event_type == "text_delta":
                     result_text += event["content"]
-                elif event["type"] in ("tool_call", "tool_result"):
-                    await queue.put({
-                        "type": f"sub_{event['type']}",
-                        "tool": event.get("tool", ""),
-                        "input": str(event.get("input", "")),
-                        "output": str(event.get("output", "")),
-                        "duration_ms": event.get("duration_ms", 0),
+                    await event_queue.put({
+                        "type": f"{prefix}text_delta",
+                        "delegate_id": delegate_id,
+                        "depth": depth,
+                        "content": event["content"],
                     })
-                elif event["type"] == "error":
-                    await queue.put({"type": "__subagent_error__", "message": event["message"]})
+                elif event_type in ("tool_call", "tool_result"):
+                    # 嵌套子事件已有前缀（如 sub_tool_call），再加一层前缀形成累积
+                    sub_type = event.get("type", "")
+                    if sub_type.startswith("sub_"):
+                        # 嵌套子事件：在已有前缀上再加一层
+                        forwarded_type = f"{prefix}{sub_type}"
+                    else:
+                        forwarded_type = f"{prefix}{sub_type}"
+                    forwarded = {
+                        "type": forwarded_type,
+                        "delegate_id": event.get("delegate_id", delegate_id),
+                        "depth": event.get("depth", depth),
+                        "tool": event.get("tool", ""),
+                        "duration_ms": event.get("duration_ms", 0),
+                    }
+                    if "input" in event:
+                        forwarded["input"] = str(event["input"])
+                    if "output" in event:
+                        forwarded["output"] = str(event["output"])
+                    await event_queue.put(forwarded)
+                elif event_type == "error":
+                    await signal_queue.put({
+                        "type": "__delegate_error__",
+                        "delegate_id": delegate_id,
+                        "message": event["message"],
+                    })
                     return
-                elif event["type"] == "done":
+                elif event_type == "done":
                     break
+                elif event_type.startswith("sub_"):
+                    # 透传嵌套孙Agent的事件（加一层前缀）
+                    forwarded = dict(event)
+                    forwarded["type"] = f"sub_{event_type}"
+                    forwarded["depth"] = event.get("depth", depth)
+                    forwarded["delegate_id"] = event.get("delegate_id", delegate_id)
+                    await event_queue.put(forwarded)
         except Exception as e:
-            await queue.put({"type": "__subagent_error__", "message": str(e)})
+            await signal_queue.put({
+                "type": "__delegate_error__",
+                "delegate_id": delegate_id,
+                "message": str(e),
+            })
             return
 
         # 子引擎 token 计入主引擎
@@ -464,8 +683,9 @@ class AgentEngine:
         self.total_cache_read_tokens += sub.total_cache_read_tokens
         self.total_cache_creation_tokens += sub.total_cache_creation_tokens
 
-        await queue.put({
-            "type": "__subagent_done__",
+        await signal_queue.put({
+            "type": "__delegate_done__",
+            "delegate_id": delegate_id,
             "result": result_text.strip() or "(子任务完成，无文本输出)",
         })
 

@@ -263,6 +263,30 @@
             </div>
           </div>
         </div>
+
+        <div class="config-sub-block csb-subagent" style="border-left-color:#1976d2;background:#f5f9ff;">
+          <div class="sub-title">子Agent委派</div>
+          <div class="form-row">
+            <label>执行模式</label>
+            <select id="agentSubAgentMode">
+              <option value="serial">串行（默认）</option>
+              <option value="concurrent">并发</option>
+            </select>
+            <div class="hint">串行：多个 DelegateTask 逐个执行；并发：同时启动多个子Agent（受并发数限制）</div>
+          </div>
+          <div class="form-row-2col">
+            <div class="form-row">
+              <label>最大嵌套深度</label>
+              <div class="range-row"><input type="range" id="agentMaxSubagentDepth" min="0" max="5" step="1" oninput="document.getElementById('agentMaxSubagentDepthVal').textContent=this.value"><span class="range-val" id="agentMaxSubagentDepthVal">3</span></div>
+              <div class="hint">子Agent可再委派的最大层数，0=不允许委派，默认 3</div>
+            </div>
+            <div class="form-row">
+              <label>最大并发数</label>
+              <div class="range-row"><input type="range" id="agentMaxConcurrentSubagents" min="1" max="10" step="1" oninput="document.getElementById('agentMaxConcurrentSubagentsVal').textContent=this.value"><span class="range-val" id="agentMaxConcurrentSubagentsVal">3</span></div>
+              <div class="hint">同层最多同时运行的子Agent数，默认 3（仅并发模式生效）</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 

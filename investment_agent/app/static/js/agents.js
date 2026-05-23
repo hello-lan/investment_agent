@@ -210,6 +210,9 @@ function fillEngineFields(cfg) {
   const loopThreshold = document.getElementById('agentLoopThreshold');
   const trimStrategy = document.getElementById('agentTrimStrategy');
   const trimInterval = document.getElementById('agentTrimInterval');
+  const subAgentMode = document.getElementById('agentSubAgentMode');
+  const maxSubagentDepth = document.getElementById('agentMaxSubagentDepth');
+  const maxConcurrentSubagents = document.getElementById('agentMaxConcurrentSubagents');
 
   if (!cfg) {
     maxSteps.value = 30;
@@ -223,6 +226,11 @@ function fillEngineFields(cfg) {
     trimInterval.value = 5;
     document.getElementById('agentTrimIntervalVal').textContent = '5';
     toggleTrimInterval();
+    subAgentMode.value = 'serial';
+    maxSubagentDepth.value = 3;
+    document.getElementById('agentMaxSubagentDepthVal').textContent = '3';
+    maxConcurrentSubagents.value = 3;
+    document.getElementById('agentMaxConcurrentSubagentsVal').textContent = '3';
     return;
   }
 
@@ -238,6 +246,11 @@ function fillEngineFields(cfg) {
   trimInterval.value = cfg.context_trim_interval || 5;
   document.getElementById('agentTrimIntervalVal').textContent = cfg.context_trim_interval || 5;
   toggleTrimInterval();
+  subAgentMode.value = cfg.sub_agent_mode || 'serial';
+  maxSubagentDepth.value = cfg.max_subagent_depth ?? 3;
+  document.getElementById('agentMaxSubagentDepthVal').textContent = cfg.max_subagent_depth ?? 3;
+  maxConcurrentSubagents.value = cfg.max_concurrent_subagents ?? 3;
+  document.getElementById('agentMaxConcurrentSubagentsVal').textContent = cfg.max_concurrent_subagents ?? 3;
 }
 
 function toggleTrimInterval() {
@@ -334,6 +347,9 @@ async function saveAgent(){
   const engineLoopThreshold = parseInt(document.getElementById('agentLoopThreshold').value) || 3;
   const trimStrategy = document.getElementById('agentTrimStrategy').value;
   const trimInterval = parseInt(document.getElementById('agentTrimInterval').value) || 5;
+  const subAgentMode = document.getElementById('agentSubAgentMode').value;
+  const maxSubagentDepth = parseInt(document.getElementById('agentMaxSubagentDepth').value) || 3;
+  const maxConcurrentSubagents = parseInt(document.getElementById('agentMaxConcurrentSubagents').value) || 3;
 
   const engineConfig = {
     max_steps: engineMaxSteps,
@@ -342,6 +358,9 @@ async function saveAgent(){
     loop_detection_threshold: engineLoopThreshold,
     runtime_trim_strategy: trimStrategy,
     context_trim_interval: trimInterval,
+    sub_agent_mode: subAgentMode,
+    max_subagent_depth: maxSubagentDepth,
+    max_concurrent_subagents: maxConcurrentSubagents,
   };
 
   const body = {
