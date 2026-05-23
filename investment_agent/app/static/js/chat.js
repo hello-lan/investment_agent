@@ -170,10 +170,12 @@ async function loadSessions(){
     const date = (s.created_at || '').slice(0, 16);
     return `<div class="session-row${active}${runningCls}" data-sid="${s.id}" onclick="loadSession('${s.id}')">
       <div class="sess-title">${spinner}${escapeHtml(title)}</div>
-      <div class="sess-meta"><span>${date}</span></div>
-      <div class="sess-actions">
-        <button class="btn-continue" onclick="event.stopPropagation();loadSession('${s.id}')">${running ? '查看进度' : '继续对话'}</button>
-        <button class="btn-del" onclick="event.stopPropagation();deleteSession('${s.id}')">删除</button>
+      <div class="sess-bottom">
+        <span class="sess-meta">${date}</span>
+        <div class="sess-actions">
+          <button class="btn-continue" onclick="event.stopPropagation();loadSession('${s.id}')">${running ? '查看进度' : '继续对话'}</button>
+          <button class="btn-del" onclick="event.stopPropagation();deleteSession('${s.id}')">删除</button>
+        </div>
       </div>
     </div>`;
   }).join('');

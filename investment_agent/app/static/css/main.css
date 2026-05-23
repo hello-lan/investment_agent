@@ -82,9 +82,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; b
 .session-row:hover { background: #f8f9ff; }
 .session-row.active { background: #e3f2fd; border-left: 3px solid #1a1a2e; padding-left: 13px; }
 .session-row .sess-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.session-row .sess-meta { font-size: 11px; color: #999; margin-top: 3px; display: flex; gap: 12px; }
+.session-row .sess-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+.session-row .sess-meta { font-size: 11px; color: #999; }
 .session-row .sess-preview { font-size: 11px; color: #bbb; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.session-row .sess-actions { display: flex; gap: 6px; margin-top: 6px; }
+.session-row .sess-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .session-row .sess-actions button { font-size: 11px; padding: 3px 10px; border-radius: 4px; cursor: pointer; border: none; }
 .session-row .btn-continue { background: #1a1a2e; color: #fff; }
 .session-row .btn-continue:hover { background: #333; }
