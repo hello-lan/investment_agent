@@ -147,8 +147,20 @@ async def init_db() -> None:
         # 迁移：sessions 可能缺少 current_task_id 列（后台任务追踪）
         cursor = await db.execute("PRAGMA table_info(sessions)")
         columns = {row[1] for row in await cursor.fetchall()}
+        changed = False
         if "current_task_id" not in columns:
             await db.execute("ALTER TABLE sessions ADD COLUMN current_task_id TEXT")
+            changed = True
+        if "input_tokens" not in columns:
+            await db.execute("ALTER TABLE sessions ADD COLUMN input_tokens INTEGER DEFAULT 0")
+            changed = True
+        if "output_tokens" not in columns:
+            await db.execute("ALTER TABLE sessions ADD COLUMN output_tokens INTEGER DEFAULT 0")
+            changed = True
+        if "cost_usd" not in columns:
+            await db.execute("ALTER TABLE sessions ADD COLUMN cost_usd REAL DEFAULT 0")
+            changed = True
+        if changed:
             await db.commit()
 
         # 恢复：服务器重启时，将遗留的 running 会话重置为 active

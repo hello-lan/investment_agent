@@ -1,5 +1,6 @@
-let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,currentAgentId=null,currentFile=null;
+let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,totalCostUsd=0,currentAgentId=null,currentFile=null;
 let allSessions=[],agentMap={};
+let userScrolledUp=false, hasNewContentSinceScroll=false;
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const ALLOWED_EXTS = new Set(['.txt','.md','.pdf','.xlsx','.xls','.docx','.doc']);
@@ -59,15 +60,34 @@ function renderMarkdown(t){
   }
 }
 
+/* ====== 加载状态 ====== */
+
+function _showSkeleton(containerId, count){
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  let html = '';
+  for (let i = 0; i < count; i++){
+    html += '<div class="skeleton-item' + (i % 2 ? ' short' : '') + '"></div>';
+  }
+  el.innerHTML = html;
+}
+
+function _showSpinner(containerId, text){
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = '<div class="loading-spinner">' + escapeHtml(text || '加载中...') + '</div>';
+}
+
 /* ====== Agent list ====== */
 
 async function loadAgents(){
   const list = document.getElementById('agentList');
+  _showSkeleton('agentList', 3);
   try {
     const agents = await fetch('/api/agents').then(r => r.json());
     agents.forEach((a, i) => { agentMap[a.id] = a; });
     if (!agents.length) {
-      list.innerHTML = '<div class="agent-empty">暂无 Agent，请先在 <a href="/agents" style="color:#1a1a2e">Agent 配置</a> 页创建</div>';
+      list.innerHTML = '<div class="agent-empty">暂无 Agent，请先在 <a href="/agents">Agent 配置</a> 页创建</div>';
       document.getElementById('agentContext').style.display = 'none';
       return;
     }
@@ -85,6 +105,7 @@ async function loadAgents(){
           <div class="agent-meta">${escapeHtml(modelName)}${skillsCount ? ' · '+skillsCount+' Skills' : ''}</div>
         </div>
         <span class="agent-badge" id="badge-${a.id}">-</span>
+        <button class="btn-new-agent" onclick="event.stopPropagation();newSession()" title="新对话">+</button>
       </div>`;
     }).join('');
     if (!currentAgentId && agents[0]) {
@@ -123,8 +144,8 @@ function selectAgent(id, silent){
 
   if (!silent) {
     currentSessionId = null;
-    document.getElementById('messages').innerHTML = '<div id="welcome" style="text-align:center;color:#999;margin-top:60px;font-size:14px;">输入股票代码或公司名称，开始分析</div>';
-    totalInputTokens = 0; totalOutputTokens = 0; updateStats();
+    document.getElementById('messages').innerHTML = _welcomeHtml();
+    totalInputTokens = 0; totalOutputTokens = 0; totalCostUsd = 0; updateStats();
   }
   loadSessions();
 }
@@ -134,6 +155,7 @@ function selectAgent(id, silent){
 async function loadSessions(){
   const list = document.getElementById('historyList');
   const countEl = document.getElementById('historyCount');
+  _showSkeleton('historyList', 4);
   try {
     allSessions = await fetch('/api/sessions').then(r => r.json());
   } catch(e) {
@@ -168,8 +190,10 @@ async function loadSessions(){
     const spinner = running ? '<span class="running-spinner"></span>' : '';
     const title = s.title || '未命名';
     const date = (s.created_at || '').slice(0, 16);
+    const preview = s.preview ? '<div class="sess-preview">' + escapeHtml(s.preview) + '</div>' : '';
     return `<div class="session-row${active}${runningCls}" data-sid="${s.id}" onclick="loadSession('${s.id}')">
       <div class="sess-title">${spinner}${escapeHtml(title)}</div>
+      ${preview}
       <div class="sess-bottom">
         <span class="sess-meta">${date}</span>
         <div class="sess-actions">
@@ -186,6 +210,7 @@ async function loadSession(sid){
   if (currentEventSource){ currentEventSource.close(); currentEventSource = null; }
 
   currentSessionId = sid;
+  _showSpinner('messages', '加载会话中...');
 
   // 检查是否是运行中的会话
   const sessionData = allSessions.find(s => s.id === sid);
@@ -206,6 +231,12 @@ async function loadSession(sid){
       if (m.role === 'user') appendUserMsg(m.content);
       else if (m.role === 'assistant') appendAssistantMsg(m.content);
     });
+    // 设置会话累计 token 统计
+    const sess = data.session || {};
+    totalInputTokens = sess.input_tokens || 0;
+    totalOutputTokens = sess.output_tokens || 0;
+    totalCostUsd = sess.cost_usd || 0;
+    updateStats();
     setRunning(false);
     loadSessions();
   } catch(e) {
@@ -218,8 +249,8 @@ async function deleteSession(sid){
   await fetch('/api/sessions/' + sid, {method:'DELETE'});
   if (currentSessionId === sid) {
     currentSessionId = null;
-    document.getElementById('messages').innerHTML = '<div id="welcome" style="text-align:center;color:#999;margin-top:60px;font-size:14px;">输入股票代码或公司名称，开始分析</div>';
-    totalInputTokens = 0; totalOutputTokens = 0; updateStats();
+    document.getElementById('messages').innerHTML = _welcomeHtml();
+    totalInputTokens = 0; totalOutputTokens = 0; totalCostUsd = 0; updateStats();
   }
   loadSessions();
 }
@@ -227,8 +258,8 @@ async function deleteSession(sid){
 function newSession(){
   if (currentEventSource){ currentEventSource.close(); currentEventSource = null; }
   currentSessionId = null;
-  document.getElementById('messages').innerHTML = '<div id="welcome" style="text-align:center;color:#999;margin-top:60px;font-size:14px;">输入股票代码或公司名称，开始分析</div>';
-  totalInputTokens = 0; totalOutputTokens = 0; updateStats();
+  document.getElementById('messages').innerHTML = _welcomeHtml();
+  totalInputTokens = 0; totalOutputTokens = 0; totalCostUsd = 0; updateStats();
   setRunning(false);
   loadSessions();
 }
@@ -252,25 +283,29 @@ function triggerFileSelect(){
   if (el) el.click();
 }
 
-function onFileSelected(e){
-  const file = e?.target?.files?.[0] || null;
-  if (!file){ clearFile(); return; }
+function _validateAndSetFile(file){
+  if (!file) return false;
   const ext = _fileExt(file.name);
   if (!ALLOWED_EXTS.has(ext)){
     alert('不支持的文件类型，仅支持 txt/md/pdf/xlsx/xls/docx/doc');
-    clearFile();
-    return;
+    return false;
   }
   if (file.size > MAX_UPLOAD_BYTES){
     alert('文件过大，最大支持 10MB');
-    clearFile();
-    return;
+    return false;
   }
   currentFile = file;
   const chip = document.getElementById('fileNameChip');
   const btnClear = document.getElementById('btnClearFile');
   if (chip){ chip.textContent = file.name + ' (' + Math.ceil(file.size/1024) + 'KB)'; chip.style.display = 'inline-block'; }
   if (btnClear){ btnClear.style.display = 'inline-block'; }
+  return true;
+}
+
+function onFileSelected(e){
+  const file = e?.target?.files?.[0] || null;
+  if (!file){ clearFile(); return; }
+  if (!_validateAndSetFile(file)) clearFile();
 }
 
 function clearFile(){
@@ -339,11 +374,26 @@ function _collapseThink(block, thinkSteps){
   block.stepsEl.style.display = '';
   block.summaryEl.style.display = '';
 
-  block.stepsEl.innerHTML = thinkSteps.map(s =>
-    '<div class="think-step"><span class="step-icon">' + s.icon + '</span><span class="step-label">' + escapeHtml(s.label) + '</span>' +
-    (s.detail ? ' <span class="step-detail">' + escapeHtml(s.detail.slice(0, 120)) + '</span>' : '') +
-    '</div>'
-  ).join('');
+  const TRUNCATE_AT = 120;
+  block.stepsEl.innerHTML = thinkSteps.map((s, idx) => {
+    let detailHtml = '';
+    if (s.detail) {
+      const isLong = s.detail.length > TRUNCATE_AT;
+      const shortText = escapeHtml(s.detail.slice(0, TRUNCATE_AT));
+      const fullText = escapeHtml(s.detail);
+      if (isLong) {
+        detailHtml = ' <span class="step-detail step-detail-expandable" data-step="' + idx + '">' +
+          '<span class="step-detail-short">' + shortText + '...</span>' +
+          '<span class="step-detail-full" style="display:none">' + fullText + '</span>' +
+          '</span>' +
+          '<button class="step-toggle-btn" onclick="_toggleStepDetail(this)">展开</button>';
+      } else {
+        detailHtml = ' <span class="step-detail">' + shortText + '</span>';
+      }
+    }
+    return '<div class="think-step"><span class="step-icon">' + s.icon + '</span><span class="step-label">' + escapeHtml(s.label) + '</span>' +
+      detailHtml + '</div>';
+  }).join('');
 
   block.summaryEl.innerHTML = '思考过程 (' + n + '步) <span class="think-arrow">▼</span>';
   block.thinkEl.classList.add('collapsed');
@@ -352,7 +402,7 @@ function _collapseThink(block, thinkSteps){
     block.thinkEl.classList.toggle('collapsed');
     var arr = block.summaryEl.querySelector('.think-arrow');
     if (arr) arr.textContent = block.thinkEl.classList.contains('collapsed') ? '▼' : '▲';
-    document.getElementById('messages').scrollTop = 99999;
+    scrollToBottom(true);
   };
 }
 
@@ -363,14 +413,17 @@ function showThinking(){
 
 function removeThinking(){ const el = document.getElementById('thinking'); if (el) el.remove(); }
 
-function updateStats(){
-  document.getElementById('statInput').textContent = totalInputTokens.toLocaleString();
-  document.getElementById('statOutput').textContent = totalOutputTokens.toLocaleString();
-  document.getElementById('statCost').textContent = '$' + ((totalInputTokens*3 + totalOutputTokens*15)/1e6).toFixed(4);
+function updateStats(override){
+  const inp = override?.input ?? totalInputTokens;
+  const out = override?.output ?? totalOutputTokens;
+  const cost = override?.cost ?? totalCostUsd;
+  document.getElementById('statInput').textContent = inp.toLocaleString();
+  document.getElementById('statOutput').textContent = out.toLocaleString();
+  document.getElementById('statCost').textContent = cost > 0 ? '$' + cost.toFixed(4) : '-';
 }
 
 function setRunning(r){
-  document.getElementById('btnSend').disabled = r;
+  document.getElementById('btnSend').style.display = r ? 'none' : 'inline-block';
   document.getElementById('btnStop').style.display = r ? 'inline-block' : 'none';
 }
 
@@ -418,7 +471,12 @@ function _handleStreamEvent(ev, state){
     if (b.retryEl) b.retryEl.style.display = 'none';
     s.aText += ev.content;
     b.bodyEl.innerHTML = renderMarkdown(s.aText);
-    document.getElementById('messages').scrollTop = 99999;
+    if (userScrolledUp) {
+      hasNewContentSinceScroll = true;
+      _updateScrollButton();
+    } else {
+      scrollToBottom();
+    }
   } else if (ev.type === 'tool_call'){
     const b = _ensureBlock(s, setState);
     const spin = b.bodyEl.querySelector('.thinking-inline');
@@ -441,7 +499,7 @@ function _handleStreamEvent(ev, state){
     updateStats(); finishStream();
   } else if (ev.type === 'interrupted'){
     removeThinking();
-    if (ev.message) _append('<div style="text-align:center;color:#999;font-size:12px;padding:8px">' + escapeHtml(ev.message) + '</div>');
+    if (ev.message) _append('<div class="msg-info">' + escapeHtml(ev.message) + '</div>');
     const b = s.replyBlock;
     if (b) _collapseThink(b, s.thinkSteps);
     finishStream();
@@ -450,7 +508,7 @@ function _handleStreamEvent(ev, state){
     const b = s.replyBlock;
     if (b) _collapseThink(b, s.thinkSteps);
     // 显示错误信息
-    const errorEl = _append('<div class="stream-error" style="text-align:center;color:#e53935;font-size:12px;padding:8px">' + escapeHtml(ev.message || '执行出错') + '</div>');
+    const errorEl = _append('<div class="stream-error msg-error">' + escapeHtml(ev.message || '执行出错') + '</div>');
     // 显示重试按钮
     _showRetryButton(b, errorEl);
     finishStream();
@@ -502,7 +560,7 @@ async function retryTask(){
 
   // 重置状态
   showThinking(); setRunning(true);
-  totalInputTokens = 0; totalOutputTokens = 0; updateStats();
+  totalInputTokens = 0; totalOutputTokens = 0; totalCostUsd = 0; updateStats();
 
   try {
     const res = await fetch('/api/chat/retry', {
@@ -515,7 +573,7 @@ async function retryTask(){
     if (!data?.task_id){
       removeThinking();
       const msg = data?.detail || data?.error || '重试请求失败';
-      _append('<div style="text-align:center;color:#e53935;font-size:12px;padding:8px">' + escapeHtml(msg) + '</div>');
+      _append('<div class="msg-error">' + escapeHtml(msg) + '</div>');
       setRunning(false);
       return;
     }
@@ -538,7 +596,7 @@ async function retryTask(){
 
   } catch(e) {
     removeThinking();
-    _append('<div style="text-align:center;color:#e53935;font-size:12px;padding:8px">重试请求失败: ' + escapeHtml(e.message) + '</div>');
+    _append('<div class="msg-error">重试请求失败: ' + escapeHtml(e.message) + '</div>');
     setRunning(false);
   }
 }
@@ -599,6 +657,10 @@ async function sendMessage(){
   const text = input.value.trim();
   if (!text && !currentFile) return;
 
+  userScrolledUp = false;
+  hasNewContentSinceScroll = false;
+  _updateScrollButton();
+
   const displayText = currentFile ? (text || '(无文本问题)') + '\n\n[已上传文件] ' + currentFile.name : text;
   input.value = ''; autoResize(input);
   appendUserMsg(displayText);
@@ -624,7 +686,7 @@ async function sendMessage(){
   if (!data?.task_id){
     removeThinking();
     const msg = data?.detail || data?.error || '请求失败';
-    _append('<div style="text-align:center;color:#e53935;font-size:12px;padding:8px">' + escapeHtml(msg) + '</div>');
+    _append('<div class="msg-error">' + escapeHtml(msg) + '</div>');
     setRunning(false);
     return;
   }
@@ -653,9 +715,118 @@ async function sendMessage(){
 function handleKey(e){ if (e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); } }
 function autoResize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight, 120) + 'px'; }
 
+function fillExample(text){
+  const input = document.getElementById('inputBox');
+  if (input){ input.value = text; autoResize(input); input.focus(); }
+}
+
+/* ====== 自动滚动控制 ====== */
+
+function _isNearBottom(el, threshold){
+  return el.scrollHeight - el.scrollTop - el.clientHeight < (threshold || 50);
+}
+
+function scrollToBottom(force){
+  const el = document.getElementById('messages');
+  if (!el) return;
+  if (force || !userScrolledUp){
+    el.scrollTop = el.scrollHeight;
+    userScrolledUp = false;
+    hasNewContentSinceScroll = false;
+    _updateScrollButton();
+  }
+}
+
+function _updateScrollButton(){
+  let btn = document.getElementById('btnScrollDown');
+  if (!btn) return;
+  btn.style.display = (userScrolledUp && hasNewContentSinceScroll) ? 'flex' : 'none';
+}
+
+/* ====== 文件拖拽上传 ====== */
+
+let _dragCounter = 0;
+
+function _initDragDrop(){
+  const main = document.querySelector('.main');
+  if (!main || main._dragBound) return;
+  main._dragBound = true;
+
+  main.addEventListener('dragenter', function(e){
+    e.preventDefault();
+    _dragCounter++;
+    main.classList.add('drag-over');
+  });
+
+  main.addEventListener('dragleave', function(e){
+    e.preventDefault();
+    _dragCounter--;
+    if (_dragCounter <= 0){
+      _dragCounter = 0;
+      main.classList.remove('drag-over');
+    }
+  });
+
+  main.addEventListener('dragover', function(e){
+    e.preventDefault();
+  });
+
+  main.addEventListener('drop', function(e){
+    e.preventDefault();
+    _dragCounter = 0;
+    main.classList.remove('drag-over');
+    const file = e.dataTransfer?.files?.[0];
+    if (file) _validateAndSetFile(file);
+  });
+}
+
+function _initScrollListener(){
+  const el = document.getElementById('messages');
+  if (!el || el._scrollBound) return;
+  el._scrollBound = true;
+  el.addEventListener('scroll', function(){
+    const nearBottom = _isNearBottom(el, 50);
+    if (nearBottom){
+      userScrolledUp = false;
+      hasNewContentSinceScroll = false;
+    } else {
+      userScrolledUp = true;
+    }
+    _updateScrollButton();
+  });
+}
+
+function _toggleStepDetail(btn){
+  const step = btn.parentElement;
+  const shortEl = step.querySelector('.step-detail-short');
+  const fullEl = step.querySelector('.step-detail-full');
+  const expanded = btn.textContent === '收起';
+  if (expanded) {
+    shortEl.style.display = '';
+    fullEl.style.display = 'none';
+    btn.textContent = '展开';
+  } else {
+    shortEl.style.display = 'none';
+    fullEl.style.display = '';
+    btn.textContent = '收起';
+  }
+}
+
+function _welcomeHtml(){
+  return '<div id="welcome" class="welcome">' +
+    '<div class="welcome-title">输入股票代码或公司名称，开始分析</div>' +
+    '<div class="welcome-examples">' +
+      '<div class="example-card" onclick="fillExample(\'分析贵州茅台（600519）的基本面\')">分析贵州茅台（600519）的基本面</div>' +
+      '<div class="example-card" onclick="fillExample(\'对比宁德时代和比亚迪的财务数据\')">对比宁德时代和比亚迪的财务数据</div>' +
+      '<div class="example-card" onclick="fillExample(\'查看招商银行最新估值水平\')">查看招商银行最新估值水平</div>' +
+    '</div></div>';
+}
+
 /* ====== 页面初始化 ====== */
 
 window.addEventListener('DOMContentLoaded', () => {
+  _initScrollListener();
+  _initDragDrop();
   const params = new URLSearchParams(location.search);
   const sid = params.get('session');
   const aid = params.get('agent');

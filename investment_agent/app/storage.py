@@ -177,6 +177,21 @@ class SqliteStorage:
             )
             await db.commit()
 
+    async def update_session_usage(
+        self, session_id: str, *, input_tokens: int, output_tokens: int, cost_usd: float,
+    ) -> None:
+        """累加会话的 token 用量和费用。"""
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE sessions SET "
+                "input_tokens = COALESCE(input_tokens, 0) + ?, "
+                "output_tokens = COALESCE(output_tokens, 0) + ?, "
+                "cost_usd = COALESCE(cost_usd, 0) + ? "
+                "WHERE id = ?",
+                (input_tokens, output_tokens, cost_usd, session_id),
+            )
+            await db.commit()
+
     async def get_session_running_task(self, session_id: str) -> str | None:
         """查询会话当前运行中的 task_id（仅 status='running' 时返回）。"""
         async with get_db() as db:

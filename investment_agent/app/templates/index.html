@@ -9,7 +9,7 @@
   <aside class="left-panel">
     <div class="left-header">Agent 列表</div>
     <div class="agent-list" id="agentList">
-      <div class="agent-empty">暂无 Agent，请先在 <a href="/agents" style="color:#1a1a2e">Agent 配置</a> 页创建</div>
+      <div class="agent-empty">暂无 Agent，请先在 <a href="/agents">Agent 配置</a> 页创建</div>
     </div>
   </aside>
 
@@ -18,10 +18,15 @@
       当前 Agent：<strong id="centerAgentName"></strong>
     </div>
     <div class="messages" id="messages">
-      <div id="welcome" style="text-align:center;color:#999;margin-top:60px;font-size:14px;">
-        输入股票代码或公司名称，开始分析<br>
-        <small style="color:#bbb">例如：分析一下贵州茅台（600519）的基本面</small>
+      <div id="welcome" class="welcome">
+        <div class="welcome-title">输入股票代码或公司名称，开始分析</div>
+        <div class="welcome-examples">
+          <div class="example-card" onclick="fillExample('分析贵州茅台（600519）的基本面')">分析贵州茅台（600519）的基本面</div>
+          <div class="example-card" onclick="fillExample('对比宁德时代和比亚迪的财务数据')">对比宁德时代和比亚迪的财务数据</div>
+          <div class="example-card" onclick="fillExample('查看招商银行最新估值水平')">查看招商银行最新估值水平</div>
+        </div>
       </div>
+      <button id="btnScrollDown" class="btn-scroll-down" onclick="scrollToBottom(true)" style="display:none">↓ 回到底部</button>
     </div>
     <div class="input-area">
       <div class="input-left">
@@ -41,10 +46,10 @@
 
   <aside class="right-panel">
     <div class="usage-panel">
-      <h4>本次用量</h4>
+      <h4>当前会话用量</h4>
       <div class="stat-row"><span>输入 Token</span><span class="stat-val" id="statInput">0</span></div>
       <div class="stat-row"><span>输出 Token</span><span class="stat-val" id="statOutput">0</span></div>
-      <div class="stat-row total-row"><span>预估费用</span><span class="stat-val" id="statCost">$0.0000</span></div>
+      <div class="stat-row total-row"><span>预估费用</span><span class="stat-val" id="statCost">-</span></div>
     </div>
 
     <div class="agent-context" id="agentContext" style="display:none">
@@ -54,8 +59,7 @@
 
     <div class="history-panel">
       <div class="history-header">
-        历史会话
-        <span class="count" id="historyCount"></span>
+        历史会话 <span class="count" id="historyCount"></span>
       </div>
       <div class="history-list" id="historyList">
         <div class="history-empty">选择 Agent 后显示历史会话</div>

@@ -11,7 +11,15 @@ async def list_sessions():
     """历史会话列表（最近 50 条）"""
     async with get_db() as db:
         cursor = await db.execute(
-            "SELECT id, agent_id, title, status, current_task_id, created_at FROM sessions ORDER BY created_at DESC LIMIT 50"
+            """
+            SELECT s.id, s.agent_id, s.title, s.status, s.current_task_id,
+                   s.input_tokens, s.output_tokens, s.cost_usd, s.created_at,
+                   (SELECT SUBSTR(content, 1, 50) FROM messages
+                    WHERE session_id = s.id AND role = 'user'
+                    ORDER BY created_at LIMIT 1) AS preview
+            FROM sessions s
+            ORDER BY s.created_at DESC LIMIT 50
+            """
         )
         rows = await cursor.fetchall()
     return [dict(r) for r in rows]

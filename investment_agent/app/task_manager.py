@@ -16,6 +16,7 @@ from ..agent.runner import AgentRunner
 from ..agent.core.engine import AgentEngine
 from ..agent.core.events import build_trace_detail
 from .observability.hooks_impl import ObservabilityHooks
+from .observability.cost_tracker import _estimate_cost_usd
 
 logger = logging.getLogger(__name__)
 
@@ -142,9 +143,10 @@ class TaskManager:
                 if event_type == "text_delta":
                     state.accumulated_text += event["content"]
 
-                # 终端事件 → cost + cache hooks
+                # 终端事件 → cost + cache hooks + 更新会话统计
                 if event_type in ("done", "error", "interrupted") and not cost_logged:
                     await self._fire_terminal_hooks(hooks, state.engine, state.last_step, event)
+                    await self._update_session_usage(state, event)
                     cost_logged = True
 
                 # 缓冲渲染事件并广播给订阅者（包括子Agent事件）
@@ -276,6 +278,28 @@ class TaskManager:
                     )
         except Exception:
             logger.debug("on_cache_metrics hook failed", exc_info=True)
+
+    async def _update_session_usage(self, state: _TaskState, event: dict) -> None:
+        """将本次任务的 token 用量累加到 sessions 表。"""
+        usage = event.get("usage", {})
+        input_tokens = usage.get("input_tokens", state.engine.total_input_tokens)
+        output_tokens = usage.get("output_tokens", state.engine.total_output_tokens)
+        if not input_tokens and not output_tokens:
+            return
+
+        input_price = getattr(state.engine.provider, "_input_price", None)
+        output_price = getattr(state.engine.provider, "_output_price", None)
+        cost_usd = _estimate_cost_usd(input_tokens, output_tokens, input_price, output_price) or 0
+
+        try:
+            await state.runner._storage.update_session_usage(
+                state.session_id,
+                input_tokens=int(input_tokens),
+                output_tokens=int(output_tokens),
+                cost_usd=float(cost_usd),
+            )
+        except Exception:
+            logger.debug("update_session_usage failed for task %s", state.task_id, exc_info=True)
 
     async def _cleanup_later(self, task_id: str) -> None:
         """延迟清理任务状态和缓冲。"""

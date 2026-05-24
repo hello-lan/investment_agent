@@ -7,9 +7,8 @@
 <div class="obs-wrap">
 
   <div class="obs-controls">
-    <input id="sessionId" placeholder="session_id（可选）">
-    <input id="taskId" placeholder="task_id（可选）">
-    <input id="limit" type="number" min="1" max="500" value="200">
+    <input id="sessionId" placeholder="session_id（可选，回车定位）">
+    <input id="taskId" placeholder="task_id（可选，过滤用）">
     <select id="autoRefresh">
       <option value="on" selected>自动刷新：开</option>
       <option value="off">自动刷新：关</option>
@@ -26,9 +25,27 @@
 
   <!-- Tab 1: 链路日志 -->
   <div class="obs-tab-panel active" id="tab-traces">
-    <div id="traceContent"></div>
-    <div class="obs-empty" id="traceEmpty" style="display:none">暂无链路日志数据</div>
-    <div class="obs-error" id="traceError" style="display:none"></div>
+    <div class="obs-trace-layout">
+      <!-- 左侧：会话列表 -->
+      <div class="obs-session-sidebar">
+        <div class="obs-sidebar-header">
+          <span>会话列表</span>
+          <span class="obs-sidebar-badge" id="sessionTotalBadge" style="display:none">0</span>
+        </div>
+        <div id="sessionList"></div>
+        <div class="obs-sidebar-empty" id="sessionListEmpty" style="display:none">暂无会话</div>
+        <div class="obs-pagination" id="sessionPagination"></div>
+      </div>
+      <!-- 右侧：日志详情 -->
+      <div class="obs-trace-detail">
+        <div class="obs-detail-placeholder" id="tracePlaceholder">
+          ← 请从左侧选择一个会话查看日志
+        </div>
+        <div id="traceContent"></div>
+        <div class="obs-empty" id="traceEmpty" style="display:none">该会话暂无日志数据</div>
+        <div class="obs-error" id="traceError" style="display:none"></div>
+      </div>
+    </div>
   </div>
 
   <!-- Tab 2: Token 分析 -->

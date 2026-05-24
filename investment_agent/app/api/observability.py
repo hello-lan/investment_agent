@@ -86,7 +86,9 @@ async def get_traces(
         where.append("t.created_at >= ?")
         params.append(since)
 
-    clamp = max(1, min(limit, 1000))
+    # 指定 session_id 时允许获取全部日志，否则最多 1000 条
+    max_limit = 10000 if session_id else 1000
+    clamp = max(1, min(limit, max_limit))
 
     sql = f"""SELECT
         t.id, t.session_id, t.task_id, t.agent_name, t.step,
@@ -134,6 +136,52 @@ async def get_trace_detail(trace_id: str):
     if not row:
         raise HTTPException(status_code=404, detail="trace not found")
     return dict(row)
+
+
+# ── /trace-sessions（链路日志的会话列表，分页） ─────────────────────────────
+
+
+@router.get("/trace-sessions")
+async def get_trace_sessions(
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(10, ge=1, le=50, description="每页条数"),
+):
+    """从 trace_log 获取去重的 session_id 列表（分页）。
+
+    返回每个 session 的任务数、事件数、agent 名称和时间范围，
+    用于链路日志页面的会话侧边栏。
+    """
+    offset = (page - 1) * page_size
+
+    async with get_db() as db:
+        # 总数
+        count_cursor = await db.execute(
+            "SELECT COUNT(DISTINCT session_id) AS cnt FROM trace_log"
+        )
+        total = (await count_cursor.fetchone())["cnt"]
+
+        # 分页查询
+        sql = """SELECT
+            session_id,
+            MIN(agent_name) AS agent_name,
+            COUNT(DISTINCT task_id) AS task_count,
+            COUNT(*) AS event_count,
+            MIN(created_at) AS first_seen,
+            MAX(created_at) AS last_seen
+        FROM trace_log
+        GROUP BY session_id
+        ORDER BY last_seen DESC
+        LIMIT ? OFFSET ?"""
+        cursor = await db.execute(sql, (page_size, offset))
+        rows = await cursor.fetchall()
+
+    return {
+        "items": [dict(r) for r in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": max(1, (total + page_size - 1) // page_size),
+    }
 
 
 # ── /sessions（聚合查询带缓存） ────────────────────────────────────────────

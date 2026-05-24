@@ -85,6 +85,13 @@ var _lastCostTime = null;
 var _prevSessionId = '';
 var _prevTaskId = '';
 
+// 会话列表分页状态
+var _sessionListPage = 1;
+var _sessionListTotalPages = 1;
+var _selectedSessionId = '';
+var _sessionListData = [];
+var _sessionPageSize = 10;
+
 // 轮询退避状态
 var _refreshInterval = 5000;
 var _noDataCount = 0;
@@ -113,7 +120,6 @@ function getFilters() {
   return {
     session_id: document.getElementById('sessionId').value.trim(),
     task_id: document.getElementById('taskId').value.trim(),
-    limit: parseInt(document.getElementById('limit').value || '200'),
   };
 }
 
@@ -158,7 +164,7 @@ async function loadData(isManual) {
 
   var gotNewData = false;
   try {
-    if (_activeTab === 'traces') gotNewData = await loadTraces();
+    if (_activeTab === 'traces') gotNewData = await loadSessionList(isManual);
     else if (_activeTab === 'tokens') gotNewData = await loadTokens();
     else if (_activeTab === 'cost') gotNewData = await loadCost();
     document.getElementById('lastUpdated').textContent = '最后更新：' + new Date().toLocaleTimeString();
@@ -180,30 +186,176 @@ async function loadData(isManual) {
   }
 }
 
+// ── Session List (paginated sidebar) ──
+
+async function loadSessionList(isManual) {
+  var elList = document.getElementById('sessionList');
+  var elEmpty = document.getElementById('sessionListEmpty');
+  var elBadge = document.getElementById('sessionTotalBadge');
+
+  try {
+    var url = '/api/observability/trace-sessions?page=' + _sessionListPage + '&page_size=' + _sessionPageSize;
+    var data = await fetch(url).then(function(r) { return r.json(); });
+
+    _sessionListData = data.items || [];
+    _sessionListTotalPages = data.total_pages || 1;
+
+    // 更新总数徽章
+    if (elBadge) {
+      elBadge.textContent = data.total || 0;
+      elBadge.style.display = data.total > 0 ? '' : 'none';
+    }
+
+    if (!_sessionListData.length) {
+      elList.innerHTML = '';
+      elEmpty.style.display = '';
+      renderPagination();
+      return false;
+    }
+    elEmpty.style.display = 'none';
+    renderSessionList();
+    renderPagination();
+
+    // 自动选择：当前无选中 → 选第一个
+    if (!_selectedSessionId && _sessionListData.length > 0) {
+      _selectedSessionId = _sessionListData[0].session_id;
+      document.getElementById('sessionId').value = _selectedSessionId;
+      highlightSessionItem(_selectedSessionId);
+      _lastTraceTime = null;
+      await loadTraces();
+      return true;
+    }
+
+    // 选中的会话仍在列表中 → 刷新侧边栏高亮 + 更新日志
+    if (_selectedSessionId) {
+      highlightSessionItem(_selectedSessionId);
+      await loadTraces();
+    }
+
+    return true;
+  } catch (e) {
+    elList.innerHTML = '<div style="padding:12px;color:#c62828;font-size:12px;">加载失败：' + esc(e.message) + '</div>';
+    return false;
+  }
+}
+
+function selectSession(sessionId) {
+  if (_selectedSessionId === sessionId) return;
+  _selectedSessionId = sessionId;
+  _lastTraceTime = null;  // 切换会话 → 全量加载
+  document.getElementById('sessionId').value = sessionId;
+  highlightSessionItem(sessionId);
+  loadTraces();
+}
+
+function highlightSessionItem(sessionId) {
+  document.querySelectorAll('.obs-session-item').forEach(function(el) {
+    if (el.dataset.sid === sessionId) el.classList.add('active');
+    else el.classList.remove('active');
+  });
+}
+
+function goToPage(page) {
+  if (page < 1 || page > _sessionListTotalPages || page === _sessionListPage) return;
+  _sessionListPage = page;
+  loadSessionList();
+}
+
+function renderSessionList() {
+  var elList = document.getElementById('sessionList');
+  var html = '';
+  _sessionListData.forEach(function(s) {
+    var isActive = s.session_id === _selectedSessionId;
+    html += '<div class="obs-session-item' + (isActive ? ' active' : '') + '" data-sid="' + esc(s.session_id) + '">';
+    html += '<span class="obs-si-id" title="' + esc(s.session_id) + '">' + esc(s.session_id) + '</span>';
+    html += '<div class="obs-si-meta">';
+    if (s.agent_name) html += '<span class="obs-badge" style="background:#f0fdf4;color:#166534;">' + esc(s.agent_name) + '</span>';
+    html += '<span>📋 ' + s.task_count + '</span>';
+    html += '<span>📝 ' + s.event_count + '</span>';
+    html += '<span>' + formatTime(s.last_seen) + '</span>';
+    html += '</div></div>';
+  });
+  elList.innerHTML = html;
+}
+
+function renderPagination() {
+  var el = document.getElementById('sessionPagination');
+  if (_sessionListTotalPages <= 1) { el.innerHTML = ''; return; }
+
+  var html = '';
+  html += '<button class="obs-page-btn"' + (_sessionListPage <= 1 ? ' disabled' : '') + ' onclick="goToPage(' + (_sessionListPage - 1) + ')">‹</button>';
+
+  var pages = computePageNumbers(_sessionListPage, _sessionListTotalPages);
+  pages.forEach(function(p) {
+    if (p === '...') {
+      html += '<span class="obs-page-info">…</span>';
+    } else {
+      html += '<button class="obs-page-btn' + (p === _sessionListPage ? ' active' : '') + '" onclick="goToPage(' + p + ')">' + p + '</button>';
+    }
+  });
+
+  html += '<button class="obs-page-btn"' + (_sessionListPage >= _sessionListTotalPages ? ' disabled' : '') + ' onclick="goToPage(' + (_sessionListPage + 1) + ')">›</button>';
+  el.innerHTML = html;
+}
+
+function computePageNumbers(current, total) {
+  if (total <= 7) {
+    var arr = [];
+    for (var i = 1; i <= total; i++) arr.push(i);
+    return arr;
+  }
+  var pages = [1];
+  if (current > 3) pages.push('...');
+  for (var j = Math.max(2, current - 1); j <= Math.min(total - 1, current + 1); j++) pages.push(j);
+  if (current < total - 2) pages.push('...');
+  pages.push(total);
+  return pages;
+}
+
+// ── Traces (loads ALL for selected session) ──
+
 async function loadTraces() {
   var elError = document.getElementById('traceError');
   var elEmpty = document.getElementById('traceEmpty');
   var elContent = document.getElementById('traceContent');
+  var elPlaceholder = document.getElementById('tracePlaceholder');
+  var elDetail = document.querySelector('.obs-trace-detail');
   elError.style.display = 'none';
+  elEmpty.style.display = 'none';
 
-  var filters = getFilters();
-  // 用户过滤条件变更 → 全量刷新
-  if (filters.session_id !== _prevSessionId || filters.task_id !== _prevTaskId) {
-    _lastTraceTime = null;
-    _prevSessionId = filters.session_id;
-    _prevTaskId = filters.task_id;
+  if (!_selectedSessionId) {
+    if (elPlaceholder) elPlaceholder.style.display = '';
+    elContent.innerHTML = '';
+    if (elDetail) elDetail.classList.remove('has-session');
+    return false;
   }
-  // 增量刷新：带上 since（无过滤条件时才增量）
-  if (_lastTraceTime && !filters.session_id && !filters.task_id) {
+
+  if (elPlaceholder) elPlaceholder.style.display = 'none';
+  if (elDetail) elDetail.classList.add('has-session');
+
+  var filters = { session_id: _selectedSessionId };
+  var isIncremental = false;
+
+  // task_id 过滤
+  var taskIdFilter = document.getElementById('taskId').value.trim();
+  if (taskIdFilter) filters.task_id = taskIdFilter;
+
+  // 增量刷新：已选中会话且有上次时间戳
+  if (_lastTraceTime && _selectedSessionId === _prevSessionId) {
     filters.since = _lastTraceTime;
+    isIncremental = true;
+  } else {
+    _lastTraceTime = null;
+    _prevSessionId = _selectedSessionId;
+    filters.limit = 10000;
   }
 
   try {
     var q = buildQuery(filters);
     var rows = await fetch('/api/observability/traces?' + q).then(function(r) { return r.json(); });
 
-    if (_lastTraceTime) {
-      // 增量模式：后端用 >= 会返回边界记录，前端按 id 去重
+    if (isIncremental) {
+      // 增量模式：按 id 去重
       var newRows = [];
       if (rows.length) {
         var existingIds = {};
@@ -212,13 +364,12 @@ async function loadTraces() {
         });
         newRows = rows.filter(function(r) { return !existingIds[r.id]; });
       }
-      if (!newRows.length) return false;  // 无新数据
+      if (!newRows.length) return false;
       mergeNewTraces(newRows);
-      updateLastTraceTime(rows);  // 用原始 rows 更新时间戳（包含边界记录）
+      updateLastTraceTime(rows);
       return true;
     } else {
       // 全量模式
-      elEmpty.style.display = 'none';
       if (!rows.length) { elEmpty.style.display = ''; return false; }
       elContent.innerHTML = buildAllTracesHtml(rows);
       updateLastTraceTime(rows);
@@ -308,13 +459,14 @@ async function loadCost() {
 function buildAllTracesHtml(rows) {
   var grouped = groupTraces(rows);
   var html = '';
+  var sessionCount = grouped.size;
   grouped.forEach(function(session) {
-    html += buildSessionAccordion(session.id, session.tasks);
+    html += buildSessionAccordion(session.id, session.tasks, sessionCount === 1);
   });
   return html;
 }
 
-function buildSessionAccordion(sessionId, taskMap) {
+function buildSessionAccordion(sessionId, taskMap, autoOpen) {
   var tasks = Array.from(taskMap.values());
 
   // sort tasks by first step time descending
@@ -345,7 +497,7 @@ function buildSessionAccordion(sessionId, taskMap) {
   var times = tasks.map(function(steps) { return steps[0] && steps[0].created_at; }).filter(Boolean).sort();
   var tFirst = times[0], tLast = times[times.length - 1];
 
-  var html = '<div class="obs-accordion" data-sid="' + esc(sessionId) + '">';
+  var html = '<div class="obs-accordion' + (autoOpen ? ' open' : '') + '" data-sid="' + esc(sessionId) + '">';
   html += '<div class="obs-acc-header">';
   html += '<span class="obs-arrow">▸</span>';
   html += '<span class="obs-session-id" title="' + esc(sessionId) + '">' + esc(shortId(sessionId)) + '</span>';
@@ -360,7 +512,7 @@ function buildSessionAccordion(sessionId, taskMap) {
   html += '</div></div>';
 
   html += '<div class="obs-acc-body">';
-  tasks.forEach(function(steps) { html += renderTaskAccordion(steps); });
+  tasks.forEach(function(steps, idx) { html += renderTaskAccordion(steps, autoOpen && idx === 0); });
   html += '</div></div>';
   return html;
 }
@@ -386,7 +538,7 @@ function groupTraces(rows) {
   return sessions;
 }
 
-function renderTaskAccordion(steps) {
+function renderTaskAccordion(steps, autoOpen) {
   if (!steps.length) return '';
   var first = steps[0];
   var taskId = first.task_id || '';
@@ -410,7 +562,7 @@ function renderTaskAccordion(steps) {
   var times = steps.map(function(s) { return s.created_at; }).filter(Boolean).sort();
   var tFirst = times[0];
 
-  var html = '<div class="obs-accordion" data-tid="' + esc(taskId) + '">';
+  var html = '<div class="obs-accordion' + (autoOpen ? ' open' : '') + '" data-tid="' + esc(taskId) + '">';
   html += '<div class="obs-acc-header task-level">';
   html += '<span class="obs-arrow">▸</span>';
   html += '<span class="obs-task-id" title="' + esc(taskId) + '">' + esc(shortId(taskId)) + '</span>';
@@ -1197,15 +1349,27 @@ function init() {
     });
     document.getElementById('autoRefresh').addEventListener('change', resetTimer);
     document.getElementById('sessionId').addEventListener('change', function() {
-      resetBackoff(); loadData(true);
+      var val = this.value.trim();
+      if (val) {
+        _selectedSessionId = val;
+        _lastTraceTime = null;
+        highlightSessionItem(val);
+        resetBackoff();
+        loadTraces();
+      }
     });
     document.getElementById('taskId').addEventListener('change', function() {
-      resetBackoff(); loadData(true);
-    });
-    document.getElementById('limit').addEventListener('change', function() {
-      resetBackoff(); loadData(true);
+      resetBackoff();
+      if (_selectedSessionId) { _lastTraceTime = null; loadTraces(); }
     });
     document.getElementById('traceContent').addEventListener('click', handleTraceClick);
+    // 会话列表点击事件（委托）
+    document.getElementById('sessionList').addEventListener('click', function(e) {
+      var item = e.target.closest('.obs-session-item');
+      if (item && item.dataset.sid) {
+        selectSession(item.dataset.sid);
+      }
+    });
     var selA = document.getElementById('compareSessionA');
     var selB = document.getElementById('compareSessionB');
     if (selA) selA.addEventListener('change', loadComparison);
