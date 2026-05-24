@@ -149,7 +149,7 @@ class AgentEngine:
         """发送中断信号，优雅停止当前任务"""
         self._interrupt.set()
 
-    LOOP_WHITELIST = {"run_command"}    # 允许连续调用的工具（不受死循环检测限制）
+    LOOP_WHITELIST = {"run_command", "DelegateTask"}    # 允许连续调用的工具（不受死循环检测限制）
 
     async def run(self, messages: list[dict]) -> AsyncGenerator[dict, None]:
         """主执行循环：SSE 流式产出每一步的事件"""
@@ -347,32 +347,39 @@ class AgentEngine:
                         f"无法创建子Agent"
                     )
                 else:
-                    raw_skill_names = tc.input.get("skill_names", []) or []
-                    task_desc = tc.input.get("task", "")
-                    from ..skills.loader import _registry as skill_registry
-                    skill_names = [
-                        n for n in raw_skill_names
-                        if skill_registry.get(n) and skill_registry[n].skill_type != "orch"
-                    ]
-                    prompt = await self._generate_task_instruction(task_desc, skill_names)
-                    delegate_id = f"delegate_{uuid.uuid4().hex[:8]}"
-                    event_queue = asyncio.Queue()
-                    asyncio.ensure_future(
-                        self._run_subagent_task(
-                            skill_names, prompt, event_queue, delegate_id
+                    remaining = self.token_budget - self.total_input_tokens - self.total_output_tokens
+                    if remaining < 50000:
+                        result = (
+                            f"错误：剩余 token 预算不足 ({remaining}/{self.token_budget})，"
+                            f"无法委派子任务"
                         )
-                    )
-                    result = ""
-                    while True:
-                        event = await event_queue.get()
-                        if event["type"] == "__delegate_done__":
-                            result = event["result"]
-                            break
-                        elif event["type"] == "__delegate_error__":
-                            result = f"子任务执行错误: {event['message']}"
-                            break
-                        else:
-                            yield event
+                    else:
+                        raw_skill_names = tc.input.get("skill_names", []) or []
+                        task_desc = tc.input.get("task", "")
+                        from ..skills.loader import _registry as skill_registry
+                        skill_names = [
+                            n for n in raw_skill_names
+                            if skill_registry.get(n) and skill_registry[n].skill_type != "orch"
+                        ]
+                        prompt = await self._generate_task_instruction(task_desc, skill_names)
+                        delegate_id = f"delegate_{uuid.uuid4().hex[:8]}"
+                        event_queue = asyncio.Queue()
+                        asyncio.ensure_future(
+                            self._run_subagent_task(
+                                skill_names, prompt, event_queue, delegate_id
+                            )
+                        )
+                        result = ""
+                        while True:
+                            event = await event_queue.get()
+                            if event["type"] == "__delegate_done__":
+                                result = event["result"]
+                                break
+                            elif event["type"] == "__delegate_error__":
+                                result = f"子任务执行错误: {event['message']}"
+                                break
+                            else:
+                                yield event
             else:
                 result = await self._execute_tool(tc)
 
@@ -383,6 +390,13 @@ class AgentEngine:
                 "output": result,
                 "duration_ms": duration_ms,
             }
+            if tc.name == "DelegateTask":
+                yield {
+                    "type": "budget_status",
+                    "total_used": self.total_input_tokens + self.total_output_tokens,
+                    "budget": self.token_budget,
+                    "remaining": self.token_budget - self.total_input_tokens - self.total_output_tokens,
+                }
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": tc.id,
@@ -415,6 +429,25 @@ class AgentEngine:
                     result = (
                         f"错误：已达到最大委派深度 {self.max_subagent_depth}，"
                         f"无法创建子Agent"
+                    )
+                    yield {
+                        "type": "tool_result",
+                        "tool": tc.name,
+                        "output": result,
+                        "duration_ms": int((time.monotonic() - t0) * 1000),
+                    }
+                    ordered_results[idx] = {
+                        "type": "tool_result",
+                        "tool_use_id": tc.id,
+                        "content": result,
+                    }
+                    continue
+
+                remaining = self.token_budget - self.total_input_tokens - self.total_output_tokens
+                if remaining < 50000:
+                    result = (
+                        f"错误：剩余 token 预算不足 ({remaining}/{self.token_budget})，"
+                        f"无法委派子任务"
                     )
                     yield {
                         "type": "tool_result",
@@ -490,6 +523,13 @@ class AgentEngine:
                 "duration_ms": duration_ms,
                 "delegate_id": result_event.get("delegate_id", ""),
             }
+            yield {
+                "type": "budget_status",
+                "total_used": self.total_input_tokens + self.total_output_tokens,
+                "budget": self.token_budget,
+                "remaining": self.token_budget - self.total_input_tokens - self.total_output_tokens,
+                "delegate_id": result_event.get("delegate_id", ""),
+            }
             ordered_results[idx] = {
                 "type": "tool_result",
                 "tool_use_id": tc.id,
@@ -528,16 +568,31 @@ class AgentEngine:
                 if t:
                     text_messages.append(t)
 
-        skill_info = f"将使用技能: {', '.join(skill_names)}" if skill_names else "无指定技能"
+        skill_info_lines = [f"将使用技能: {', '.join(skill_names)}"] if skill_names else ["无指定技能"]
+
+        # 注入技能完整说明，让 LLM 了解输入输出规范和命令行用法
+        if skill_names:
+            from ..skills.loader import _registry as _gen_skill_registry
+            skill_bodies = []
+            for name in skill_names:
+                sk = _gen_skill_registry.get(name)
+                if sk:
+                    skill_bodies.append(f"### {name}\n\n{sk.body}")
+            if skill_bodies:
+                skill_info_lines.append("## 技能完整说明\n")
+                skill_info_lines.append("\n---\n".join(skill_bodies))
+
+        skill_info = "\n".join(skill_info_lines)
         prompt = (
-            f"你是一个任务规划者。请基于以下对话上下文，为子Agent生成一条聚焦的任务指令。\n\n"
+            f"你是一个任务规划者。请基于以下对话上下文，为子Agent生成一条完整的任务指令。\n\n"
             f"父Agent要求: {task}\n"
             f"{skill_info}\n\n"
             f"要求：\n"
-            f"1. 从对话上下文中提取子Agent执行所需的关键信息（如股票代码、文件路径、年份等）\n"
-            f"2. 明确说明输入和期望输出\n"
-            f"3. 不要添加多余的解释，直接输出任务指令\n"
-            f"4. 用中文输出"
+            f"1. 从对话上下文中提取子Agent执行所需的关键信息（股票代码、文件路径、年份、输入输出目录等）\n"
+            f"2. 明确列出具体的输入文件路径和输出目录（使用绝对路径）\n"
+            f"3. 明确说明操作步骤和期望输出格式\n"
+            f"4. 确保指令完整自包含——子Agent仅凭此指令即可执行，无需额外询问\n"
+            f"5. 用中文输出，不要添加解释性文字，直接输出任务指令"
         )
         text_messages.append({"role": "user", "content": prompt})
 
@@ -549,9 +604,9 @@ class AgentEngine:
             if self.temperature is not None:
                 kwargs["temperature"] = self.temperature
             if self.max_tokens is not None:
-                kwargs["max_tokens"] = min(self.max_tokens, 256)
+                kwargs["max_tokens"] = min(self.max_tokens, 512)
             else:
-                kwargs["max_tokens"] = 256
+                kwargs["max_tokens"] = 512
             resp = await self.provider.chat(**kwargs)
             self.total_input_tokens += resp.input_tokens
             self.total_output_tokens += resp.output_tokens
@@ -588,19 +643,22 @@ class AgentEngine:
         # 完成/错误信号的目标队列
         signal_queue = result_queue if result_queue is not None else event_queue
 
+        from ...config import PROJECT_ROOT
+
         sub = AgentEngine(
             session_id=f"sub_{delegate_id}",
-            system_prompt=SUBAGENT_SYSTEM_PROMPT,
+            system_prompt=SUBAGENT_SYSTEM_PROMPT.format(PROJECT_ROOT=PROJECT_ROOT),
             provider=self.provider,
             max_steps=self.max_steps,
             slow_think_interval=0,
-            token_budget=self.token_budget,
+            token_budget=max(50000, self.token_budget - self.total_input_tokens - self.total_output_tokens),
             context_trim_interval=0,
             runtime_trimmer=NoOpRuntimeTrimmer(),
             subagent_depth=depth,
             max_subagent_depth=self.max_subagent_depth,
             max_concurrent_subagents=self.max_concurrent_subagents,
             sub_agent_mode=self.sub_agent_mode,
+            loop_detection_threshold=self.loop_threshold,
         )
         # 注册基础工具
         run_tool = RunCommandTool()

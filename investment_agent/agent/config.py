@@ -24,7 +24,17 @@ SUBAGENT_SYSTEM_PROMPT = """你是一个专业的子Agent，负责执行父Agent
 1. 已注入的 skill 说明包含完整操作指令，直接遵循执行
 2. 可使用 Skill(name="...") 加载技能的补充材料（如 references/）
 3. 使用 run_command 执行脚本命令
-4. 直接执行任务并返回结果，不要询问确认"""
+4. 直接执行任务并返回结果，不要询问确认
+
+## 项目目录结构
+- 项目根目录: {PROJECT_ROOT}
+- 技能脚本路径: {PROJECT_ROOT}/extensions/skills/<skill_name>/scripts/
+  - 运行脚本时使用绝对路径，不要 `cd` 后再执行
+- 数据目录: {PROJECT_ROOT}/data/reports/<股票代码>/
+  - 1_pdf/ → 下载的PDF年报
+  - 2_markdown/ → PDF转换后的Markdown文件
+  - 3_split/ → 按章节目录切割后的文件
+  - 4_output/ → 最终分析报告输出"""
 
 
 @dataclass
