@@ -22,12 +22,14 @@ async def log_trace(
 ) -> None:
     """记录每一步的执行事件到 trace_log 表，用于链路追踪和调试"""
     now = datetime.utcnow().isoformat()
+    detail_str = _safe_detail(detail)
     async with get_db() as db:
         await db.execute(
             """
             INSERT INTO trace_log (
-                id, session_id, task_id, agent_name, step, event_type, detail, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                id, session_id, task_id, agent_name, step, event_type,
+                detail, detail_size, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(uuid.uuid4()),
@@ -36,7 +38,8 @@ async def log_trace(
                 agent_name,
                 step,
                 event_type,
-                _safe_detail(detail),
+                detail_str,
+                len(detail_str),
                 now,
             ),
         )

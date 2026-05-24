@@ -1,5 +1,4 @@
-// ── Debug: script loaded indicator ──
-console.log('[DEBUG] observability.js loaded, version: 2026-05-22-v3');
+// ── observability.js ──
 
 // ── Global error handler ──
 window.addEventListener('error', function(e) {
@@ -71,6 +70,10 @@ function evtCategory(type) {
   return EVT_CATEGORY[type] || 'system';
 }
 
+// ── Constants ──
+
+var _DETAIL_TRUNCATE_LIMIT = 1000;  // 与后端保持一致
+
 // ── State ──
 
 var _timer = null;
@@ -81,6 +84,10 @@ var _lastTraceTime = null;
 var _lastCostTime = null;
 var _prevSessionId = '';
 var _prevTaskId = '';
+
+// 轮询退避状态
+var _refreshInterval = 5000;
+var _noDataCount = 0;
 
 function updateLastTraceTime(rows) {
   var maxT = null;
@@ -137,16 +144,39 @@ function switchTab(name) {
 
 // ── Data loading router ──
 
-async function loadData() {
-  if (_isLoading || document.visibilityState !== 'visible') return;
+async function loadData(isManual) {
+  if (_isLoading || document.visibilityState !== 'visible') {
+    // 被跳过的自动刷新稍后重试
+    if (!isManual) scheduleRefresh();
+    return;
+  }
   _isLoading = true;
+
+  // 刷新按钮 loading 状态
+  var btn = document.getElementById('btnRefresh');
+  if (isManual && btn) { btn.disabled = true; btn.textContent = '刷新中…'; }
+
+  var gotNewData = false;
   try {
-    if (_activeTab === 'traces') await loadTraces();
-    else if (_activeTab === 'tokens') await loadTokens();
-    else if (_activeTab === 'cost') await loadCost();
+    if (_activeTab === 'traces') gotNewData = await loadTraces();
+    else if (_activeTab === 'tokens') gotNewData = await loadTokens();
+    else if (_activeTab === 'cost') gotNewData = await loadCost();
     document.getElementById('lastUpdated').textContent = '最后更新：' + new Date().toLocaleTimeString();
   } finally {
     _isLoading = false;
+    if (isManual && btn) { btn.disabled = false; btn.textContent = '立即刷新'; }
+  }
+
+  // 退避：无新数据 → 间隔翻倍（上限 30s），有新数据 → 重置为 5s
+  if (!isManual) {
+    if (gotNewData) {
+      _noDataCount = 0;
+      _refreshInterval = 5000;
+    } else {
+      _noDataCount++;
+      _refreshInterval = Math.min(30000, 5000 * Math.pow(2, _noDataCount));
+    }
+    scheduleRefresh();
   }
 }
 
@@ -173,24 +203,31 @@ async function loadTraces() {
     var rows = await fetch('/api/observability/traces?' + q).then(function(r) { return r.json(); });
 
     if (_lastTraceTime) {
-      // 增量模式
-      if (!rows.length) return; // 无新数据，不动 DOM
-      mergeNewTraces(rows);
-      updateLastTraceTime(rows);
+      // 增量模式：后端用 >= 会返回边界记录，前端按 id 去重
+      var newRows = [];
+      if (rows.length) {
+        var existingIds = {};
+        elContent.querySelectorAll('.obs-step-row[data-trace-id]').forEach(function(el) {
+          if (el.dataset.traceId) existingIds[el.dataset.traceId] = true;
+        });
+        newRows = rows.filter(function(r) { return !existingIds[r.id]; });
+      }
+      if (!newRows.length) return false;  // 无新数据
+      mergeNewTraces(newRows);
+      updateLastTraceTime(rows);  // 用原始 rows 更新时间戳（包含边界记录）
+      return true;
     } else {
       // 全量模式
       elEmpty.style.display = 'none';
-      if (!rows.length) { elEmpty.style.display = ''; return; }
-      var html = buildAllTracesHtml(rows);
-      console.log('[DEBUG] loadTraces: generated HTML length:', html.length);
-      console.log('[DEBUG] loadTraces: has obs-accordion:', html.indexOf('obs-accordion') !== -1);
-      console.log('[DEBUG] loadTraces: has toggleAcc:', html.indexOf('toggleAcc') !== -1);
-      elContent.innerHTML = html;
+      if (!rows.length) { elEmpty.style.display = ''; return false; }
+      elContent.innerHTML = buildAllTracesHtml(rows);
       updateLastTraceTime(rows);
+      return true;
     }
   } catch (e) {
     elError.textContent = '加载失败：' + e.message;
     elError.style.display = '';
+    return false;
   }
 }
 
@@ -202,14 +239,22 @@ async function loadTokens() {
 
   try {
     var sessions = await fetch('/api/observability/sessions?limit=200').then(function(r) { return r.json(); });
-    if (!sessions.length) { elEmpty.style.display = ''; return; }
+    if (!sessions.length) { elEmpty.style.display = ''; return false; }
+
+    // 通过比较 last_seen 判断是否有新数据
+    var prevLastSeen = _cachedSessions.length ? _cachedSessions[0].last_seen : null;
+    var newLastSeen = sessions.length ? sessions[0].last_seen : null;
+    var gotNew = prevLastSeen !== newLastSeen || _cachedSessions.length !== sessions.length;
+
     _cachedSessions = sessions;
     updateSummaryStats(sessions);
     renderSessionTable(sessions);
     populateComparisonDropdowns(sessions);
+    return gotNew;
   } catch (e) {
     elError.textContent = '加载失败：' + e.message;
     elError.style.display = '';
+    return false;
   }
 }
 
@@ -234,19 +279,27 @@ async function loadCost() {
     var rows = await fetch('/api/observability/cost?' + q).then(function(r) { return r.json(); });
 
     if (_lastCostTime) {
-      if (!rows.length) return;
-      // 新增行前插到 tbody 顶部
-      tbody.insertAdjacentHTML('afterbegin', buildCostRows(rows));
+      // 后端用 >= 会返回边界记录，按 id 去重
+      var existingIds = {};
+      tbody.querySelectorAll('tr[data-cost-id]').forEach(function(el) {
+        if (el.dataset.costId) existingIds[el.dataset.costId] = true;
+      });
+      var newRows = rows.filter(function(r) { return !existingIds[r.id]; });
+      if (!newRows.length) return false;
+      tbody.insertAdjacentHTML('afterbegin', buildCostRows(newRows));
       updateLastCostTime(rows);
+      return true;
     } else {
       elEmpty.style.display = 'none';
-      if (!rows.length) { elEmpty.style.display = ''; return; }
+      if (!rows.length) { elEmpty.style.display = ''; return false; }
       tbody.innerHTML = buildCostRows(rows);
       updateLastCostTime(rows);
+      return true;
     }
   } catch (e) {
     elError.textContent = '加载失败：' + e.message;
     elError.style.display = '';
+    return false;
   }
 }
 
@@ -428,7 +481,6 @@ function handleTraceClick(e) {
     var card = header.parentElement;
     if (!card || !card.classList.contains('obs-accordion')) return;
     card.classList.toggle('open');
-    // Visual feedback: briefly flash the header background
     header.style.transition = 'background 0.15s';
     header.style.background = '#e8f0fe';
     setTimeout(function() { header.style.background = ''; }, 300);
@@ -440,7 +492,71 @@ function handleTraceClick(e) {
   if (stepMain) {
     var row = stepMain.parentElement;
     if (!row || !row.classList.contains('obs-expandable')) return;
+
+    // 懒加载：detail 被截断的行，首次展开时从 API 获取完整数据
+    if (row.dataset.lazy === '1' && !row._fullDetailLoaded) {
+      fetchAndExpandRow(row);
+      row.classList.add('open');
+      return;
+    }
+
     row.classList.toggle('open');
+  }
+}
+
+async function fetchAndExpandRow(row) {
+  var traceId = row.dataset.traceId;
+  if (!traceId) return;
+
+  var expandInner = row.querySelector('.obs-step-expand-inner');
+  if (!expandInner) return;
+  expandInner.innerHTML = '<div style="color:#aaa;font-size:11px;">加载中…</div>';
+
+  try {
+    var data = await fetch('/api/observability/traces/' + encodeURIComponent(traceId))
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+
+    // 用完整 detail 重新解析
+    var detailObj = parseDetail(data.detail);
+    var expandHtml = '';
+
+    if (data.event_type === 'llm_request') {
+      if (detailObj.messages && detailObj.messages.length) {
+        expandHtml = buildMessagesExpand(detailObj.messages);
+      }
+    } else if (data.event_type === 'llm_response') {
+      expandHtml = buildResponseExpand(detailObj);
+    } else if (data.event_type.indexOf('tool_call') !== -1) {
+      expandHtml = buildSubToolExpand(detailObj, 'input');
+    } else if (data.event_type.indexOf('tool_result') !== -1) {
+      expandHtml = buildSubToolExpand(detailObj, 'output');
+    } else if (data.event_type.indexOf('llm_request') !== -1) {
+      expandHtml = buildSubLlmExpand(detailObj, 'messages');
+    } else if (data.event_type.indexOf('llm_response') !== -1) {
+      expandHtml = buildSubLlmExpand(detailObj, 'response');
+    }
+
+    if (expandHtml) {
+      // 从完整的 expandHtml 中提取 inner 内容替换
+      var temp = document.createElement('div');
+      temp.innerHTML = expandHtml;
+      var newInner = temp.querySelector('.obs-step-expand-inner');
+      if (newInner) {
+        expandInner.innerHTML = newInner.innerHTML;
+      }
+    } else {
+      expandInner.innerHTML = '<div style="color:#aaa;font-size:11px;">无展开内容</div>';
+    }
+
+    // 标记已加载，缓存完整数据
+    row._fullDetailLoaded = true;
+    row._fullDetail = data;
+    row.dataset.lazy = '0';
+  } catch (e) {
+    expandInner.innerHTML = '<div style="color:#c62828;font-size:11px;">加载失败：' + esc(e.message) + '</div>';
   }
 }
 
@@ -457,13 +573,17 @@ function buildStepRow(step) {
     detailText = detailObj.tool;
     if (detailObj.input) {
       var inputStr = typeof detailObj.input === 'string' ? detailObj.input : JSON.stringify(detailObj.input);
-      detailText += '(' + inputStr.slice(0, 80) + ')';
+      detailText += ' (' + inputStr.slice(0, 80) + (inputStr.length > 80 ? '...' : '') + ')';
     }
+    rowClass += ' obs-expandable';
+    expandHtml = buildSubToolExpand(detailObj, 'input');
   } else if (step.event_type === 'tool_result' && detailObj.tool) {
     detailText = detailObj.tool + ' → ' + esc(String(detailObj.output || '').slice(0, 100));
     if (detailObj.duration_ms != null) {
       hasDuration = true;
     }
+    rowClass += ' obs-expandable';
+    expandHtml = buildSubToolExpand(detailObj, 'output');
   } else if (step.event_type.indexOf('tool_call') !== -1 && detailObj.tool) {
     var subPrefix = step.event_type.replace(/tool_call.*$/, '');
     detailText = '[' + (subPrefix || 'sub_').replace(/_/g, ' ').trim() + '] ' + detailObj.tool;
@@ -546,7 +666,32 @@ function buildStepRow(step) {
     durationHtml = ' <span class="obs-step-duration">⏱ ' + detailObj.duration_ms + 'ms</span>';
   }
 
-  return '<div class="' + rowClass + '" data-trace-id="' + esc(step.id) + '">' +
+  var detailSize = step.detail_size || 0;
+  var isTruncated = detailSize > _DETAIL_TRUNCATE_LIMIT;
+
+  // detail 被截断导致 detailObj 为空 → 对可展开的事件类型强制标记 expandable
+  if (!expandHtml && isTruncated) {
+    var et = step.event_type;
+    if (et === 'llm_request' || et === 'llm_response' ||
+        et.indexOf('tool_call') !== -1 || et.indexOf('tool_result') !== -1 ||
+        et.indexOf('llm_request') !== -1 || et.indexOf('llm_response') !== -1) {
+      rowClass += ' obs-expandable';
+    }
+  }
+
+  // detail 被截断 → 标记懒加载，点击时按需获取完整数据
+  var isLazy = false;
+  if (rowClass.indexOf('obs-expandable') !== -1 && !expandHtml && isTruncated) {
+    expandHtml = '<div class="obs-step-expand"><div class="obs-step-expand-inner">' +
+      '<div style="color:#aaa;font-size:11px;padding:4px 0;">点击展开加载完整数据 (' + formatNum(detailSize) + ' chars)</div>' +
+      '</div></div>';
+    isLazy = true;
+  }
+
+  var dataSizeAttr = isLazy ? ' data-lazy="1"' : '';
+
+  return '<div class="' + rowClass + '" data-trace-id="' + esc(step.id) +
+    '" data-detail-size="' + detailSize + '"' + dataSizeAttr + '>' +
     '<div class="obs-step-main">' +
     '<span class="obs-step-num">' + stepNum + '</span>' +
     '<span class="obs-step-time">' + esc(timeStr) + '</span>' +
@@ -1000,7 +1145,7 @@ function renderBarRow(label, inTok, outTok, maxVal) {
 
 function buildCostRows(rows) {
   return rows.map(function(r) {
-    return '<tr>' +
+    return '<tr data-cost-id="' + esc(r.id) + '">' +
       '<td style="font-size:11px;">' + esc(formatFullTime(r.created_at)) + '</td>' +
       '<td style="font-family:monospace;" title="' + esc(r.session_id) + '">' + esc(shortId(r.session_id)) + '</td>' +
       '<td>' + esc(r.agent_name || '-') + '</td>' +
@@ -1018,36 +1163,55 @@ function renderCostTable(rows) {
   tbody.innerHTML = buildCostRows(rows);
 }
 
-// ── Autorefresh ──
+// ── Autorefresh（指数退避：5s → 10s → 20s → 30s cap） ──
 
-function resetTimer() {
-  if (_timer) { clearInterval(_timer); _timer = null; }
+function scheduleRefresh() {
+  if (_timer) { clearTimeout(_timer); _timer = null; }
   var auto = document.getElementById('autoRefresh').value;
   if (auto === 'on') {
-    _timer = setInterval(loadData, 5000);
+    _timer = setTimeout(function() { loadData(false); }, _refreshInterval);
   }
+}
+
+function resetBackoff() {
+  _noDataCount = 0;
+  _refreshInterval = 5000;
+}
+
+// 向后兼容：switchTab / init / autoRefresh change 都通过此函数调度
+function resetTimer() {
+  resetBackoff();
+  scheduleRefresh();
 }
 
 // ── Init ──
 
 function init() {
-  console.log('[DEBUG] init() called');
   try {
     document.querySelectorAll('.obs-tab').forEach(function(el) {
       el.addEventListener('click', function() { switchTab(this.dataset.tab); });
     });
-    document.getElementById('btnRefresh').addEventListener('click', loadData);
+    document.getElementById('btnRefresh').addEventListener('click', function() {
+      resetBackoff();
+      loadData(true);
+    });
     document.getElementById('autoRefresh').addEventListener('change', resetTimer);
-    document.getElementById('sessionId').addEventListener('change', loadData);
-    document.getElementById('taskId').addEventListener('change', loadData);
-    document.getElementById('limit').addEventListener('change', loadData);
+    document.getElementById('sessionId').addEventListener('change', function() {
+      resetBackoff(); loadData(true);
+    });
+    document.getElementById('taskId').addEventListener('change', function() {
+      resetBackoff(); loadData(true);
+    });
+    document.getElementById('limit').addEventListener('change', function() {
+      resetBackoff(); loadData(true);
+    });
     document.getElementById('traceContent').addEventListener('click', handleTraceClick);
     var selA = document.getElementById('compareSessionA');
     var selB = document.getElementById('compareSessionB');
     if (selA) selA.addEventListener('change', loadComparison);
     if (selB) selB.addEventListener('change', loadComparison);
-    resetTimer();
-    loadData();
+    resetBackoff();
+    loadData(false);  // 首次加载，同时启动自动刷新循环
   } catch (e) {
     document.getElementById('traceContent').innerHTML = '<div class="obs-error" style="display:block;">初始化失败：' + esc(e.message) + '</div>';
   }
@@ -1060,5 +1224,8 @@ if (document.readyState === 'loading') {
 }
 
 document.addEventListener('visibilitychange', function() {
-  if (document.visibilityState === 'visible') loadData();
+  if (document.visibilityState === 'visible') {
+    resetBackoff();
+    loadData(false);
+  }
 });

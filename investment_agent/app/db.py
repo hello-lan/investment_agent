@@ -2,6 +2,7 @@ import shutil
 
 import aiosqlite
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from ..config import get_settings, PROJECT_ROOT
@@ -156,11 +157,21 @@ async def init_db() -> None:
         )
         await db.commit()
 
-        # 迁移：trace_log 可能缺少 agent_name 列
+        # 迁移：trace_log 可能缺少 agent_name / detail_size 列
         cursor = await db.execute("PRAGMA table_info(trace_log)")
         columns = {row[1] for row in await cursor.fetchall()}
+        changed = False
         if "agent_name" not in columns:
             await db.execute("ALTER TABLE trace_log ADD COLUMN agent_name TEXT")
+            changed = True
+        if "detail_size" not in columns:
+            await db.execute("ALTER TABLE trace_log ADD COLUMN detail_size INTEGER DEFAULT 0")
+            # 回填已有记录的 detail_size
+            await db.execute(
+                "UPDATE trace_log SET detail_size = LENGTH(detail) WHERE detail_size IS NULL OR detail_size = 0"
+            )
+            changed = True
+        if changed:
             await db.commit()
 
         # 迁移：cost_log 可能缺少 agent_name / currency 列
@@ -191,3 +202,59 @@ async def init_db() -> None:
             changed = True
         if changed:
             await db.commit()
+
+        # 创建查询优化索引（IF NOT EXISTS 确保幂等）
+        await db.executescript("""
+            -- cost_log 索引：支持 JOIN 条件、WHERE 过滤、ORDER BY
+            CREATE INDEX IF NOT EXISTS idx_cost_session_task
+                ON cost_log(session_id, task_id);
+            CREATE INDEX IF NOT EXISTS idx_cost_created_at
+                ON cost_log(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_cost_session_created
+                ON cost_log(session_id, created_at DESC);
+
+            -- trace_log 索引：支持 JOIN 条件、WHERE 过滤、子查询、ORDER BY
+            CREATE INDEX IF NOT EXISTS idx_trace_session_task_event
+                ON trace_log(session_id, task_id, event_type);
+            CREATE INDEX IF NOT EXISTS idx_trace_created_at
+                ON trace_log(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_trace_session_created
+                ON trace_log(session_id, created_at DESC);
+        """)
+
+        # 启动时清理过期数据
+        await cleanup_old_records(db=db)
+
+
+async def cleanup_old_records(
+    trace_days: int = 30,
+    cost_days: int = 90,
+    db: aiosqlite.Connection | None = None,
+) -> dict:
+    """清理过期的 trace_log 和 cost_log 记录。
+
+    trace_log 保留 trace_days 天（默认 30），cost_log 保留 cost_days 天（默认 90）。
+    返回各表删除的行数。可在 init_db 启动时调用，也可通过 API 手动触发。
+    """
+    trace_cutoff = (datetime.utcnow() - timedelta(days=trace_days)).isoformat()
+    cost_cutoff = (datetime.utcnow() - timedelta(days=cost_days)).isoformat()
+    result = {"trace_deleted": 0, "cost_deleted": 0}
+
+    async def _do_cleanup(conn: aiosqlite.Connection):
+        cursor = await conn.execute(
+            "DELETE FROM trace_log WHERE created_at < ?", (trace_cutoff,)
+        )
+        result["trace_deleted"] = cursor.rowcount
+        cursor = await conn.execute(
+            "DELETE FROM cost_log WHERE created_at < ?", (cost_cutoff,)
+        )
+        result["cost_deleted"] = cursor.rowcount
+        await conn.commit()
+
+    if db is not None:
+        await _do_cleanup(db)
+    else:
+        async with get_db() as conn:
+            await _do_cleanup(conn)
+
+    return result
