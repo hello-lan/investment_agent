@@ -291,6 +291,17 @@ class AgentRunner:
                             trace_detail["recent_tool_calls"] = event["recent_tool_calls"]
                     elif event_type == "slow_think":
                         trace_detail = {"message": event.get("message") or event.get("content")}
+                    elif event_type == "step_start":
+                        trace_detail = {"step": event.get("step")}
+                    elif event_type == "context_trim":
+                        trace_detail = {"step": event.get("step")}
+                    elif event_type == "budget_status":
+                        trace_detail = {
+                            "total_used": event.get("total_used"),
+                            "budget": event.get("budget"),
+                            "remaining": event.get("remaining"),
+                            "delegate_id": event.get("delegate_id"),
+                        }
                     await hooks.on_event(last_step or None, event_type, trace_detail)
 
                 # 累积文本

@@ -9,7 +9,7 @@ from typing import AsyncGenerator, Callable
 
 from .models import ModelProvider, LLMResponse, ToolCall
 from ..config import SUBAGENT_SYSTEM_PROMPT
-from ..context.runtime_trimmer import RuntimeTrimmer, NoOpRuntimeTrimmer
+from ..context.runtime_trimmer import RuntimeTrimmer, NoOpRuntimeTrimmer, DefaultRuntimeTrimmer
 
 _log = logging.getLogger(__name__)
 
@@ -419,6 +419,9 @@ class AgentEngine:
         delegate_tasks = []  # [(idx, tc, asyncio.Task, result_queue, t0)]
         ordered_results = [None] * len(tool_calls)
 
+        # 统计当前 batch 中 DelegateTask 的数量，用于等分预算
+        delegate_count = sum(1 for tc in tool_calls if tc.name == "DelegateTask")
+
         # 第一遍：分离 delegate 和非 delegate
         for idx, tc in enumerate(tool_calls):
             yield {"type": "tool_call", "tool": tc.name, "input": tc.input}
@@ -444,7 +447,9 @@ class AgentEngine:
                     continue
 
                 remaining = self.token_budget - self.total_input_tokens - self.total_output_tokens
-                if remaining < 50000:
+                per_delegate_budget = max(30000, remaining // max(1, delegate_count))
+
+                if per_delegate_budget < 30000:
                     result = (
                         f"错误：剩余 token 预算不足 ({remaining}/{self.token_budget})，"
                         f"无法委派子任务"
@@ -475,7 +480,7 @@ class AgentEngine:
                 task = await self._subagent_pool.submit(
                     delegate_id,
                     self._run_subagent_task(
-                        skill_names, prompt, event_queue, delegate_id, result_queue
+                        skill_names, prompt, event_queue, delegate_id, result_queue, budget=per_delegate_budget
                     ),
                 )
                 delegate_tasks.append((idx, tc, task, result_queue, t0))
@@ -577,7 +582,10 @@ class AgentEngine:
             for name in skill_names:
                 sk = _gen_skill_registry.get(name)
                 if sk:
-                    skill_bodies.append(f"### {name}\n\n{sk.body}")
+                    body_text = sk.body
+                    if len(body_text) > 3000:
+                        body_text = body_text[:3000] + "\n...[技能说明已截断，完整内容可通过 Skill 工具加载]"
+                    skill_bodies.append(f"### {name}\n\n{body_text}")
             if skill_bodies:
                 skill_info_lines.append("## 技能完整说明\n")
                 skill_info_lines.append("\n---\n".join(skill_bodies))
@@ -624,6 +632,7 @@ class AgentEngine:
         event_queue: asyncio.Queue,
         delegate_id: str,
         result_queue: asyncio.Queue | None = None,
+        budget: int | None = None,
     ) -> None:
         """子Agent后台任务：运行隔离引擎，事件入队，完成/错误时发哨兵事件。
 
@@ -633,6 +642,7 @@ class AgentEngine:
         Args:
             result_queue: 并发模式下用于接收完成/错误信号（与 event_queue 分离）。
                          串行模式下为 None，完成/错误信号写入 event_queue。
+            budget: 子Agent的token预算。如果为None，则使用默认计算（max(50000, 父剩余)）。
         """
         from ..skills.tool import SkillTool
         from ..skills.loader import _registry as skill_registry
@@ -645,15 +655,27 @@ class AgentEngine:
 
         from ...config import PROJECT_ROOT
 
+        # 子 Agent 继承父 Agent 的裁剪配置（仅当父 Agent 启用了裁剪时）
+        if self.context_trim_interval > 0 and self._runtime_trimmer and not isinstance(self._runtime_trimmer, NoOpRuntimeTrimmer):
+            sub_trimmer = self._runtime_trimmer
+            sub_trim_interval = self.context_trim_interval
+        else:
+            sub_trimmer = DefaultRuntimeTrimmer(tool_trim_limits=self.tool_trim_limits)
+            sub_trim_interval = 5  # 子 Agent 默认每 5 步裁剪
+
+        # 使用传入的 budget 参数，否则使用默认计算
+        if budget is None:
+            budget = max(50000, self.token_budget - self.total_input_tokens - self.total_output_tokens)
+
         sub = AgentEngine(
             session_id=f"sub_{delegate_id}",
             system_prompt=SUBAGENT_SYSTEM_PROMPT.format(PROJECT_ROOT=PROJECT_ROOT),
             provider=self.provider,
             max_steps=self.max_steps,
             slow_think_interval=0,
-            token_budget=max(50000, self.token_budget - self.total_input_tokens - self.total_output_tokens),
-            context_trim_interval=0,
-            runtime_trimmer=NoOpRuntimeTrimmer(),
+            token_budget=budget,
+            context_trim_interval=sub_trim_interval,
+            runtime_trimmer=sub_trimmer,
             subagent_depth=depth,
             max_subagent_depth=self.max_subagent_depth,
             max_concurrent_subagents=self.max_concurrent_subagents,
@@ -762,12 +784,12 @@ class AgentEngine:
                 "message": str(e),
             })
             return
-
-        # 子引擎 token 计入主引擎
-        self.total_input_tokens += sub.total_input_tokens
-        self.total_output_tokens += sub.total_output_tokens
-        self.total_cache_read_tokens += sub.total_cache_read_tokens
-        self.total_cache_creation_tokens += sub.total_cache_creation_tokens
+        finally:
+            # 无论成功还是失败，都回传 token 消耗
+            self.total_input_tokens += sub.total_input_tokens
+            self.total_output_tokens += sub.total_output_tokens
+            self.total_cache_read_tokens += sub.total_cache_read_tokens
+            self.total_cache_creation_tokens += sub.total_cache_creation_tokens
 
         await signal_queue.put({
             "type": "__delegate_done__",
