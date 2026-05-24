@@ -1,13 +1,11 @@
 """AgentRunner — Agent 完整生命周期的封装入口。
 
-FastAPI 层只需引入此类，注入依赖后调用 start() / run() / save_response() / cleanup()。
+FastAPI 层只需引入此类，注入依赖后调用 start() / setup() / prepare_context() / cleanup()。
 """
 
 from __future__ import annotations
 
-import asyncio
-import uuid
-from typing import AsyncGenerator, ClassVar
+from typing import ClassVar
 
 from .config import AgentRunConfig
 from .context.manager import ContextManager, ContextResult
@@ -105,8 +103,7 @@ class AgentRunner:
     ) -> list[dict]:
         """准备上下文：加载历史消息、运行上下文管理、应用到引擎。
 
-        从 run() 中提取的前半部分，供 TaskManager 调用。
-        返回准备好的消息列表。
+        供 TaskManager 调用。返回准备好的消息列表。
         """
         engine = self._engines.get(task_id)
         if not engine:
@@ -153,224 +150,14 @@ class AgentRunner:
 
         return result.messages
 
-    async def run(
-        self,
-        task_id: str,
-        *,
-        hooks: LifecycleHooks | None = None,
-    ) -> AsyncGenerator[dict, None]:
-        """执行 Agent 循环，逐事件 yield SSE 字典。
-
-        内部处理:
-        - 从 Storage 加载历史消息
-        - 上下文预算管理（ContextManager）
-        - 调用 ExecutionLoop.run()
-        - 触发 LifecycleHooks 回调
-
-        调用方在生成器耗尽后应依次调用 save_response() 和 cleanup()。
-        """
-        engine = self._engines.get(task_id)
-        if not engine:
-            yield {"type": "error", "message": "Task not found"}
-            return
-
-        # 0. 填充 hooks 的 session_id / agent_name
-        if hooks:
-            hooks.session_id = getattr(hooks, "session_id", "") or engine.session_id
-            if self._config and hasattr(hooks, "agent_name"):
-                hooks.agent_name = hooks.agent_name or self._config.agent_name
-
-        # 1. 加载历史消息
-        messages = await self._storage.load_messages(engine.session_id)
-
-        # 2. 上下文管理
-        context_mgr = self._context or ContextManager(
-            self._config.context if self._config else {},
-            provider_type=getattr(engine.provider, "provider_type", "anthropic"),
-            model_name=getattr(engine.provider, "model", "unknown"),
-        )
-        existing_summary = await self._storage.load_summary(engine.session_id)
-
-        result = await context_mgr.prepare(
-            system_prompt=engine.system_prompt,
-            tools=engine.tools,
-            messages=messages,
-            provider=engine.provider,
-            existing_summary=existing_summary,
-        )
-        self._context_result = result
-
-        # 应用上下文管理结果
-        engine.system_prompt = result.system_prompt
-        if "tools_reduced" in result.warnings:
-            engine.tools = result.tools
-            kept_names = {t["name"] for t in result.tools}
-            for name in list(engine.tool_handlers):
-                if name not in kept_names:
-                    del engine.tool_handlers[name]
-
-        # 3. 触发 context_budget hook
-        if hooks and hasattr(hooks, "on_context_budget"):
-            await hooks.on_context_budget(result)
-
-        # 4. 执行循环
-        assistant_content = ""
-        last_step = 0
-        cost_logged = False
-
-        try:
-            async for event in engine.run(result.messages):
-                event_type = event.get("type", "unknown")
-                step = event.get("step")
-                if isinstance(step, int):
-                    last_step = step
-
-                # 每个事件触发 trace hook
-                if hooks and hasattr(hooks, "on_event"):
-                    trace_detail: dict | None = None
-                    if event_type == "llm_request":
-                        trace_detail = {"messages": event.get("messages")}
-                    elif event_type == "llm_response":
-                        trace_detail = {
-                            "input_tokens": event.get("input_tokens"),
-                            "output_tokens": event.get("output_tokens"),
-                            "cache_read_tokens": event.get("cache_read_tokens"),
-                            "cache_creation_tokens": event.get("cache_creation_tokens"),
-                            "content": event.get("content"),
-                            "reasoning": event.get("reasoning"),
-                            "tool_calls": event.get("tool_calls"),
-                        }
-                    elif event_type == "tool_call":
-                        trace_detail = {"tool": event.get("tool"), "input": event.get("input")}
-                    elif event_type == "tool_result":
-                        trace_detail = {
-                            "tool": event.get("tool"),
-                            "output": str(event.get("output", ""))[:500],
-                            "duration_ms": event.get("duration_ms"),
-                        }
-                    elif event_type.startswith("sub_") and "tool_call" in event_type:
-                        trace_detail = {
-                            "delegate_id": event.get("delegate_id"),
-                            "depth": event.get("depth"),
-                            "tool": event.get("tool"),
-                            "input": event.get("input"),
-                        }
-                    elif event_type.startswith("sub_") and "tool_result" in event_type:
-                        trace_detail = {
-                            "delegate_id": event.get("delegate_id"),
-                            "depth": event.get("depth"),
-                            "tool": event.get("tool"),
-                            "output": str(event.get("output", ""))[:500],
-                            "duration_ms": event.get("duration_ms"),
-                        }
-                    elif event_type.startswith("sub_") and "llm_request" in event_type:
-                        trace_detail = {
-                            "delegate_id": event.get("delegate_id"),
-                            "depth": event.get("depth"),
-                            "step": event.get("step"),
-                            "messages": event.get("messages"),
-                        }
-                    elif event_type.startswith("sub_") and "llm_response" in event_type:
-                        trace_detail = {
-                            "delegate_id": event.get("delegate_id"),
-                            "depth": event.get("depth"),
-                            "step": event.get("step"),
-                            "input_tokens": event.get("input_tokens"),
-                            "output_tokens": event.get("output_tokens"),
-                            "cache_read_tokens": event.get("cache_read_tokens"),
-                            "cache_creation_tokens": event.get("cache_creation_tokens"),
-                            "content": event.get("content"),
-                            "reasoning": event.get("reasoning"),
-                            "tool_calls": event.get("tool_calls"),
-                        }
-                    elif event_type == "done":
-                        trace_detail = {"usage": event.get("usage")}
-                    elif event_type == "error":
-                        trace_detail = {"message": event.get("message")}
-                        if event.get("recent_tool_calls"):
-                            trace_detail["recent_tool_calls"] = event["recent_tool_calls"]
-                    elif event_type == "slow_think":
-                        trace_detail = {"message": event.get("message") or event.get("content")}
-                    elif event_type == "step_start":
-                        trace_detail = {"step": event.get("step")}
-                    elif event_type == "context_trim":
-                        trace_detail = {"step": event.get("step")}
-                    elif event_type == "budget_status":
-                        trace_detail = {
-                            "total_used": event.get("total_used"),
-                            "budget": event.get("budget"),
-                            "remaining": event.get("remaining"),
-                            "delegate_id": event.get("delegate_id"),
-                        }
-                    await hooks.on_event(last_step or None, event_type, trace_detail)
-
-                # 累积文本
-                if event_type == "text_delta":
-                    assistant_content += event["content"]
-
-                # 终端事件 → cost + cache hooks
-                elif event_type in ("done", "error", "interrupted") and not cost_logged:
-                    usage = event.get("usage", {})
-                    input_tokens = usage.get("input_tokens", engine.total_input_tokens)
-                    output_tokens = usage.get("output_tokens", engine.total_output_tokens)
-                    if hooks and hasattr(hooks, "on_cost"):
-                        input_price = getattr(engine.provider, "_input_price", None)
-                        output_price = getattr(engine.provider, "_output_price", None)
-                        currency = getattr(engine.provider, "_currency", "USD")
-                        await hooks.on_cost(
-                            getattr(engine.provider, "model", "unknown"),
-                            input_tokens, output_tokens,
-                            input_price=input_price, output_price=output_price,
-                            currency=currency,
-                        )
-                    if hooks and hasattr(hooks, "on_cache_metrics"):
-                        if engine.total_cache_read_tokens or engine.total_cache_creation_tokens:
-                            await hooks.on_cache_metrics(
-                                last_step or None,
-                                engine.total_cache_read_tokens,
-                                engine.total_cache_creation_tokens,
-                            )
-                    cost_logged = True
-
-                yield event
-
-        finally:
-            self._assistant_content = assistant_content
-
-    async def save_response(self) -> str:
-        """持久化 assistant 回复和摘要到 DB。必须在 run() 完成后调用。"""
-        engine = None
-        # 找到任一活跃引擎获取 session_id（通常只有一个）
-        for eng in self._engines.values():
-            engine = eng
-            break
-
-        if not engine:
-            return ""
-
-        session_id = engine.session_id
-        msg_id = ""
-
-        if self._assistant_content:
-            msg_id = await self._storage.save_assistant_message(
-                session_id, self._assistant_content,
-            )
-
-        # 保存摘要
-        result = self._context_result
-        if result and result.did_summarize and result.new_summary:
-            await self._storage.save_summary(
-                session_id=session_id,
-                summary=result.new_summary,
-                through_message_id=msg_id or "",
-                token_count=result.summary_tokens,
-            )
-
-        return msg_id
-
     def cleanup(self, task_id: str) -> None:
         """移除引擎，释放内存。"""
         self._engines.pop(task_id, None)
+
+    @classmethod
+    def get_engine(cls, task_id: str) -> AgentEngine | None:
+        """获取指定任务的引擎实例。"""
+        return cls._engines.get(task_id)
 
     @classmethod
     def interrupt(cls, task_id: str) -> bool:
@@ -417,8 +204,3 @@ class AgentRunner:
                 if skill:
                     engine.register_skill(skill)
         return engine
-
-    @classmethod
-    def _get_session_id(cls, task_id: str) -> str | None:
-        engine = cls._engines.get(task_id)
-        return engine.session_id if engine else None

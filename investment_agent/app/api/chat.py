@@ -106,7 +106,7 @@ async def start_chat(request: Request):
 
     # 在后台启动任务执行（与 SSE 连接解耦）
     # await 确保 DB 状态更新（status='running'）在响应返回前完成
-    engine = AgentRunner._engines[task_id]
+    engine = AgentRunner.get_engine(task_id)
     await task_manager.start_task(task_id, engine, runner, config, session_id)
 
     return {"task_id": task_id, "session_id": session_id}
@@ -151,7 +151,7 @@ async def retry_chat(body: RetryRequest):
     task_id, session_id = await runner.setup(session_id, config)
 
     # 在后台启动任务执行
-    engine = AgentRunner._engines[task_id]
+    engine = AgentRunner.get_engine(task_id)
     await task_manager.start_task(task_id, engine, runner, config, session_id)
 
     return {"task_id": task_id, "session_id": session_id}

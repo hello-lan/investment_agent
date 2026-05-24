@@ -14,6 +14,7 @@ from typing import Any, AsyncGenerator
 
 from ..agent.runner import AgentRunner
 from ..agent.core.engine import AgentEngine
+from ..agent.core.events import build_trace_detail
 from .observability.hooks_impl import ObservabilityHooks
 
 logger = logging.getLogger(__name__)
@@ -232,76 +233,8 @@ class TaskManager:
     async def _fire_event_hook(
         self, hooks: ObservabilityHooks, step: int, event_type: str, event: dict,
     ) -> None:
-        """触发 on_event hook（与原 runner.run() 逻辑一致）。"""
-        trace_detail: dict | None = None
-        if event_type == "llm_request":
-            trace_detail = {"messages": event.get("messages")}
-        elif event_type == "llm_response":
-            trace_detail = {
-                "input_tokens": event.get("input_tokens"),
-                "output_tokens": event.get("output_tokens"),
-                "cache_read_tokens": event.get("cache_read_tokens"),
-                "cache_creation_tokens": event.get("cache_creation_tokens"),
-                "content": event.get("content"),
-                "reasoning": event.get("reasoning"),
-                "tool_calls": event.get("tool_calls"),
-            }
-        elif event_type == "tool_call":
-            trace_detail = {"tool": event.get("tool"), "input": event.get("input")}
-        elif event_type == "tool_result":
-            trace_detail = {
-                "tool": event.get("tool"),
-                "output": str(event.get("output", ""))[:500],
-                "duration_ms": event.get("duration_ms"),
-            }
-        elif event_type.startswith("sub_") and "tool_call" in event_type:
-            trace_detail = {
-                "delegate_id": event.get("delegate_id"),
-                "depth": event.get("depth"),
-                "agent_type": event.get("agent_type"),
-                "tool": event.get("tool"),
-                "input": event.get("input"),
-            }
-        elif event_type.startswith("sub_") and "tool_result" in event_type:
-            trace_detail = {
-                "delegate_id": event.get("delegate_id"),
-                "depth": event.get("depth"),
-                "agent_type": event.get("agent_type"),
-                "tool": event.get("tool"),
-                "output": str(event.get("output", ""))[:500],
-                "duration_ms": event.get("duration_ms"),
-            }
-        elif event_type.startswith("sub_") and "llm_request" in event_type:
-            trace_detail = {
-                "delegate_id": event.get("delegate_id"),
-                "depth": event.get("depth"),
-                "agent_type": event.get("agent_type"),
-                "step": event.get("step"),
-                "messages": event.get("messages"),
-            }
-        elif event_type.startswith("sub_") and "llm_response" in event_type:
-            trace_detail = {
-                "delegate_id": event.get("delegate_id"),
-                "depth": event.get("depth"),
-                "agent_type": event.get("agent_type"),
-                "step": event.get("step"),
-                "input_tokens": event.get("input_tokens"),
-                "output_tokens": event.get("output_tokens"),
-                "cache_read_tokens": event.get("cache_read_tokens"),
-                "cache_creation_tokens": event.get("cache_creation_tokens"),
-                "content": event.get("content"),
-                "reasoning": event.get("reasoning"),
-                "tool_calls": event.get("tool_calls"),
-            }
-        elif event_type == "done":
-            trace_detail = {"usage": event.get("usage")}
-        elif event_type == "error":
-            trace_detail = {"message": event.get("message")}
-            if event.get("recent_tool_calls"):
-                trace_detail["recent_tool_calls"] = event["recent_tool_calls"]
-        elif event_type == "slow_think":
-            trace_detail = {"message": event.get("message") or event.get("content")}
-
+        """触发 on_event hook。"""
+        trace_detail = build_trace_detail(event_type, event)
         try:
             await hooks.on_event(step or None, event_type, trace_detail)
         except Exception:
