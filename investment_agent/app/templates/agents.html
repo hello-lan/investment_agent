@@ -271,8 +271,9 @@
             <select id="agentSubAgentMode">
               <option value="serial">串行（默认）</option>
               <option value="concurrent">并发</option>
+              <option value="clone">分身（共享预算）</option>
             </select>
-            <div class="hint">串行：多个 DelegateTask 逐个执行；并发：同时启动多个子Agent（受并发数限制）</div>
+            <div class="hint">串行：逐个执行，各自独立预算；并发：同时启动多个子Agent；分身：逐个执行但共享父Agent的 token 预算，适合多步骤流水线</div>
           </div>
           <div class="form-row-2col">
             <div class="form-row">

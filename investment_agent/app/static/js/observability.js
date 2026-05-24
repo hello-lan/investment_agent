@@ -45,6 +45,18 @@ function parseDetail(d) {
   try { return JSON.parse(d); } catch (e) { return {}; }
 }
 
+function agentTypeBadge(type) {
+  if (!type) return '';
+  var colors = {
+    clone: 'background:#fef3c7;color:#92400e;',
+    serial: 'background:#dbeafe;color:#1e40af;',
+    concurrent: 'background:#e0e7ff;color:#3730a3;',
+  };
+  var style = colors[type] || 'background:#f3f4f6;color:#374151;';
+  var label = { clone: '分身', serial: '串行', concurrent: '并发' };
+  return '<span class="obs-agent-type" style="' + style + '">' + esc(label[type] || type) + '</span>';
+}
+
 // ── Event type → badge class ──
 
 var EVT_CATEGORY = {
@@ -460,6 +472,7 @@ function buildStepRow(step) {
       detailText += ' (' + subInputStr.slice(0, 80) + (subInputStr.length > 80 ? '...' : '') + ')';
     }
     if (detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
+    if (detailObj.agent_type) detailText += ' ' + agentTypeBadge(detailObj.agent_type);
     rowClass += ' obs-expandable';
     expandHtml = buildSubToolExpand(detailObj, 'input');
   } else if (step.event_type.indexOf('tool_result') !== -1 && detailObj.tool) {
@@ -469,6 +482,7 @@ function buildStepRow(step) {
       hasDuration = true;
     }
     if (detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
+    if (detailObj.agent_type) detailText += ' ' + agentTypeBadge(detailObj.agent_type);
     rowClass += ' obs-expandable';
     expandHtml = buildSubToolExpand(detailObj, 'output');
   } else if (step.event_type === 'cache_metrics') {
@@ -501,6 +515,7 @@ function buildStepRow(step) {
     var subPrefix3 = step.event_type.replace(/llm_request.*$/, '');
     detailText = '[' + (subPrefix3 || 'sub_').replace(/_/g, ' ').trim() + '] 📤 → ' + msgCount + ' 条消息';
     if (detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
+    if (detailObj.agent_type) detailText += ' ' + agentTypeBadge(detailObj.agent_type);
     if (msgCount > 0) {
       rowClass += ' obs-expandable';
       expandHtml = buildSubLlmExpand(detailObj, 'messages');
@@ -511,6 +526,7 @@ function buildStepRow(step) {
     if (detailObj.cache_read_tokens) detailText += ' / cache读 ' + formatNum(detailObj.cache_read_tokens);
     if (detailObj.cache_creation_tokens) detailText += ' / cache写 ' + formatNum(detailObj.cache_creation_tokens);
     if (detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
+    if (detailObj.agent_type) detailText += ' ' + agentTypeBadge(detailObj.agent_type);
     if (detailObj.tool_calls && detailObj.tool_calls.length) {
       detailText += ' / 调用 ' + detailObj.tool_calls.map(function(tc) { return tc.name; }).join(', ');
     }
@@ -606,6 +622,12 @@ function buildSubToolExpand(detailObj, mode) {
       '<pre class="obs-msg-content">' + esc(detailObj.delegate_id) + '</pre>' +
       '</div>';
   }
+  if (detailObj.agent_type) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">agent_type</div>' +
+      '<pre class="obs-msg-content">' + agentTypeBadge(detailObj.agent_type) + ' ' + esc(detailObj.agent_type) + '</pre>' +
+      '</div>';
+  }
   if (detailObj.depth != null) {
     html += '<div class="obs-rsp-section">' +
       '<div class="obs-rsp-label">depth</div>' +
@@ -635,6 +657,12 @@ function buildSubLlmExpand(detailObj, mode) {
     html += '<div class="obs-rsp-section">' +
       '<div class="obs-rsp-label">delegate_id</div>' +
       '<pre class="obs-msg-content">' + esc(detailObj.delegate_id) + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.agent_type) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">agent_type</div>' +
+      '<pre class="obs-msg-content">' + agentTypeBadge(detailObj.agent_type) + ' ' + esc(detailObj.agent_type) + '</pre>' +
       '</div>';
   }
   if (detailObj.depth != null) {

@@ -293,8 +293,15 @@ class AgentEngine:
                 break
 
             # —— 执行工具 ——
-            # Phase 2: 并发模式下，如果包含 DelegateTask，走并发路径
-            if self.sub_agent_mode == "concurrent" and any(
+            # 分身模式强制串行；并发模式下包含 DelegateTask 时走并发路径
+            if self.sub_agent_mode == "clone":
+                tool_results = []
+                async for event in self._execute_tools_serial(response.tool_calls):
+                    if event.get("_internal_result"):
+                        tool_results = event["_internal_result"]
+                    else:
+                        yield event
+            elif self.sub_agent_mode == "concurrent" and any(
                 tc.name == "DelegateTask" for tc in response.tool_calls
             ):
                 tool_results = []
@@ -346,6 +353,34 @@ class AgentEngine:
                         f"错误：已达到最大委派深度 {self.max_subagent_depth}，"
                         f"无法创建子Agent"
                     )
+                elif self.sub_agent_mode == "clone":
+                    # ── 分身模式：共享预算的轻量隔离引擎 ──
+                    remaining = self.token_budget - self.total_input_tokens - self.total_output_tokens
+                    if remaining < 30000:
+                        result = (
+                            f"错误：剩余 token 预算不足 ({remaining}/{self.token_budget})，"
+                            f"无法分身执行子任务"
+                        )
+                    else:
+                        raw_skill_names = tc.input.get("skill_names", []) or []
+                        task_desc = tc.input.get("task", "")
+                        from ..skills.loader import _registry as skill_registry
+                        skill_names = [
+                            n for n in raw_skill_names
+                            if skill_registry.get(n) and skill_registry[n].skill_type != "orch"
+                        ]
+                        prompt = await self._generate_task_instruction(task_desc, skill_names)
+                        delegate_id = f"delegate_{uuid.uuid4().hex[:8]}"
+                        result = ""
+                        async for event in self._run_clone_task(
+                            skill_names, prompt, delegate_id
+                        ):
+                            if event["type"] == "__clone_done__":
+                                result = event["result"]
+                            elif event["type"] == "__clone_error__":
+                                result = f"子任务执行错误: {event['message']}"
+                            else:
+                                yield event
                 else:
                     remaining = self.token_budget - self.total_input_tokens - self.total_output_tokens
                     if remaining < 50000:
@@ -716,6 +751,7 @@ class AgentEngine:
                         "type": f"{prefix}text_delta",
                         "delegate_id": delegate_id,
                         "depth": depth,
+                        "agent_type": "serial",
                         "content": event["content"],
                     })
                 elif event_type in ("tool_call", "tool_result"):
@@ -730,6 +766,7 @@ class AgentEngine:
                         "type": forwarded_type,
                         "delegate_id": event.get("delegate_id", delegate_id),
                         "depth": event.get("depth", depth),
+                        "agent_type": "serial",
                         "tool": event.get("tool", ""),
                         "duration_ms": event.get("duration_ms", 0),
                     }
@@ -748,6 +785,7 @@ class AgentEngine:
                         "type": forwarded_type,
                         "delegate_id": event.get("delegate_id", delegate_id),
                         "depth": event.get("depth", depth),
+                        "agent_type": "serial",
                         "step": event.get("step"),
                     }
                     if event_type == "llm_request":
@@ -796,6 +834,159 @@ class AgentEngine:
             "delegate_id": delegate_id,
             "result": result_text.strip() or "(子任务完成，无文本输出)",
         })
+
+    async def _run_clone_task(
+        self,
+        skill_names: list[str],
+        prompt: str,
+        delegate_id: str,
+    ) -> AsyncGenerator[dict, None]:
+        """分身执行委派任务：共享 token 预算的轻量隔离引擎。
+
+        与 _run_subagent_task 的区别：
+        - 共享父 Agent 的 token_budget（不创建独立预算）
+        - 继承父 Agent 的上下文裁剪配置
+        - 共享父 Agent 的中断信号
+        - 直接 yield 事件（不走 queue）
+        - Token 消耗在执行后显式回写（Python int 是值拷贝）
+        """
+        from ..skills.tool import SkillTool
+        from ..skills.loader import _registry as skill_registry
+        from ..tools.run_command import RunCommandTool
+        from ..tools.registry import get_tool
+        from ...config import PROJECT_ROOT
+
+        depth = self.subagent_depth + 1
+
+        # ── 创建分身引擎 ──
+        clone = AgentEngine(
+            session_id=f"clone_{delegate_id}",
+            system_prompt=SUBAGENT_SYSTEM_PROMPT.format(PROJECT_ROOT=PROJECT_ROOT),
+            provider=self.provider,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            max_steps=self.max_steps,
+            slow_think_interval=0,
+            token_budget=self.token_budget,
+            loop_detection_threshold=self.loop_threshold,
+            context_trim_interval=self.context_trim_interval if self.context_trim_interval > 0 else 5,
+            runtime_trimmer=(
+                self._runtime_trimmer
+                if self._runtime_trimmer and not isinstance(self._runtime_trimmer, NoOpRuntimeTrimmer)
+                else DefaultRuntimeTrimmer(tool_trim_limits=self.tool_trim_limits)
+            ),
+            subagent_depth=depth,
+            max_subagent_depth=self.max_subagent_depth,
+            max_concurrent_subagents=self.max_concurrent_subagents,
+            sub_agent_mode="serial",
+        )
+
+        # 共享中断信号
+        clone._interrupt = self._interrupt
+
+        # 注册工具
+        run_tool = RunCommandTool()
+        clone.register_tool(run_tool.schema, run_tool.run)
+        skill_tool = SkillTool()
+        clone.register_tool(skill_tool.schema, skill_tool.run)
+        if depth < self.max_subagent_depth:
+            delegate_tool = get_tool("DelegateTask")
+            if delegate_tool:
+                clone.register_tool(delegate_tool.schema, delegate_tool.run)
+        for name in skill_names:
+            skill = skill_registry.get(name)
+            if skill:
+                clone.register_skill(skill)
+
+        # 构造初始消息
+        clone_messages: list[dict] = [
+            {"role": "user", "content": prompt},
+        ]
+
+        # 事件前缀：与 _run_subagent_task 保持一致
+        prefix = "sub_" * depth
+
+        # ── 执行 ──
+        result_text = ""
+        try:
+            async for event in clone.run(clone_messages):
+                event_type = event["type"]
+                if event_type == "text_delta":
+                    result_text += event["content"]
+                    yield {
+                        "type": f"{prefix}text_delta",
+                        "delegate_id": delegate_id,
+                        "depth": depth,
+                        "agent_type": "clone",
+                        "content": event["content"],
+                    }
+                elif event_type in ("tool_call", "tool_result"):
+                    forwarded_type = f"{prefix}{event_type}"
+                    forwarded = {
+                        "type": forwarded_type,
+                        "delegate_id": delegate_id,
+                        "depth": depth,
+                        "agent_type": "clone",
+                        "tool": event.get("tool", ""),
+                        "duration_ms": event.get("duration_ms", 0),
+                    }
+                    if "input" in event:
+                        forwarded["input"] = str(event["input"])
+                    if "output" in event:
+                        forwarded["output"] = str(event["output"])
+                    yield forwarded
+                elif event_type in ("llm_request", "llm_response"):
+                    forwarded_type = f"{prefix}{event_type}"
+                    forwarded = {
+                        "type": forwarded_type,
+                        "delegate_id": delegate_id,
+                        "depth": depth,
+                        "agent_type": "clone",
+                        "step": event.get("step"),
+                    }
+                    if event_type == "llm_request":
+                        forwarded["messages"] = event.get("messages")
+                    else:
+                        forwarded["input_tokens"] = event.get("input_tokens")
+                        forwarded["output_tokens"] = event.get("output_tokens")
+                        forwarded["cache_read_tokens"] = event.get("cache_read_tokens")
+                        forwarded["cache_creation_tokens"] = event.get("cache_creation_tokens")
+                        forwarded["content"] = event.get("content")
+                        forwarded["reasoning"] = event.get("reasoning")
+                        forwarded["tool_calls"] = event.get("tool_calls")
+                    yield forwarded
+                elif event_type == "done":
+                    break
+                elif event_type == "error":
+                    self._sync_tokens_from(clone)
+                    yield {"type": "__clone_error__", "message": event["message"]}
+                    return
+                elif event_type.startswith("sub_"):
+                    forwarded = dict(event)
+                    forwarded["type"] = f"sub_{event_type}"
+                    forwarded["depth"] = event.get("depth", depth)
+                    forwarded["delegate_id"] = event.get("delegate_id", delegate_id)
+                    forwarded.setdefault("agent_type", "clone")
+                    yield forwarded
+        except Exception as e:
+            self._sync_tokens_from(clone)
+            yield {"type": "__clone_error__", "message": str(e)}
+            return
+
+        # ── 回写 token 计数器 ──
+        self._sync_tokens_from(clone)
+
+        yield {
+            "type": "__clone_done__",
+            "result": result_text.strip() or "(分身任务完成，无文本输出)",
+        }
+
+    def _sync_tokens_from(self, other: "AgentEngine") -> None:
+        """从另一个引擎同步 token 计数器（用于分身模式）。"""
+        self.total_input_tokens = other.total_input_tokens
+        self.total_output_tokens = other.total_output_tokens
+        self.total_cache_read_tokens = other.total_cache_read_tokens
+        self.total_cache_creation_tokens = other.total_cache_creation_tokens
 
     @staticmethod
     def _extract_text_from_content(content) -> str:

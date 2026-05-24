@@ -134,6 +134,11 @@
 .obs-evt-engine{ background: #fff7ed; color: #ea580c; }
 .obs-evt-system{ background: #f0fdf4; color: #16a34a; }
 
+.obs-agent-type {
+  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px;
+  font-weight: 500; white-space: nowrap; vertical-align: middle;
+}
+
 .obs-step-detail {
   flex: 1; margin-left: 10px; font-size: 11px; color: #666;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

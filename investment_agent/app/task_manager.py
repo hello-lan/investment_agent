@@ -258,6 +258,7 @@ class TaskManager:
             trace_detail = {
                 "delegate_id": event.get("delegate_id"),
                 "depth": event.get("depth"),
+                "agent_type": event.get("agent_type"),
                 "tool": event.get("tool"),
                 "input": event.get("input"),
             }
@@ -265,6 +266,7 @@ class TaskManager:
             trace_detail = {
                 "delegate_id": event.get("delegate_id"),
                 "depth": event.get("depth"),
+                "agent_type": event.get("agent_type"),
                 "tool": event.get("tool"),
                 "output": str(event.get("output", ""))[:500],
                 "duration_ms": event.get("duration_ms"),
@@ -273,6 +275,7 @@ class TaskManager:
             trace_detail = {
                 "delegate_id": event.get("delegate_id"),
                 "depth": event.get("depth"),
+                "agent_type": event.get("agent_type"),
                 "step": event.get("step"),
                 "messages": event.get("messages"),
             }
@@ -280,6 +283,7 @@ class TaskManager:
             trace_detail = {
                 "delegate_id": event.get("delegate_id"),
                 "depth": event.get("depth"),
+                "agent_type": event.get("agent_type"),
                 "step": event.get("step"),
                 "input_tokens": event.get("input_tokens"),
                 "output_tokens": event.get("output_tokens"),
