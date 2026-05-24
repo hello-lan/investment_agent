@@ -263,6 +263,26 @@ class AgentRunner:
                             "output": str(event.get("output", ""))[:500],
                             "duration_ms": event.get("duration_ms"),
                         }
+                    elif event_type.startswith("sub_") and "llm_request" in event_type:
+                        trace_detail = {
+                            "delegate_id": event.get("delegate_id"),
+                            "depth": event.get("depth"),
+                            "step": event.get("step"),
+                            "messages": event.get("messages"),
+                        }
+                    elif event_type.startswith("sub_") and "llm_response" in event_type:
+                        trace_detail = {
+                            "delegate_id": event.get("delegate_id"),
+                            "depth": event.get("depth"),
+                            "step": event.get("step"),
+                            "input_tokens": event.get("input_tokens"),
+                            "output_tokens": event.get("output_tokens"),
+                            "cache_read_tokens": event.get("cache_read_tokens"),
+                            "cache_creation_tokens": event.get("cache_creation_tokens"),
+                            "content": event.get("content"),
+                            "reasoning": event.get("reasoning"),
+                            "tool_calls": event.get("tool_calls"),
+                        }
                     elif event_type == "done":
                         trace_detail = {"usage": event.get("usage")}
                     elif event_type == "error":

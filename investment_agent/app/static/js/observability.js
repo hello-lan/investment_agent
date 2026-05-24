@@ -452,6 +452,25 @@ function buildStepRow(step) {
     if (detailObj.duration_ms != null) {
       hasDuration = true;
     }
+  } else if (step.event_type.indexOf('tool_call') !== -1 && detailObj.tool) {
+    var subPrefix = step.event_type.replace(/tool_call.*$/, '');
+    detailText = '[' + (subPrefix || 'sub_').replace(/_/g, ' ').trim() + '] ' + detailObj.tool;
+    if (detailObj.input) {
+      var subInputStr = typeof detailObj.input === 'string' ? detailObj.input : JSON.stringify(detailObj.input);
+      detailText += ' (' + subInputStr.slice(0, 80) + (subInputStr.length > 80 ? '...' : '') + ')';
+    }
+    if (detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
+    rowClass += ' obs-expandable';
+    expandHtml = buildSubToolExpand(detailObj, 'input');
+  } else if (step.event_type.indexOf('tool_result') !== -1 && detailObj.tool) {
+    var subPrefix2 = step.event_type.replace(/tool_result.*$/, '');
+    detailText = '[' + (subPrefix2 || 'sub_').replace(/_/g, ' ').trim() + '] ' + detailObj.tool + ' → ' + esc(String(detailObj.output || '').slice(0, 100));
+    if (detailObj.duration_ms != null) {
+      hasDuration = true;
+    }
+    if (detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
+    rowClass += ' obs-expandable';
+    expandHtml = buildSubToolExpand(detailObj, 'output');
   } else if (step.event_type === 'cache_metrics') {
     detailText = 'cache_read: ' + (detailObj.cache_read_tokens || 0) + ' / cache_creation: ' + (detailObj.cache_creation_tokens || 0);
   } else if (step.event_type === 'done' && detailObj.usage) {
@@ -477,6 +496,26 @@ function buildStepRow(step) {
       rowClass += ' obs-expandable';
       expandHtml = buildResponseExpand(detailObj);
     }
+  } else if (step.event_type.indexOf('llm_request') !== -1) {
+    var msgCount = detailObj.messages ? detailObj.messages.length : 0;
+    var subPrefix3 = step.event_type.replace(/llm_request.*$/, '');
+    detailText = '[' + (subPrefix3 || 'sub_').replace(/_/g, ' ').trim() + '] 📤 → ' + msgCount + ' 条消息';
+    if (detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
+    if (msgCount > 0) {
+      rowClass += ' obs-expandable';
+      expandHtml = buildSubLlmExpand(detailObj, 'messages');
+    }
+  } else if (step.event_type.indexOf('llm_response') !== -1) {
+    var subPrefix4 = step.event_type.replace(/llm_response.*$/, '');
+    detailText = '[' + (subPrefix4 || 'sub_').replace(/_/g, ' ').trim() + '] 📥 ← 输入 ' + formatNum(detailObj.input_tokens) + ' / 输出 ' + formatNum(detailObj.output_tokens);
+    if (detailObj.cache_read_tokens) detailText += ' / cache读 ' + formatNum(detailObj.cache_read_tokens);
+    if (detailObj.cache_creation_tokens) detailText += ' / cache写 ' + formatNum(detailObj.cache_creation_tokens);
+    if (detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
+    if (detailObj.tool_calls && detailObj.tool_calls.length) {
+      detailText += ' / 调用 ' + detailObj.tool_calls.map(function(tc) { return tc.name; }).join(', ');
+    }
+    rowClass += ' obs-expandable';
+    expandHtml = buildSubLlmExpand(detailObj, 'response');
   } else {
     detailText = esc(String(step.detail || '').slice(0, 120));
   }
@@ -554,6 +593,87 @@ function buildResponseExpand(detailObj) {
       '<div class="obs-rsp-label">tool_calls</div>' +
       '<pre class="obs-msg-content">' + esc(JSON.stringify(detailObj.tool_calls, null, 2)) + '</pre>' +
       '</div>';
+  }
+  html += '</div></div>';
+  return html;
+}
+
+function buildSubToolExpand(detailObj, mode) {
+  var html = '<div class="obs-step-expand"><div class="obs-step-expand-inner">';
+  if (detailObj.delegate_id) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">delegate_id</div>' +
+      '<pre class="obs-msg-content">' + esc(detailObj.delegate_id) + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.depth != null) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">depth</div>' +
+      '<pre class="obs-msg-content">' + detailObj.depth + '</pre>' +
+      '</div>';
+  }
+  if (mode === 'input' && detailObj.input) {
+    var inputStr = typeof detailObj.input === 'string' ? detailObj.input : JSON.stringify(detailObj.input, null, 2);
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">input</div>' +
+      '<pre class="obs-msg-content">' + esc(inputStr) + '</pre>' +
+      '</div>';
+  }
+  if (mode === 'output' && detailObj.output != null) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">output</div>' +
+      '<pre class="obs-msg-content">' + esc(String(detailObj.output)) + '</pre>' +
+      '</div>';
+  }
+  html += '</div></div>';
+  return html;
+}
+
+function buildSubLlmExpand(detailObj, mode) {
+  var html = '<div class="obs-step-expand"><div class="obs-step-expand-inner">';
+  if (detailObj.delegate_id) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">delegate_id</div>' +
+      '<pre class="obs-msg-content">' + esc(detailObj.delegate_id) + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.depth != null) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">depth</div>' +
+      '<pre class="obs-msg-content">' + detailObj.depth + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.step != null) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">step</div>' +
+      '<pre class="obs-msg-content">' + detailObj.step + '</pre>' +
+      '</div>';
+  }
+  if (mode === 'messages' && detailObj.messages && detailObj.messages.length) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">messages (' + detailObj.messages.length + ')</div>' +
+      '<pre class="obs-msg-content">' + esc(JSON.stringify(detailObj.messages, null, 2)) + '</pre>' +
+      '</div>';
+  }
+  if (mode === 'response') {
+    if (detailObj.content) {
+      html += '<div class="obs-rsp-section">' +
+        '<div class="obs-rsp-label">content</div>' +
+        '<pre class="obs-msg-content">' + esc(detailObj.content) + '</pre>' +
+        '</div>';
+    }
+    if (detailObj.reasoning) {
+      html += '<div class="obs-rsp-section">' +
+        '<div class="obs-rsp-label">reasoning</div>' +
+        '<pre class="obs-msg-content">' + esc(detailObj.reasoning) + '</pre>' +
+        '</div>';
+    }
+    if (detailObj.tool_calls && detailObj.tool_calls.length) {
+      html += '<div class="obs-rsp-section">' +
+        '<div class="obs-rsp-label">tool_calls</div>' +
+        '<pre class="obs-msg-content">' + esc(JSON.stringify(detailObj.tool_calls, null, 2)) + '</pre>' +
+        '</div>';
+    }
   }
   html += '</div></div>';
   return html;

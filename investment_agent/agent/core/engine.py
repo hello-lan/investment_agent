@@ -133,7 +133,12 @@ class AgentEngine:
             prompt
             + "\n\n---\n\n# 可用技能\n\n"
             + "\n".join(lines)
-            + "\n\n> 使用 Skill 工具加载技能完整说明后再执行。"
+            + "\n\n> 使用 Skill 工具加载技能完整说明后再执行。\n\n"
+            "## 子任务委派策略\n"
+            "加载技能说明后，分析其工作流程是否包含互不依赖的子阶段。若技能明确分为多个独立分析维度"
+            "应使用 DelegateTask 将各维度委派给子Agent并行执行。"
+            "父Agent保留全局判断（交叉验证、综合定级），子Agent返回结果后汇总整合。"
+            "简单场景（如仅查单一指标）直接执行，无需委派。"
         )
 
     @system_prompt.setter
@@ -652,6 +657,29 @@ class AgentEngine:
                         forwarded["input"] = str(event["input"])
                     if "output" in event:
                         forwarded["output"] = str(event["output"])
+                    await event_queue.put(forwarded)
+                elif event_type in ("llm_request", "llm_response"):
+                    sub_type = event.get("type", "")
+                    if sub_type.startswith("sub_"):
+                        forwarded_type = f"{prefix}{sub_type}"
+                    else:
+                        forwarded_type = f"{prefix}{sub_type}"
+                    forwarded = {
+                        "type": forwarded_type,
+                        "delegate_id": event.get("delegate_id", delegate_id),
+                        "depth": event.get("depth", depth),
+                        "step": event.get("step"),
+                    }
+                    if event_type == "llm_request":
+                        forwarded["messages"] = event.get("messages")
+                    else:
+                        forwarded["input_tokens"] = event.get("input_tokens")
+                        forwarded["output_tokens"] = event.get("output_tokens")
+                        forwarded["cache_read_tokens"] = event.get("cache_read_tokens")
+                        forwarded["cache_creation_tokens"] = event.get("cache_creation_tokens")
+                        forwarded["content"] = event.get("content")
+                        forwarded["reasoning"] = event.get("reasoning")
+                        forwarded["tool_calls"] = event.get("tool_calls")
                     await event_queue.put(forwarded)
                 elif event_type == "error":
                     await signal_queue.put({
