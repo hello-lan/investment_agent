@@ -94,9 +94,12 @@ async def prepare_delegate_task(
     raw_skill_names = tc.input.get("skill_names", []) or []
     task_desc = tc.input.get("task", "")
     from ..skills.loader import _registry as skill_registry
+    parent_allowed = engine._allowed_skill_names
     skill_names = [
         n for n in raw_skill_names
-        if skill_registry.get(n) and skill_registry[n].skill_type != "orch"
+        if skill_registry.get(n)
+        and skill_registry[n].skill_type != "orch"
+        and n in parent_allowed
     ]
     prompt = await engine.task_planner.generate(task_desc, skill_names, engine._messages)
     delegate_id = f"delegate_{uuid.uuid4().hex[:8]}"

@@ -230,9 +230,48 @@ def create_child_engine(
 
     # 注册基础工具
     run_tool = RunCommandTool()
-    child.register_tool(run_tool.schema, run_tool.run)
-    skill_tool = SkillTool()
-    child.register_tool(skill_tool.schema, skill_tool.run)
+    if skill_names:
+        # 有技能时 run_command 正常执行（技能脚本需要通过 run_command 调用）
+        child.register_tool(run_tool.schema, run_tool.run)
+    else:
+        # 无技能时加路径守卫，防止通过 shell 绕过技能隔离
+        original_run = run_tool.run
+        skills_dir_marker = "extensions/skills"
+
+        async def guarded_run_command(
+            command, _orig=original_run, _marker=skills_dir_marker,
+        ):
+            if _marker in command:
+                return (
+                    f"错误：当前Agent未启用任何技能，"
+                    f"禁止访问 {_marker} 目录。"
+                )
+            return await _orig(command=command)
+
+        child.register_tool(run_tool.schema, guarded_run_command)
+
+    # Skill 工具：仅在 skill_names 非空时注册，并加闭包过滤
+    if skill_names:
+        allowed_names = set(skill_names)
+        skill_tool = SkillTool()
+        original_run = skill_tool.run
+
+        async def filtered_skill_run(
+            name, _orig=original_run, _allowed=allowed_names,
+        ):
+            if name not in _allowed:
+                available = ", ".join(sorted(_allowed)) or "(无)"
+                return (
+                    f"技能 '{name}' 不在当前Agent的启用列表中。"
+                    f"可用技能: {available}"
+                )
+            return await _orig(name=name)
+
+        child.register_tool(skill_tool.schema, filtered_skill_run)
+
+    # 设置允许的技能名称集合（防御性措施，供嵌套委派过滤使用）
+    child._allowed_skill_names = set(skill_names)
+
     # 深度未达上限时允许嵌套委派
     if depth < parent.max_subagent_depth:
         delegate_tool = get_tool("DelegateTask")

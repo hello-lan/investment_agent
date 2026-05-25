@@ -193,10 +193,59 @@ class AgentRunner:
             sub_agent_mode=config.sub_agent_mode,
         )
         allowed_tools = AUTO_BOUND_TOOLS | set(config.tools)
+
+        # 设置允许的技能名称集合（供 Skill 工具闭包和 prepare_delegate_task 使用）
+        engine._allowed_skill_names = set(config.skills)
+
+        # skills 为空时不注册 Skill 工具，LLM 看不到也就无法调用
+        if not config.skills:
+            allowed_tools = allowed_tools - {"Skill"}
+
+        # 无技能时，run_command 禁止访问 extensions/skills/ 目录
+        skills_dir_marker = "extensions/skills"
+
         for tool_schema in get_schemas_for_names(allowed_tools):
             tool = get_tool(tool_schema["name"])
-            if tool:
+            if not tool:
+                continue
+
+            # Skill 工具加闭包过滤，只允许访问已启用的技能
+            if tool.name == "Skill" and config.skills:
+                allowed_names = set(config.skills)
+                original_run = tool.run
+
+                async def filtered_skill_run(
+                    name, _orig=original_run, _allowed=allowed_names,
+                ):
+                    if name not in _allowed:
+                        available = ", ".join(sorted(_allowed)) or "(无)"
+                        return (
+                            f"技能 '{name}' 不在当前Agent的启用列表中。"
+                            f"可用技能: {available}"
+                        )
+                    return await _orig(name=name)
+
+                engine.register_tool(tool_schema, filtered_skill_run)
+
+            # run_command 无技能时加路径守卫，防止通过 shell 绕过技能隔离
+            elif tool.name == "run_command" and not config.skills:
+                original_run = tool.run
+
+                async def guarded_run_command(
+                    command, _orig=original_run, _marker=skills_dir_marker,
+                ):
+                    if _marker in command:
+                        return (
+                            f"错误：当前Agent未启用任何技能，"
+                            f"禁止访问 {_marker} 目录。"
+                        )
+                    return await _orig(command=command)
+
+                engine.register_tool(tool_schema, guarded_run_command)
+
+            else:
                 engine.register_tool(tool_schema, tool.run)
+
         if config.skills:
             from .skills.loader import get_skill
             for name in config.skills:

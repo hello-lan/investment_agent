@@ -27,12 +27,6 @@ def register_tool(cls):
 # —— 导入工具模块，触发 @register_tool 装饰器 ——
 # 这些 import 的唯一目的是让工具类的 @register_tool 生效。
 # 不再需要手动逐个 _register() 调用。
-from .market_data import StockInfoTool, StockPriceTool  # noqa: F401
-# StockRealtimeTool, MarketIndexTool 已注释：依赖 eastmoney.com API，网络不通
-from .financials import (  # noqa: F401
-    IncomeStatementTool, BalanceSheetTool, CashFlowTool,
-    ValuationTool, FinancialIndicatorTool,
-)
 from .run_command import RunCommandTool  # noqa: F401
 from .delegate_task import DelegateTaskTool  # noqa: F401
 from ..skills.tool import SkillTool  # noqa: F401

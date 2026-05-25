@@ -59,6 +59,7 @@ class AgentEngine:
         self.tools: list[dict] = []
         self.tool_handlers: dict[str, Callable] = {}
         self._skills: list = []
+        self._allowed_skill_names: set[str] = set()
         self._interrupt = asyncio.Event()
 
         self.temperature = temperature
@@ -100,6 +101,7 @@ class AgentEngine:
     def register_skill(self, skill) -> None:
         """注册技能：记录 skill 对象，供 system_prompt property 拼接 prompt"""
         self._skills.append(skill)
+        self._allowed_skill_names.add(skill.name)
 
     @property
     def system_prompt(self) -> str:
