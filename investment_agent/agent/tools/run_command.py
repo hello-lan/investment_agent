@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import asyncio
 
+from .access_policy import AccessPolicy
 from .base import BaseTool
 from .registry import register_tool
 
@@ -19,6 +22,9 @@ class RunCommandTool(BaseTool):
     description = "在项目环境中执行 shell 命令。用于运行 Python 脚本、下载文件、安装依赖等命令行操作。命令在项目根目录执行。"
     risk_level = 2
 
+    def __init__(self):
+        self.access_policy: AccessPolicy | None = None
+
     @property
     def schema(self) -> dict:
         return {
@@ -37,6 +43,13 @@ class RunCommandTool(BaseTool):
         }
 
     async def run(self, command: str) -> str:
+        # 权限检查
+        if self.access_policy:
+            error = self.access_policy.check(command)
+            if error:
+                mode = self.access_policy.describe_mode()
+                return f"❌ {error}\n当前Agent权限: {mode}"
+
         try:
             # 异步子进程，120 秒超时，在项目根目录执行
             proc = await asyncio.create_subprocess_shell(

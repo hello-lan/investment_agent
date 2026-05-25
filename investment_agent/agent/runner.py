@@ -12,7 +12,10 @@ from .context.manager import ContextManager, ContextResult
 from .context.runtime_trimmer import get_runtime_trimmer
 from .core.engine import AgentEngine
 from .protocols import ExecutionLoop, LifecycleHooks, Storage
+from .tools.access_policy import AccessPolicy
 from .tools.registry import AUTO_BOUND_TOOLS, get_schemas_for_names, get_tool
+from .tools.run_command import RunCommandTool
+from ..config import PROJECT_ROOT
 
 
 class AgentRunner:
@@ -201,8 +204,14 @@ class AgentRunner:
         if not config.skills:
             allowed_tools = allowed_tools - {"Skill"}
 
-        # 无技能时，run_command 禁止访问 extensions/skills/ 目录
-        skills_dir_marker = "extensions/skills"
+        # run_command 单独注册独立实例 + AccessPolicy（不修改全局单例）
+        allowed_tools = allowed_tools - {"run_command"}
+
+        policy = AccessPolicy.for_agent(str(PROJECT_ROOT), config.skills)
+        engine._system_prompt += policy.prompt_section()
+        run_tool = RunCommandTool()
+        run_tool.access_policy = policy
+        engine.register_tool(run_tool.schema, run_tool.run)
 
         for tool_schema in get_schemas_for_names(allowed_tools):
             tool = get_tool(tool_schema["name"])
@@ -226,22 +235,6 @@ class AgentRunner:
                     return await _orig(name=name)
 
                 engine.register_tool(tool_schema, filtered_skill_run)
-
-            # run_command 无技能时加路径守卫，防止通过 shell 绕过技能隔离
-            elif tool.name == "run_command" and not config.skills:
-                original_run = tool.run
-
-                async def guarded_run_command(
-                    command, _orig=original_run, _marker=skills_dir_marker,
-                ):
-                    if _marker in command:
-                        return (
-                            f"错误：当前Agent未启用任何技能，"
-                            f"禁止访问 {_marker} 目录。"
-                        )
-                    return await _orig(command=command)
-
-                engine.register_tool(tool_schema, guarded_run_command)
 
             else:
                 engine.register_tool(tool_schema, tool.run)

@@ -155,6 +155,7 @@ def create_child_engine(
     """
     from ..skills.tool import SkillTool
     from ..skills.loader import _registry as skill_registry
+    from ..tools.access_policy import AccessPolicy
     from ..tools.run_command import RunCommandTool
     from ..tools.registry import get_tool
     from ...config import PROJECT_ROOT
@@ -228,27 +229,12 @@ def create_child_engine(
     # 共享中断信号（clone 和 subagent 模式均需要）
     child._interrupt = parent._interrupt
 
-    # 注册基础工具
+    # 注册基础工具（独立实例 + AccessPolicy）
     run_tool = RunCommandTool()
-    if skill_names:
-        # 有技能时 run_command 正常执行（技能脚本需要通过 run_command 调用）
-        child.register_tool(run_tool.schema, run_tool.run)
-    else:
-        # 无技能时加路径守卫，防止通过 shell 绕过技能隔离
-        original_run = run_tool.run
-        skills_dir_marker = "extensions/skills"
-
-        async def guarded_run_command(
-            command, _orig=original_run, _marker=skills_dir_marker,
-        ):
-            if _marker in command:
-                return (
-                    f"错误：当前Agent未启用任何技能，"
-                    f"禁止访问 {_marker} 目录。"
-                )
-            return await _orig(command=command)
-
-        child.register_tool(run_tool.schema, guarded_run_command)
+    policy = AccessPolicy.for_agent(str(PROJECT_ROOT), skill_names)
+    run_tool.access_policy = policy
+    child._system_prompt += policy.prompt_section()
+    child.register_tool(run_tool.schema, run_tool.run)
 
     # Skill 工具：仅在 skill_names 非空时注册，并加闭包过滤
     if skill_names:
