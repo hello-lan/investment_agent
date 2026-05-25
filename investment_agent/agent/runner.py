@@ -193,8 +193,6 @@ class AgentRunner:
             tool_trim_limits=config.tool_trim_limits,
             runtime_trimmer=runtime_trimmer,
             max_subagent_depth=config.max_subagent_depth,
-            max_concurrent_subagents=config.max_concurrent_subagents,
-            sub_agent_mode=config.sub_agent_mode,
         )
         allowed_tools = AUTO_BOUND_TOOLS | set(config.tools)
 

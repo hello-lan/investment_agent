@@ -7,10 +7,7 @@ from datetime import datetime
 from typing import AsyncGenerator, Callable
 
 from .models import ModelProvider, LLMResponse, ToolCall
-from .tool_executor import (
-    ToolExecutor, LoopDetector, create_tool_executor,
-    CLONE_MIN_REMAINING, DELEGATE_MIN_REMAINING,
-)
+from .tool_executor import ToolExecutor, LoopDetector
 from .task_planner import TaskPlanner, extract_text_from_content
 from ..config import (
     SLOW_THINK_PROMPT,
@@ -48,9 +45,6 @@ class AgentEngine:
         runtime_trimmer: RuntimeTrimmer | None = None,
         subagent_depth: int = 0,
         max_subagent_depth: int = 3,
-        max_concurrent_subagents: int = 3,
-        sub_agent_mode: str = "serial",
-        tool_executor: ToolExecutor | None = None,
     ):
         self.session_id = session_id
         self.task_id = str(uuid.uuid4())
@@ -80,13 +74,9 @@ class AgentEngine:
         # ── 子Agent配置 ──
         self.subagent_depth = subagent_depth
         self.max_subagent_depth = max_subagent_depth
-        self.max_concurrent_subagents = max_concurrent_subagents
-        self.sub_agent_mode = sub_agent_mode
 
         # ── 组合组件 ──
-        self._tool_executor = tool_executor or create_tool_executor(
-            sub_agent_mode, max_concurrent_subagents,
-        )
+        self._tool_executor = ToolExecutor()
         self.task_planner: TaskPlanner | None = None  # 延迟初始化（需要 provider）
 
         self._messages: list[dict] = []
@@ -133,7 +123,7 @@ class AgentEngine:
             + "\n\n> 使用 Skill 工具加载技能完整说明后再执行。\n\n"
             "## 子任务委派策略\n"
             "加载技能说明后，分析其工作流程是否包含互不依赖的子阶段。若技能明确分为多个独立分析维度"
-            "应使用 DelegateTask 将各维度委派给子Agent并行执行。"
+            "应使用 DelegateTask 将各维度委派给子Agent逐个执行。"
             "父Agent保留全局判断（交叉验证、综合定级），子Agent返回结果后汇总整合。"
             "简单场景（如仅查单一指标）直接执行，无需委派。"
         )

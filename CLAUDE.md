@@ -136,7 +136,7 @@ Optionally add a `scripts/` directory with a Python entry point. The script rece
    - Token 预算耗尽（子Agent token 累加回父Agent、缺少委派前预算检查）
    - 委派指令截断（_generate_task_instruction prompt 不完整、缺少 skill body、max_tokens 不足）
    - 脚本路径试错（SUBAGENT_SYSTEM_PROMPT 缺少项目目录结构）
-   - 串行/并行效率（sub_agent_mode 配置、同步骤内多文件独立处理）
+   - 委派效率（同步骤内多文件独立处理、委派粒度是否合理）
    - 可观测性缺失（委派后无 budget_status 事件、子Agent 事件透传）
 4. **关联代码** — 定位 engine.py、config.py、对应 SKILL.md 中的根因
 5. **输出报告** — 会话概览 + 执行时间线 + 委派统计 + 问题列表（含 trace 证据）+ 改进方案

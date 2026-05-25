@@ -76,6 +76,10 @@ class AccessPolicy:
             if not self._is_path_like(token):
                 continue
 
+            # 剥离尾部标点（Python dict/list 字面量残留：'path', "path", path;)
+            # 必须在引号剥离之前执行，否则 'path', 的首尾引号不匹配会跳过剥离
+            token = token.rstrip(",;:)]}")
+
             # 剥离外层引号（shell/Python 字符串字面量：'path', "path"）
             if len(token) >= 2 and token[0] == token[-1] and token[0] in ('"', "'"):
                 token = token[1:-1]
@@ -102,6 +106,11 @@ class AccessPolicy:
                 continue
 
             level = self._match_zone(rel, zones)
+
+            # 技能目录相对路径 fallback：SKILL.md 中的 CLI 示例通常使用
+            # 技能目录相对路径（如 scripts/xxx.py），尝试在允许的技能目录中查找
+            if level == NONE and self._skill_names:
+                level = self._match_skill_relative_path(token, zones)
 
             if level == NONE:
                 return f"权限拒绝: '{rel}' 不在允许访问范围内"
@@ -183,6 +192,33 @@ class AccessPolicy:
             if fnmatch(rel_path, pattern):
                 return level
         return NONE  # 默认拒绝未匹配路径
+
+    def _match_skill_relative_path(self, token: str, zones: list[tuple[str, int]]) -> int:
+        """尝试将 token 解析为技能目录相对路径。
+
+        SKILL.md 中的 CLI 示例通常使用技能目录相对路径（如 scripts/xxx.py），
+        而非项目根目录相对路径。此方法检查 token 是否存在于任何允许的技能目录中。
+
+        Args:
+            token: 原始路径 token（已剥离引号和尾部标点）
+            zones: 当前 zone 列表
+
+        Returns:
+            匹配到的权限级别，或 NONE
+        """
+        for skill_name in self._skill_names:
+            skill_prefix = f"extensions/skills/{skill_name}"
+            candidate = os.path.normpath(os.path.join(skill_prefix, token))
+
+            # 检查候选路径是否匹配技能 zone
+            level = self._match_zone(candidate, zones)
+            if level != NONE:
+                # 验证文件实际存在（防止路径穿越到不存在的目录）
+                abs_path = os.path.join(self.project_root, candidate)
+                if os.path.exists(abs_path):
+                    return level
+
+        return NONE
 
     def _looks_like_write(self, command: str, path_token: str) -> bool:
         """启发式判断命令是否对路径执行写操作。"""

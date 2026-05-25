@@ -58,8 +58,6 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
         "runtime_trim_strategy": agent_cfg.get("runtime_trim_strategy") or global_cfg.get("runtime_trim_strategy", "default"),
         "tool_trim_limits": agent_cfg.get("tool_trim_limits") or global_cfg.get("tool_trim_limits", {}),
         "max_subagent_depth": agent_cfg.get("max_subagent_depth") or global_cfg.get("max_subagent_depth", 3),
-        "max_concurrent_subagents": agent_cfg.get("max_concurrent_subagents") or global_cfg.get("max_concurrent_subagents", 3),
-        "sub_agent_mode": agent_cfg.get("sub_agent_mode") or global_cfg.get("sub_agent_mode", "serial"),
     }
 
 
@@ -167,8 +165,6 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         tool_trim_limits=engine_params["tool_trim_limits"],
         context=context_cfg,
         max_subagent_depth=engine_params["max_subagent_depth"],
-        max_concurrent_subagents=engine_params["max_concurrent_subagents"],
-        sub_agent_mode=engine_params["sub_agent_mode"],
         input_price=getattr(provider, "_input_price", None),
         output_price=getattr(provider, "_output_price", None),
         currency=getattr(provider, "_currency", "USD"),

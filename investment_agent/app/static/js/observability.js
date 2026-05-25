@@ -47,12 +47,13 @@ function parseDetail(d) {
 function agentTypeBadge(type) {
   if (!type) return '';
   var colors = {
+    delegate: 'background:#fef3c7;color:#92400e;',
     clone: 'background:#fef3c7;color:#92400e;',
     serial: 'background:#dbeafe;color:#1e40af;',
     concurrent: 'background:#e0e7ff;color:#3730a3;',
   };
   var style = colors[type] || 'background:#f3f4f6;color:#374151;';
-  var label = { clone: '分身', serial: '串行', concurrent: '并发' };
+  var label = { delegate: '委派', clone: '分身', serial: '串行', concurrent: '并发' };
   return '<span class="obs-agent-type" style="' + style + '">' + esc(label[type] || type) + '</span>';
 }
 

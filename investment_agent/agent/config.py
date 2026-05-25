@@ -13,7 +13,7 @@ DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
 
 ## 任务分解策略
 面对复杂分析任务时，先评估是否可以分解为独立子任务：
-- 互不依赖的子任务可通过 DelegateTask 委派给子Agent并行执行，提升效率
+- 互不依赖的子任务可通过 DelegateTask 委派给子Agent逐个执行
 - 工具调用密集的子任务在隔离上下文中执行可保持分析主线清晰
 - 判断标准：子任务能否被清晰描述为一句话指令？是否需要多步工具调用？是否与其他子任务独立？
 - 子Agent完成后返回结果由你汇总整合，形成最终分析结论"""
@@ -112,8 +112,6 @@ class AgentRunConfig:
 
     # ── 子Agent配置 ──
     max_subagent_depth: int = 3
-    max_concurrent_subagents: int = 3
-    sub_agent_mode: str = "clone"
 
     # ── Provider 定价信息 ──
     input_price: float | None = None
