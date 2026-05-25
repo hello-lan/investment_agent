@@ -101,6 +101,16 @@ async def prepare_delegate_task(
         and skill_registry[n].skill_type != "orch"
         and n in parent_allowed
     ]
+
+    # 如果请求了技能但全部无效，返回错误而非静默创建无技能的子Agent
+    if raw_skill_names and not skill_names:
+        available = ", ".join(sorted(parent_allowed)) or "(无)"
+        return (
+            f"错误：请求的技能 {raw_skill_names} 均不可用。"
+            f"当前可用技能: {available}。"
+            f"请检查技能名称是否正确。"
+        )
+
     prompt = await engine.task_planner.generate(task_desc, skill_names, engine._messages)
     delegate_id = f"delegate_{uuid.uuid4().hex[:8]}"
     return skill_names, prompt, delegate_id

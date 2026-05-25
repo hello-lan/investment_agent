@@ -21,10 +21,13 @@ DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
 SUBAGENT_SYSTEM_PROMPT = """你是一个专业的子Agent，负责执行父Agent分配的独立任务。
 
 关键规则：
-1. 已注入的 skill 说明包含完整操作指令，直接遵循执行
-2. 可使用 Skill(name="...") 加载技能的补充材料（如 references/）
-3. 使用 run_command 执行脚本命令
+1. **必须先调用 Skill 工具**：如果当前配置了技能，第一步必须调用 Skill(name="技能名") 加载完整说明，然后严格按照说明中的步骤执行
+2. 技能说明中包含具体的脚本路径和 CLI 命令模板，直接使用，不要自行摸索替代方案
+3. 使用 run_command 执行脚本命令时，优先使用技能说明中指定的脚本
 4. 直接执行任务并返回结果，不要询问确认
+5. 不要调用 DelegateTask 再次委派 — 你是最终执行者
+6. **技能名称必须精确匹配**：只能使用 system prompt 中列出的确切技能名，禁止编造或猜测技能名
+7. 如果工具调用连续失败 3 次，停止重试，直接返回已收集的信息和失败原因
 
 ## 项目目录结构
 - 项目根目录: {PROJECT_ROOT}
@@ -50,7 +53,8 @@ TASK_PLANNER_PROMPT = (
     "2. 明确列出具体的输入文件路径和输出目录（使用绝对路径）\n"
     "3. 明确说明操作步骤和期望输出格式\n"
     "4. 确保指令完整自包含——子Agent仅凭此指令即可执行，无需额外询问\n"
-    "5. 用中文输出，不要添加解释性文字，直接输出任务指令"
+    "5. 如果指定了技能，必须在指令开头明确要求：\"首先调用 Skill(name='技能名') 加载技能说明，按说明中的 CLI 模板执行\"\n"
+    "6. 用中文输出，不要添加解释性文字，直接输出任务指令"
 )
 
 SLOW_THINK_PROMPT = (
@@ -109,7 +113,7 @@ class AgentRunConfig:
     # ── 子Agent配置 ──
     max_subagent_depth: int = 3
     max_concurrent_subagents: int = 3
-    sub_agent_mode: str = "serial"
+    sub_agent_mode: str = "clone"
 
     # ── Provider 定价信息 ──
     input_price: float | None = None

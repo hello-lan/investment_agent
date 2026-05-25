@@ -109,16 +109,6 @@ To add a new skill, create a subdirectory under `extensions/skills/` with a `SKI
 ---
 name: my-skill
 description: What this skill does
-tools: []
-schema:
-  name: skill_my-skill
-  description: ...
-  input_schema:
-    type: object
-    properties:
-      param_name:
-        type: string
-        description: ...
 ---
 # Markdown body — injected into system prompt
 ```

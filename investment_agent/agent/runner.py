@@ -12,6 +12,7 @@ from .context.manager import ContextManager, ContextResult
 from .context.runtime_trimmer import get_runtime_trimmer
 from .core.engine import AgentEngine
 from .protocols import ExecutionLoop, LifecycleHooks, Storage
+from .skills.dependency import expand_with_dependencies
 from .tools.access_policy import AccessPolicy
 from .tools.registry import AUTO_BOUND_TOOLS, get_schemas_for_names, get_tool
 from .tools.run_command import RunCommandTool
@@ -197,8 +198,11 @@ class AgentRunner:
         )
         allowed_tools = AUTO_BOUND_TOOLS | set(config.tools)
 
-        # 设置允许的技能名称集合（供 Skill 工具闭包和 prepare_delegate_task 使用）
-        engine._allowed_skill_names = set(config.skills)
+        # 展开 orch 技能的 depends_on 依赖，供 AccessPolicy 和 prepare_delegate_task 使用
+        all_skill_names = expand_with_dependencies(config.skills) if config.skills else []
+
+        # 设置允许的技能名称集合（含依赖，供 prepare_delegate_task 委派到依赖技能）
+        engine._allowed_skill_names = set(all_skill_names)
 
         # skills 为空时不注册 Skill 工具，LLM 看不到也就无法调用
         if not config.skills:
@@ -207,7 +211,7 @@ class AgentRunner:
         # run_command 单独注册独立实例 + AccessPolicy（不修改全局单例）
         allowed_tools = allowed_tools - {"run_command"}
 
-        policy = AccessPolicy.for_agent(str(PROJECT_ROOT), config.skills)
+        policy = AccessPolicy.for_agent(str(PROJECT_ROOT), all_skill_names)
         engine._system_prompt += policy.prompt_section()
         run_tool = RunCommandTool()
         run_tool.access_policy = policy

@@ -130,6 +130,15 @@ def forward_event(
         forwarded.setdefault("agent_type", agent_type)
         return forwarded
 
+    if event_type == "context_trim":
+        return {
+            "type": f"{prefix}context_trim",
+            "delegate_id": delegate_id,
+            "depth": depth,
+            "agent_type": agent_type,
+            "step": event.get("step"),
+        }
+
     return None
 
 
@@ -155,6 +164,7 @@ def create_child_engine(
     """
     from ..skills.tool import SkillTool
     from ..skills.loader import _registry as skill_registry
+    from ..skills.dependency import expand_with_dependencies
     from ..tools.access_policy import AccessPolicy
     from ..tools.run_command import RunCommandTool
     from ..tools.registry import get_tool
@@ -229,16 +239,19 @@ def create_child_engine(
     # 共享中断信号（clone 和 subagent 模式均需要）
     child._interrupt = parent._interrupt
 
+    # 展开 orch 技能的 depends_on 依赖，供 AccessPolicy 和嵌套委派使用
+    all_skill_names = expand_with_dependencies(skill_names) if skill_names else []
+
     # 注册基础工具（独立实例 + AccessPolicy）
     run_tool = RunCommandTool()
-    policy = AccessPolicy.for_agent(str(PROJECT_ROOT), skill_names)
+    policy = AccessPolicy.for_agent(str(PROJECT_ROOT), all_skill_names)
     run_tool.access_policy = policy
     child._system_prompt += policy.prompt_section()
     child.register_tool(run_tool.schema, run_tool.run)
 
-    # Skill 工具：仅在 skill_names 非空时注册，并加闭包过滤
+    # Skill 工具：仅在 skill_names 非空时注册，并加闭包过滤（含依赖技能）
     if skill_names:
-        allowed_names = set(skill_names)
+        allowed_names = set(all_skill_names)
         skill_tool = SkillTool()
         original_run = skill_tool.run
 
@@ -255,11 +268,11 @@ def create_child_engine(
 
         child.register_tool(skill_tool.schema, filtered_skill_run)
 
-    # 设置允许的技能名称集合（防御性措施，供嵌套委派过滤使用）
-    child._allowed_skill_names = set(skill_names)
+    # 设置允许的技能名称集合（含依赖，供嵌套委派过滤使用）
+    child._allowed_skill_names = set(all_skill_names)
 
-    # 深度未达上限时允许嵌套委派
-    if depth < parent.max_subagent_depth:
+    # 深度未达上限时允许嵌套委派（clone 子Agent 为叶子执行器，不允许再委派）
+    if child_type != "clone" and depth < parent.max_subagent_depth:
         delegate_tool = get_tool("DelegateTask")
         if delegate_tool:
             child.register_tool(delegate_tool.schema, delegate_tool.run)
@@ -269,6 +282,17 @@ def create_child_engine(
         if skill:
             child.register_skill(skill)
 
+    # 自动注入技能体摘要到子Agent system prompt，减少一次 Skill 工具调用
+    for name in skill_names:
+        skill = skill_registry.get(name)
+        if skill and skill.body:
+            body_excerpt = skill.body[:1500]
+            child._system_prompt += (
+                f"\n\n---\n\n# 技能 {name} 快速参考\n\n"
+                f"{body_excerpt}\n\n"
+                f"> 完整说明请调用 Skill(name=\"{name}\")"
+            )
+
     return child
 
 
@@ -276,11 +300,11 @@ def create_child_engine(
 
 
 def sync_tokens_from(target, source) -> None:
-    """从 source 引擎同步 token 计数器到 target。"""
-    target.total_input_tokens = source.total_input_tokens
-    target.total_output_tokens = source.total_output_tokens
-    target.total_cache_read_tokens = source.total_cache_read_tokens
-    target.total_cache_creation_tokens = source.total_cache_creation_tokens
+    """将 source 引擎的 token 消耗累加到 target（用于 clone 模式共享预算）。"""
+    target.total_input_tokens += source.total_input_tokens
+    target.total_output_tokens += source.total_output_tokens
+    target.total_cache_read_tokens += source.total_cache_read_tokens
+    target.total_cache_creation_tokens += source.total_cache_creation_tokens
 
 
 def accumulate_tokens(target, source) -> None:

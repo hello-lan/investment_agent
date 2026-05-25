@@ -66,3 +66,18 @@ def validate_dependencies(registry: dict[str, BaseSkill]) -> list[str]:
             warnings.append(str(exc))
 
     return warnings
+
+
+def expand_with_dependencies(skill_names: list[str]) -> list[str]:
+    """展开技能列表，包含 orch 技能的 depends_on 传递依赖。
+
+    复用 resolve_dependencies() 的 DFS 拓扑排序，自动将 orch 技能声明的
+    依赖技能加入列表。用于 AccessPolicy 和 _allowed_skill_names 的构建。
+    """
+    from .loader import _registry, _skills_dir, reload_skills
+
+    if not _registry and _skills_dir:
+        reload_skills()
+    if not _registry:
+        return list(skill_names)
+    return resolve_dependencies(skill_names, _registry)
