@@ -94,9 +94,13 @@ class AgentEngine:
         self._allowed_skill_names.add(skill.name)
 
     @property
-    def system_prompt(self) -> str:
+    def system_prompt(self) -> str | list[dict]:
         """动态拼接：基础 prompt + 项目路径 + 已注册 skill 的名称/描述"""
         prompt = self._system_prompt
+
+        # ContextManager 已处理为带 cache_control 的 content block 列表，直接返回
+        if isinstance(prompt, list):
+            return prompt
 
         if "## 项目路径" not in prompt:
             from ...config import PROJECT_ROOT
@@ -234,9 +238,13 @@ class AgentEngine:
         return None
 
     def _maybe_trim_context(self, messages: list[dict], step: int) -> tuple[list[dict], dict | None]:
-        """每 N 步裁剪旧消息。返回 (messages, trim_event)。"""
+        """每 N 步裁剪旧消息。返回 (messages, trim_event)。
+        NoOpRuntimeTrimmer（strategy="none"）时不 emit 事件，避免误导性日志。
+        """
+        from ..context.runtime_trimmer import NoOpRuntimeTrimmer
         if (
             self._runtime_trimmer is not None
+            and not isinstance(self._runtime_trimmer, NoOpRuntimeTrimmer)
             and self.context_trim_interval > 0
             and step > 1
             and step % self.context_trim_interval == 0
@@ -263,10 +271,24 @@ class AgentEngine:
             "step": step,
             "messages": messages,
         }
+        system = self.system_prompt
+        tools = list(self.tools) if self.tools else None
+
+        # 为 Anthropic provider 启用 ephemeral 缓存
+        # 父Agent: system 已由 ContextManager 转为 list[dict] 格式，此处仅补 tools 缓存
+        # 子Agent: system 为字符串，此处一并转换并标记缓存
+        if self.provider and getattr(self.provider, "provider_type", "") == "anthropic":
+            if isinstance(system, str):
+                system = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+            if tools:
+                tools = list(tools)
+                if "cache_control" not in tools[-1]:
+                    tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
+
         chat_kwargs: dict = {
             "messages": self.provider._convert_messages(messages),
-            "system": self.system_prompt,
-            "tools": self.tools if self.tools else None,
+            "system": system,
+            "tools": tools,
         }
         if self.temperature is not None:
             chat_kwargs["temperature"] = self.temperature

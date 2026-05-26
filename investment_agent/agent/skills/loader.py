@@ -68,8 +68,14 @@ def get_skill(name: str) -> BaseSkill | None:
 
 
 def get_schemas(skill_names: list[str] | None = None) -> list[dict]:
-    """返回 Skill 的 Anthropic tool schema 列表，用于注入 system prompt"""
+    """返回 Skill 的 Anthropic tool schema 列表，用于注入 system prompt
+
+    自动展开 orch 技能的 depends_on 传递依赖，确保子技能的 tool schema
+    也注入 system prompt，LLM 才能通过 Skill 工具调用它们。
+    """
     if not skill_names:
         return [s.schema for s in _registry.values()]
-    wanted = set(skill_names)
+    from .dependency import expand_with_dependencies
+
+    wanted = set(expand_with_dependencies(skill_names))
     return [s.schema for s in _registry.values() if s.name in wanted]
