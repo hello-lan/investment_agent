@@ -5,10 +5,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import AsyncGenerator
 
 from ..config import SUBAGENT_SYSTEM_PROMPT
-from ..context.runtime_trimmer import NoOpRuntimeTrimmer, DefaultRuntimeTrimmer
+
+_log = logging.getLogger(__name__)
 
 
 # ── 事件转发辅助 ─────────────────────────────────────────────────────
@@ -144,6 +146,11 @@ def create_child_engine(
     depth = parent.subagent_depth + 1
     session_id = f"delegate_{delegate_id}"
 
+    # 子Agent 继承父Agent 的剩余预算，而非全量预算
+    remaining_budget = max(
+        0, parent.token_budget - parent.total_input_tokens - parent.total_output_tokens
+    )
+
     child = AgentEngine(
         session_id=session_id,
         system_prompt=SUBAGENT_SYSTEM_PROMPT.format(PROJECT_ROOT=PROJECT_ROOT),
@@ -152,16 +159,12 @@ def create_child_engine(
         max_tokens=parent.max_tokens,
         max_steps=parent.max_steps,
         slow_think_interval=0,
-        token_budget=parent.token_budget,
+        token_budget=remaining_budget,
         loop_detection_threshold=parent.loop_threshold,
         context_trim_interval=(
             parent.context_trim_interval if parent.context_trim_interval > 0 else 5
         ),
-        runtime_trimmer=(
-            parent._runtime_trimmer
-            if parent._runtime_trimmer and not isinstance(parent._runtime_trimmer, NoOpRuntimeTrimmer)
-            else DefaultRuntimeTrimmer(tool_trim_limits=parent.tool_trim_limits)
-        ),
+        runtime_trimmer=parent._runtime_trimmer,
         subagent_depth=depth,
         max_subagent_depth=parent.max_subagent_depth,
     )
@@ -218,6 +221,13 @@ def create_child_engine(
                 f"> 完整说明请调用 Skill(name=\"{name}\")"
             )
 
+    _log.info(
+        "[SubEngine] 创建完成: id=%s, session=%s, depth=%d, "
+        "skills=%s (含依赖 %d), max_steps=%d",
+        delegate_id, child.session_id, depth,
+        skill_names, len(all_skill_names), child.max_steps,
+    )
+
     return child
 
 
@@ -256,14 +266,32 @@ async def run_delegate_task(
     depth = parent.subagent_depth + 1
     prefix = "sub_" * depth
 
+    _log.info(
+        "[Delegate:%s] 开始运行: skills=%s, prompt_len=%d, budget=%d",
+        delegate_id, skill_names, len(prompt), parent.token_budget,
+    )
+
     result_text = ""
+    child_steps = 0
+    child_tool_calls = 0
     try:
         async for event in child.run(child_messages):
+            if event.get("type") == "step_start":
+                child_steps = event.get("step", child_steps)
+            if event.get("type") == "tool_call":
+                child_tool_calls += 1
             forwarded = forward_event(event, prefix, delegate_id, depth)
             if forwarded == "done":
                 break
             elif forwarded == "error":
                 sync_tokens_from(parent, child)
+                _log.warning(
+                    "[Delegate:%s] 运行出错: steps=%d, tool_calls=%d, "
+                    "tokens=(in=%d, out=%d), error=%s",
+                    delegate_id, child_steps, child_tool_calls,
+                    child.total_input_tokens, child.total_output_tokens,
+                    event.get("message", ""),
+                )
                 yield {"type": "__delegate_error__", "message": event["message"]}
                 return
             elif forwarded is not None:
@@ -272,10 +300,24 @@ async def run_delegate_task(
                 yield forwarded
     except Exception as e:
         sync_tokens_from(parent, child)
+        _log.error(
+            "[Delegate:%s] 异常终止: steps=%d, tool_calls=%d, "
+            "tokens=(in=%d, out=%d), error=%s",
+            delegate_id, child_steps, child_tool_calls,
+            child.total_input_tokens, child.total_output_tokens, str(e),
+            exc_info=True,
+        )
         yield {"type": "__delegate_error__", "message": str(e)}
         return
 
     sync_tokens_from(parent, child)
+    _log.info(
+        "[Delegate:%s] 运行完成: steps=%d, tool_calls=%d, "
+        "tokens=(in=%d, out=%d, cache_read=%d), result_len=%d",
+        delegate_id, child_steps, child_tool_calls,
+        child.total_input_tokens, child.total_output_tokens,
+        child.total_cache_read_tokens, len(result_text),
+    )
     yield {
         "type": "__delegate_done__",
         "result": result_text.strip() or "(委派任务完成，无文本输出)",

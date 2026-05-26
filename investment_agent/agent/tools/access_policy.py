@@ -1,26 +1,38 @@
-"""run_command 文件系统访问策略。
+"""run_command 文件系统访问策略（deny list 模式）。
 
-在 run_command 执行前检查命令中引用的路径，按 zone 规则决定是否允许。
-每个 Agent 只能访问自己已配置的技能子目录，未配置的技能完全不可见。
+从 shell 命令中提取路径 token，仅检查是否命中禁止目录。
+不在黑名单中的路径一律放行，避免对命令内容的误判。
+
+安全模型：
+- investment_agent/ → 读写全拒（项目源码）
+- extensions/ → 全部拒绝，已启用技能的子目录除外（只读）
+- 其他路径 → 放行
 """
 
 from __future__ import annotations
 
 import os
 import re
-from fnmatch import fnmatch
-
-NONE = 0   # 禁止访问
-READ = 1   # 只读
-WRITE = 2  # 读写
 
 # 系统设备路径白名单（允许访问，不检查 PROJECT_ROOT 限制）
 _SYSTEM_PATHS_UNIX = {"/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"}
 _SYSTEM_PATHS_WINDOWS = {"NUL", "CON", "PRN", "AUX"}
 
+# ── 安全不变量（硬编码，不可由 Agent 配置覆盖）──
+
+# 顶层目录名：读写全拒
+_HARD_DENY_TOP_DIRS = {"investment_agent"}
+
+# extensions/ 下允许只读的子目录模式：extensions/skills/{name}/
+# 其中 {name} 必须在 Agent 的 _skill_names 中
+
 
 class AccessPolicy:
-    """run_command 的文件系统访问策略。"""
+    """run_command 的文件系统访问策略（deny list 模式）。
+
+    只检查命令中引用的路径是否命中禁止目录。
+    未命中黑名单的路径一律放行。
+    """
 
     def __init__(self, project_root: str, skill_names: list[str] | None = None):
         self.project_root = project_root
@@ -43,25 +55,29 @@ class AccessPolicy:
             return ""
 
         lines = ["\n\n## run_command 文件访问规则\n"]
-        lines.append("你只能通过 run_command 访问以下目录：")
-        lines.append("- `data/` — 读写（报告、临时文件、数据库等）")
-        lines.append("- `.venv/` — 只读（虚拟环境 Python 解释器和已安装包）")
-
+        lines.append("### 禁止访问")
+        lines.append("- `investment_agent/` — 项目源码，禁止读写")
+        lines.append("- `extensions/` — 禁止访问，已启用的技能目录除外（只读）")
+        lines.append("")
+        lines.append("### 允许访问")
+        lines.append("- `data/` — 读写")
+        lines.append("- `.venv/` — 只读")
         if self._skill_names:
             for name in self._skill_names:
                 lines.append(f"- `extensions/skills/{name}/` — 只读")
-        else:
-            lines.append("\n禁止访问 `extensions/skills/`、项目源码、配置文件等其他目录。")
-
-        lines.append("\n**不要尝试访问被禁止的目录**，否则会收到权限拒绝错误并浪费执行步骤。")
+        lines.append("- 其他目录不受限制")
+        lines.append(
+            "\n**不要尝试访问被禁止的目录**，否则会收到权限拒绝错误并浪费执行步骤。"
+        )
         return "\n".join(lines)
 
     def check(self, command: str) -> str | None:
-        """检查命令中的路径引用。返回 None 表示允许，否则返回错误信息。"""
+        """检查命令中的路径引用是否命中禁止目录。
+
+        返回 None 表示允许，否则返回错误信息。
+        """
         if self._unrestricted:
             return None
-
-        zones = self._build_zones()
 
         # 拆分命令（考虑 | ; && ||）
         tokens = (
@@ -77,26 +93,35 @@ class AccessPolicy:
                 continue
 
             # 剥离尾部标点（Python dict/list 字面量残留：'path', "path", path;)
-            # 必须在引号剥离之前执行，否则 'path', 的首尾引号不匹配会跳过剥离
             token = token.rstrip(",;:)]}")
 
             # 剥离外层引号（shell/Python 字符串字面量：'path', "path"）
-            if len(token) >= 2 and token[0] == token[-1] and token[0] in ('"', "'"):
+            if (
+                len(token) >= 2
+                and token[0] == token[-1]
+                and token[0] in ('"', "'")
+            ):
                 token = token[1:-1]
 
             # 系统设备路径白名单检查（/dev/null, NUL 等）
-            # 处理 shell 重定向语法：2>/dev/null, >>/dev/null 等
             clean_token = token.lstrip("0123456789>&")
-            if (clean_token in _SYSTEM_PATHS_UNIX or
-                clean_token.upper() in _SYSTEM_PATHS_WINDOWS or
-                token in _SYSTEM_PATHS_UNIX or
-                token.upper() in _SYSTEM_PATHS_WINDOWS):
+            if (
+                clean_token in _SYSTEM_PATHS_UNIX
+                or clean_token.upper() in _SYSTEM_PATHS_WINDOWS
+                or token in _SYSTEM_PATHS_UNIX
+                or token.upper() in _SYSTEM_PATHS_WINDOWS
+            ):
                 continue
 
-            resolved = os.path.normpath(os.path.join(self.project_root, token))
+            resolved = os.path.normpath(
+                os.path.join(self.project_root, token)
+            )
 
             # 防止路径逃逸：resolved 必须是 project_root 本身或其子目录
-            if resolved != self.project_root and not resolved.startswith(self.project_root + os.sep):
+            if (
+                resolved != self.project_root
+                and not resolved.startswith(self.project_root + os.sep)
+            ):
                 return f"权限拒绝: 路径 '{token}' 逃逸出项目目录"
 
             rel = os.path.relpath(resolved, self.project_root)
@@ -105,46 +130,71 @@ class AccessPolicy:
             if rel == ".":
                 continue
 
-            level = self._match_zone(rel, zones)
+            # ── deny list：只检查是否命中禁止目录 ──
+            error = self._check_deny_list(rel, command, token)
+            if error:
+                return error
 
-            # 技能目录相对路径 fallback：SKILL.md 中的 CLI 示例通常使用
-            # 技能目录相对路径（如 scripts/xxx.py），尝试在允许的技能目录中查找
-            if level == NONE and self._skill_names:
-                level = self._match_skill_relative_path(token, zones)
+        return None  # 未命中任何禁止规则，放行
 
-            if level == NONE:
-                return f"权限拒绝: '{rel}' 不在允许访问范围内"
-            if level == READ and self._looks_like_write(command, token):
-                return f"权限拒绝: '{rel}' 为只读区域，不允许写入"
+    # ── deny list 核心逻辑 ─────────────────────────────────────────────
 
-        return None
+    def _check_deny_list(
+        self, rel_path: str, command: str, path_token: str
+    ) -> str | None:
+        """检查路径是否命中禁止目录。返回错误信息或 None。"""
+        rel_parts = rel_path.replace("\\", "/").split("/")
 
-    def _build_zones(self) -> list[tuple[str, int]]:
-        """动态构建分区规则。data/ 始终读写，.venv/ 和技能目录只读。"""
-        zones: list[tuple[str, int]] = [
-            ("data", WRITE),
-            ("data/*", WRITE),
-            (".venv", READ),
-            (".venv/*", READ),
-        ]
-        for name in self._skill_names:
-            skill_prefix = f"extensions/skills/{name}"
-            zones.append((skill_prefix, READ))
-            zones.append((f"{skill_prefix}/*", READ))
-        return zones
+        # 硬拒绝：investment_agent/ — 读写全拒
+        if rel_parts[0] in _HARD_DENY_TOP_DIRS:
+            return f"权限拒绝: 不允许访问项目源码目录 '{rel_path}'"
+
+        # extensions/ 规则
+        if rel_parts[0] == "extensions":
+            # extensions/skills/{已启用技能}/ — 只读
+            if (
+                len(rel_parts) >= 3
+                and rel_parts[1] == "skills"
+                and rel_parts[2] in self._skill_names
+            ):
+                if self._looks_like_write(command, path_token):
+                    return (
+                        f"权限拒绝: 技能目录 '{rel_path}' "
+                        f"为只读，不允许写入"
+                    )
+                return None  # 已启用技能目录的读操作，允许
+
+            # 其他 extensions/ — 全部拒绝
+            return (
+                f"权限拒绝: 不允许访问 '{rel_path}'"
+                f"（extensions/ 仅限已启用的技能目录）"
+            )
+
+        return None  # 不在禁止目录中，放行
+
+    # ── 启发式判断 ────────────────────────────────────────────────────
 
     def _is_path_like(self, token: str) -> bool:
-        """启发式判断 token 是否为路径。
-
-        额外跳过 Python 代码片段：heredoc 内的 Python 代码被按空格拆分后，
-        含 / 的字符串字面量（如 sqlite3.connect('data/agent.db')）会被误判为路径。
-        通过检测不匹配的引号/括号来过滤这类代码片段。
-        """
+        """启发式判断 token 是否为文件路径。"""
         if token.startswith("-"):
             return False
 
+        # 裸 "/" 不是合法路径引用（通常是文本中的除号或字符串片段）
+        if token == "/":
+            return False
+
+        # ── 快速过滤：明显不是路径的 token ──
+        # CJK 字符（本项目所有文件路径均为英文/数字/下划线/连字符）
+        if re.search(r"[一-鿿㐀-䶿]", token):
+            return False
+        # markdown 格式标记（**bold**, __italic__）
+        if "**" in token or "__" in token:
+            return False
+        # 全角括号（中文文本特征）
+        if "（" in token or "）" in token:
+            return False
+
         # 跳过含不匹配引号或括号的 token（大概率是代码片段，非 shell 路径）
-        # shell 命令中的合法路径不会出现在不匹配引号内
         if self._looks_like_code(token):
             return False
 
@@ -181,56 +231,32 @@ class AccessPolicy:
             return True
 
         # 括号内含引号：func('path') 或 func("path") 模式 → 代码
-        if re.search(r"\([^)]*['\"]", token) or re.search(r"\[[^\]]*['\"]", token):
+        if re.search(r"\([^)]*['\"]", token) or re.search(
+            r"\[[^\]]*['\"]", token
+        ):
             return True
 
         return False
 
-    def _match_zone(self, rel_path: str, zones: list[tuple[str, int]]) -> int:
-        """匹配分区规则，返回权限级别。"""
-        for pattern, level in zones:
-            if fnmatch(rel_path, pattern):
-                return level
-        return NONE  # 默认拒绝未匹配路径
-
-    def _match_skill_relative_path(self, token: str, zones: list[tuple[str, int]]) -> int:
-        """尝试将 token 解析为技能目录相对路径。
-
-        SKILL.md 中的 CLI 示例通常使用技能目录相对路径（如 scripts/xxx.py），
-        而非项目根目录相对路径。此方法检查 token 是否存在于任何允许的技能目录中。
-
-        Args:
-            token: 原始路径 token（已剥离引号和尾部标点）
-            zones: 当前 zone 列表
-
-        Returns:
-            匹配到的权限级别，或 NONE
-        """
-        for skill_name in self._skill_names:
-            skill_prefix = f"extensions/skills/{skill_name}"
-            candidate = os.path.normpath(os.path.join(skill_prefix, token))
-
-            # 检查候选路径是否匹配技能 zone
-            level = self._match_zone(candidate, zones)
-            if level != NONE:
-                # 验证文件实际存在（防止路径穿越到不存在的目录）
-                abs_path = os.path.join(self.project_root, candidate)
-                if os.path.exists(abs_path):
-                    return level
-
-        return NONE
-
     def _looks_like_write(self, command: str, path_token: str) -> bool:
         """启发式判断命令是否对路径执行写操作。"""
         write_indicators = [
-            f"rm {path_token}", f"rm -rf {path_token}", f"rm -f {path_token}",
-            f"mv ", f"cp ",
-            f"> {path_token}", f">> {path_token}",
+            f"rm {path_token}",
+            f"rm -rf {path_token}",
+            f"rm -f {path_token}",
+            "mv ",
+            "cp ",
+            f"> {path_token}",
+            f">> {path_token}",
             f"tee {path_token}",
-            f"sed -i", f"sed --in-place",
+            "sed -i",
+            "sed --in-place",
+            "mkdir ",
         ]
         cmd_lower = command.lower()
         return any(ind in cmd_lower for ind in write_indicators)
+
+    # ── 工厂方法 ──────────────────────────────────────────────────────
 
     @classmethod
     def for_agent(cls, project_root: str, skills: list[str]) -> AccessPolicy:

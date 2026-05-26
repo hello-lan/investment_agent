@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from collections import Counter
@@ -15,6 +16,8 @@ from .subagent import run_delegate_task
 
 if TYPE_CHECKING:
     from .engine import AgentEngine
+
+_log = logging.getLogger(__name__)
 
 
 # ── 常量 ──────────────────────────────────────────────────────────────
@@ -73,7 +76,13 @@ async def prepare_delegate_task(
         成功: (skill_names, prompt, delegate_id)
         失败: 错误信息字符串
     """
+    task_desc = tc.input.get("task", "")[:200]
+
     if engine.subagent_depth >= engine.max_subagent_depth:
+        _log.warning(
+            "[Delegate] 拒绝委派: 已达最大深度 %d, task=%s",
+            engine.max_subagent_depth, task_desc,
+        )
         return (
             f"错误：已达到最大委派深度 {engine.max_subagent_depth}，"
             f"无法创建子Agent"
@@ -81,13 +90,16 @@ async def prepare_delegate_task(
 
     remaining = engine.token_budget - engine.total_input_tokens - engine.total_output_tokens
     if remaining < DELEGATE_MIN_REMAINING:
+        _log.warning(
+            "[Delegate] 拒绝委派: 预算不足 remaining=%d/%d, task=%s",
+            remaining, engine.token_budget, task_desc,
+        )
         return (
             f"错误：剩余 token 预算不足 ({remaining}/{engine.token_budget})，"
             f"无法委派执行子任务"
         )
 
     raw_skill_names = tc.input.get("skill_names", []) or []
-    task_desc = tc.input.get("task", "")
     from ..skills.loader import _registry as skill_registry
     parent_allowed = engine._allowed_skill_names
     skill_names = [
@@ -97,9 +109,32 @@ async def prepare_delegate_task(
         and n in parent_allowed
     ]
 
+    # 技能过滤日志：记录请求 vs 实际可用
+    filtered_out = [n for n in raw_skill_names if n not in skill_names]
+    if filtered_out:
+        reasons = []
+        for n in filtered_out:
+            sk = skill_registry.get(n)
+            if not sk:
+                reasons.append(f"{n}(未注册)")
+            elif sk.skill_type == "orch":
+                reasons.append(f"{n}(orch技能不可委派)")
+            elif n not in parent_allowed:
+                reasons.append(f"{n}(不在父Agent允许列表)")
+            else:
+                reasons.append(f"{n}(未知原因)")
+        _log.info(
+            "[Delegate] 技能过滤: 请求=%s, 通过=%s, 过滤掉=%s",
+            raw_skill_names, skill_names, ", ".join(reasons),
+        )
+
     # 如果请求了技能但全部无效，返回错误而非静默创建无技能的子Agent
     if raw_skill_names and not skill_names:
         available = ", ".join(sorted(parent_allowed)) or "(无)"
+        _log.warning(
+            "[Delegate] 拒绝委派: 所有技能均不可用, 请求=%s, 可用=%s",
+            raw_skill_names, available,
+        )
         return (
             f"错误：请求的技能 {raw_skill_names} 均不可用。"
             f"当前可用技能: {available}。"
@@ -108,6 +143,15 @@ async def prepare_delegate_task(
 
     prompt = await engine.task_planner.generate(task_desc, skill_names, engine._messages)
     delegate_id = f"delegate_{uuid.uuid4().hex[:8]}"
+
+    _log.info(
+        "[Delegate] 委派就绪: id=%s, skills=%s, budget_remaining=%d/%d, "
+        "depth=%d, task=%s",
+        delegate_id, skill_names, remaining, engine.token_budget,
+        engine.subagent_depth + 1, tc.input.get("task", "")[:100],
+    )
+    _log.debug("[Delegate] %s prompt: %s", delegate_id, prompt[:500])
+
     return skill_names, prompt, delegate_id
 
 
@@ -133,8 +177,16 @@ class ToolExecutor:
                 prepared = await prepare_delegate_task(engine, tc)
                 if isinstance(prepared, str):
                     result = prepared
+                    _log.info("[Delegate] 委派失败(prepare阶段): %s", prepared[:200])
                 else:
                     skill_names, prompt, delegate_id = prepared
+                    tokens_before = (
+                        engine.total_input_tokens + engine.total_output_tokens
+                    )
+                    _log.info(
+                        "[Delegate] 开始执行: id=%s, skills=%s",
+                        delegate_id, skill_names,
+                    )
                     result = ""
                     async for event in run_delegate_task(engine, skill_names, prompt, delegate_id):
                         if event["type"] == "__delegate_done__":
@@ -143,6 +195,17 @@ class ToolExecutor:
                             result = f"子任务执行错误: {event['message']}"
                         else:
                             yield event
+                    tokens_after = (
+                        engine.total_input_tokens + engine.total_output_tokens
+                    )
+                    _log.info(
+                        "[Delegate] 执行结束: id=%s, tokens_consumed=%d, "
+                        "result_len=%d, duration=%.1fs",
+                        delegate_id,
+                        tokens_after - tokens_before,
+                        len(result),
+                        time.monotonic() - t0,
+                    )
             else:
                 handler = engine.tool_handlers.get(tc.name)
                 if not handler:

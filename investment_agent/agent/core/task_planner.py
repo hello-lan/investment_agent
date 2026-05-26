@@ -76,9 +76,13 @@ class TaskPlanner:
         if not parent_messages:
             return task
 
+        from ...config import PROJECT_ROOT
+
         text_messages = self._build_text_messages(parent_messages)
         skill_info = self._build_skill_info(skill_names)
-        prompt = TASK_PLANNER_PROMPT.format(task=task, skill_info=skill_info)
+        prompt = TASK_PLANNER_PROMPT.format(
+            task=task, skill_info=skill_info, project_root=PROJECT_ROOT
+        )
         text_messages.append({"role": "user", "content": prompt})
 
         try:
