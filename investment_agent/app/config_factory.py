@@ -51,9 +51,15 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
         "token_budget": agent_cfg.get("token_budget") or global_cfg.get("token_budget", 100000),
         "loop_detection_threshold": agent_cfg.get("loop_detection_threshold") or global_cfg.get("loop_detection_threshold", 3),
         "context_trim_interval": agent_cfg.get("context_trim_interval") or global_cfg.get("context_trim_interval", 0),
-        "runtime_trim_strategy": agent_cfg.get("runtime_trim_strategy") or global_cfg.get("runtime_trim_strategy", "default"),
+        "runtime_trim_strategy": agent_cfg.get("runtime_trim_strategy") or global_cfg.get("runtime_trim_strategy", "compress"),
         "tool_trim_limits": agent_cfg.get("tool_trim_limits") or global_cfg.get("tool_trim_limits", {}),
         "max_subagent_depth": agent_cfg.get("max_subagent_depth") or global_cfg.get("max_subagent_depth", 3),
+        "offload_threshold": agent_cfg.get("offload_threshold")
+                             or global_cfg.get("offload_threshold", 800),
+        "offload_summary_strategy": agent_cfg.get("offload_summary_strategy")
+                                    or global_cfg.get("offload_summary_strategy", "truncate"),
+        "offload_summary_chars": agent_cfg.get("offload_summary_chars")
+                                 or global_cfg.get("offload_summary_chars", 200),
     }
 
 
@@ -158,6 +164,9 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         tool_trim_limits=engine_params["tool_trim_limits"],
         context=context_cfg,
         max_subagent_depth=engine_params["max_subagent_depth"],
+        offload_threshold=engine_params["offload_threshold"],
+        offload_summary_strategy=engine_params["offload_summary_strategy"],
+        offload_summary_chars=engine_params["offload_summary_chars"],
         input_price=provider.input_price,
         output_price=provider.output_price,
         currency=provider.currency,

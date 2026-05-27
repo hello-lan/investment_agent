@@ -167,7 +167,10 @@ def create_child_engine(
     Returns:
         配置好工具和技能的子 AgentEngine 实例
     """
-    from ..config import EngineConfig
+    import os
+    from ..config import EngineConfig, OFFLOAD_AWARE_PROMPT
+    from ..context.context_offloader import ContextOffloader
+    from ..context.runtime_compressor import CompressRuntimeCompressor
     from ..tools.skill_tool import SkillTool
     from ..skills.loader import _registry as skill_registry
     from ..skills.dependency import expand_with_dependencies
@@ -185,6 +188,23 @@ def create_child_engine(
         0, parent.token_budget - parent.total_input_tokens - parent.total_output_tokens
     )
 
+    # 子Agent 始终创建独立的 CompressRuntimeCompressor + offloader（不继承父Agent compressor）
+    offload_dir = os.path.join(
+        PROJECT_ROOT, "data", ".offload", parent.session_id, session_id,
+    )
+    offloader = ContextOffloader(
+        offload_dir,
+        threshold=parent.offload_threshold,
+        summary_strategy=parent.offload_summary_strategy,
+        summary_chars=parent.offload_summary_chars,
+        provider=parent.provider,
+    )
+    child_compressor = CompressRuntimeCompressor(
+        tool_trim_limits=parent.tool_trim_limits,
+        keep_recent=3,
+        offloader=offloader,
+    )
+
     child_cfg = EngineConfig(
         max_steps=parent.max_steps,
         slow_think_interval=0,
@@ -194,16 +214,22 @@ def create_child_engine(
             parent.context_trim_interval if parent.context_trim_interval > 0 else 5
         ),
         max_subagent_depth=parent.max_subagent_depth,
+        offload_threshold=parent.offload_threshold,
+        offload_summary_strategy=parent.offload_summary_strategy,
+        offload_summary_chars=parent.offload_summary_chars,
     )
 
     child = AgentEngine(
         session_id=session_id,
-        system_prompt=SUBAGENT_SYSTEM_PROMPT.format(PROJECT_ROOT=PROJECT_ROOT),
+        system_prompt=(
+            SUBAGENT_SYSTEM_PROMPT.format(PROJECT_ROOT=PROJECT_ROOT)
+            + OFFLOAD_AWARE_PROMPT
+        ),
         provider=parent.provider,
         temperature=parent.temperature,
         max_tokens=parent.max_tokens,
         config=child_cfg,
-        runtime_trimmer=parent._runtime_trimmer,
+        runtime_compressor=child_compressor,
         subagent_depth=depth,
     )
 

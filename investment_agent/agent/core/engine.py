@@ -15,7 +15,7 @@ from ..config import (
     SLOW_THINK_PROMPT,
     TRUNCATION_CONTINUE_PROMPT,
 )
-from ..context.runtime_trimmer import RuntimeTrimmer
+from ..context.runtime_compressor import RuntimeCompressor
 
 _log = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class AgentEngine:
         provider: ModelProvider | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
-        runtime_trimmer: RuntimeTrimmer | None = None,
+        runtime_compressor: RuntimeCompressor | None = None,
         subagent_depth: int = 0,
     ):
         self.session_id = session_id
@@ -63,7 +63,12 @@ class AgentEngine:
         self.loop_threshold = config.loop_detection_threshold
         self.context_trim_interval = config.context_trim_interval
         self.tool_trim_limits = config.tool_trim_limits
-        self._runtime_trimmer = runtime_trimmer
+        self._runtime_compressor = runtime_compressor
+
+        # 上下文卸载参数（子Agent创建时需要读取）
+        self.offload_threshold = config.offload_threshold
+        self.offload_summary_strategy = config.offload_summary_strategy
+        self.offload_summary_chars = config.offload_summary_chars
 
         self.total_input_tokens = 0
         self.total_output_tokens = 0
@@ -145,7 +150,7 @@ class AgentEngine:
             yield {"type": "step_start", "step": step}
 
             # 上下文裁剪
-            messages, trim_event = self._maybe_trim_context(messages, step)
+            messages, trim_event = await self._maybe_trim_context(messages, step)
             if trim_event:
                 yield trim_event
 
@@ -209,19 +214,19 @@ class AgentEngine:
             return {"type": "error", "message": f"Token budget ({self.token_budget}) exceeded."}
         return None
 
-    def _maybe_trim_context(self, messages: list[dict], step: int) -> tuple[list[dict], dict | None]:
+    async def _maybe_trim_context(self, messages: list[dict], step: int) -> tuple[list[dict], dict | None]:
         """每 N 步裁剪旧消息。返回 (messages, trim_event)。
-        NoOpRuntimeTrimmer（strategy="none"）时不 emit 事件，避免误导性日志。
+        NoOpRuntimeCompressor（strategy="off"）时不 emit 事件，避免误导性日志。
         """
-        from ..context.runtime_trimmer import NoOpRuntimeTrimmer
+        from ..context.runtime_compressor import NoOpRuntimeCompressor
         if (
-            self._runtime_trimmer is not None
-            and not isinstance(self._runtime_trimmer, NoOpRuntimeTrimmer)
+            self._runtime_compressor is not None
+            and not isinstance(self._runtime_compressor, NoOpRuntimeCompressor)
             and self.context_trim_interval > 0
             and step > 1
             and step % self.context_trim_interval == 0
         ):
-            messages = self._runtime_trimmer.trim(messages, step)
+            messages = await self._runtime_compressor.compress(messages, step)
             return messages, {"type": "context_trim", "step": step}
         return messages, None
 

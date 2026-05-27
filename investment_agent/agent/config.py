@@ -38,7 +38,8 @@ SUBAGENT_SYSTEM_PROMPT = """你是一个专业的子Agent，负责执行父Agent
   - 1_pdf/ → 下载的PDF年报
   - 2_markdown/ → PDF转换后的Markdown文件
   - 3_split/ → 按章节目录切割后的文件
-  - 4_output/ → 最终分析报告输出"""
+  - 4_output/ → 最终分析报告输出
+- data/.offload/ → 上下文卸载临时文件（自动管理，可 cat 读取）"""
 
 
 # ── 引擎内部 prompt ────────────────────────────────────────────────
@@ -69,6 +70,15 @@ SLOW_THINK_PROMPT = (
 
 TRUNCATION_CONTINUE_PROMPT = "你的上一次回复因达到token上限被截断，请继续完成未完成的部分。"
 
+OFFLOAD_AWARE_PROMPT = """
+
+## 上下文卸载机制
+执行过程中，较早的工具调用结果会被自动卸载到临时文件以节省上下文空间。
+你会看到类似 `[上下文已卸载 → 文件路径 (原始 N 字符)]` 的占位符。
+- 占位符中的摘要通常包含关键信息
+- 如需查看完整原始内容，使用 run_command: cat 文件路径
+- 不要尝试删除或修改这些临时文件"""
+
 
 @dataclass
 class EngineConfig:
@@ -81,6 +91,9 @@ class EngineConfig:
     context_trim_interval: int = 0
     tool_trim_limits: dict = field(default_factory=dict)
     max_subagent_depth: int = 3
+    offload_threshold: int = 800
+    offload_summary_strategy: str = "truncate"
+    offload_summary_chars: int = 200
 
 
 @dataclass
@@ -111,7 +124,12 @@ class AgentRunConfig:
     token_budget: int = 100000
     loop_detection_threshold: int = 3
     context_trim_interval: int = 0
-    runtime_trim_strategy: str = "default"
+    runtime_trim_strategy: str = "compress"
+
+    # ── 上下文卸载参数 ──
+    offload_threshold: int = 800
+    offload_summary_strategy: str = "truncate"
+    offload_summary_chars: int = 200
 
     # ── Agent 级工具选择（空列表=全部工具，向后兼容）──
     tools: list[str] = field(default_factory=list)

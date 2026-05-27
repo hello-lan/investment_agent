@@ -6,8 +6,11 @@
     "loop_detection_threshold": 3,
     "skill_body_ttl": 600,
     "context_trim_interval": 5,
-    "runtime_trim_strategy": "default",
+    "runtime_trim_strategy": "compress",
     "max_subagent_depth": 3,
+    "offload_threshold": 800,
+    "offload_summary_strategy": "truncate",
+    "offload_summary_chars": 200,
     "tool_trim_limits": {
       "get_income_statement": 6000,
       "get_balance_sheet": 6000,

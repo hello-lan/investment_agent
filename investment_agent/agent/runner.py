@@ -5,11 +5,14 @@ FastAPI 层只需引入此类，注入依赖后调用 start() / setup() / prepar
 
 from __future__ import annotations
 
+import os
+import shutil
 from typing import ClassVar
 
 from .config import AgentRunConfig, EngineConfig
+from .context.context_offloader import ContextOffloader
 from .context.manager import ContextManager, ContextResult
-from .context.runtime_trimmer import get_runtime_trimmer
+from .context.runtime_compressor import CompressRuntimeCompressor, NoOpRuntimeCompressor
 from .core.engine import AgentEngine
 from .protocols import ExecutionLoop, LifecycleHooks, Storage
 from .skills.dependency import expand_with_dependencies
@@ -169,8 +172,14 @@ class AgentRunner:
         self._assistant_content = content
 
     def cleanup(self, task_id: str) -> None:
-        """移除引擎，释放内存。"""
-        self._engines.pop(task_id, None)
+        """移除引擎，释放内存，清理卸载临时文件。"""
+        engine = self._engines.pop(task_id, None)
+        # 清理上下文卸载临时文件
+        session_id = engine.session_id if engine else task_id
+        shutil.rmtree(
+            os.path.join(PROJECT_ROOT, "data", ".offload", session_id),
+            ignore_errors=True,
+        )
 
     @classmethod
     def get_engine(cls, task_id: str) -> AgentEngine | None:
@@ -190,9 +199,23 @@ class AgentRunner:
 
     def _create_engine(self, config: AgentRunConfig, session_id: str) -> AgentEngine:
         """创建引擎并注册工具/技能。start() 和 setup() 共用。"""
-        runtime_trimmer = get_runtime_trimmer(
-            config.runtime_trim_strategy, config.tool_trim_limits,
-        )
+        # 创建 offloader + trimmer
+        if config.runtime_trim_strategy == "compress":
+            offload_dir = os.path.join(PROJECT_ROOT, "data", ".offload", session_id)
+            offloader = ContextOffloader(
+                offload_dir,
+                threshold=config.offload_threshold,
+                summary_strategy=config.offload_summary_strategy,
+                summary_chars=config.offload_summary_chars,
+                provider=config.provider,
+            )
+            runtime_compressor = CompressRuntimeCompressor(
+                tool_trim_limits=config.tool_trim_limits,
+                offloader=offloader,
+            )
+        else:
+            runtime_compressor = NoOpRuntimeCompressor()
+
         engine_cfg = EngineConfig(
             max_steps=config.max_steps,
             slow_think_interval=config.slow_think_interval,
@@ -201,6 +224,9 @@ class AgentRunner:
             context_trim_interval=config.context_trim_interval,
             tool_trim_limits=config.tool_trim_limits,
             max_subagent_depth=config.max_subagent_depth,
+            offload_threshold=config.offload_threshold,
+            offload_summary_strategy=config.offload_summary_strategy,
+            offload_summary_chars=config.offload_summary_chars,
         )
         engine = AgentEngine(
             session_id=session_id,
@@ -209,7 +235,7 @@ class AgentRunner:
             temperature=config.temperature,
             max_tokens=config.max_tokens,
             config=engine_cfg,
-            runtime_trimmer=runtime_trimmer,
+            runtime_compressor=runtime_compressor,
         )
         allowed_tools = AUTO_BOUND_TOOLS | set(config.tools)
 
