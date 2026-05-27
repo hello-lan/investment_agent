@@ -114,6 +114,15 @@ function switchTab(tabName) {
   });
 }
 
+function switchCtxTab(tabName) {
+  document.querySelectorAll('.ctx-tab-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.ctxTab === tabName);
+  });
+  document.querySelectorAll('.ctx-tab-panel').forEach(p => {
+    p.classList.toggle('active', p.dataset.ctxTab === tabName);
+  });
+}
+
 document.addEventListener('click', function(e) {
   const item = e.target.closest('.skill-item');
   if (!item) return;
@@ -208,8 +217,8 @@ function fillEngineFields(cfg) {
   const slowThink = document.getElementById('agentSlowThink');
   const tokenBudget = document.getElementById('agentTokenBudget');
   const loopThreshold = document.getElementById('agentLoopThreshold');
-  const trimStrategy = document.getElementById('agentTrimStrategy');
-  const trimInterval = document.getElementById('agentTrimInterval');
+  const compressStrategy = document.getElementById('agentCompressStrategy');
+  const compressInterval = document.getElementById('agentCompressInterval');
   const maxSubagentDepth = document.getElementById('agentMaxSubagentDepth');
 
   if (!cfg) {
@@ -220,12 +229,15 @@ function fillEngineFields(cfg) {
     tokenBudget.value = '';
     loopThreshold.value = 3;
     document.getElementById('agentLoopVal').textContent = '3';
-    trimStrategy.value = 'none';
-    trimInterval.value = 5;
-    document.getElementById('agentTrimIntervalVal').textContent = '5';
-    toggleTrimInterval();
+    compressStrategy.value = 'compress';
+    compressInterval.value = 5;
+    document.getElementById('agentCompressIntervalVal').textContent = '5';
+    toggleCompressInterval();
     maxSubagentDepth.value = 3;
     document.getElementById('agentMaxSubagentDepthVal').textContent = '3';
+    document.getElementById('agentOffloadThreshold').value = '';
+    document.getElementById('agentOffloadStrategy').value = 'truncate';
+    document.getElementById('agentOffloadSummaryChars').value = '';
     return;
   }
 
@@ -236,22 +248,28 @@ function fillEngineFields(cfg) {
   tokenBudget.value = cfg.token_budget ?? '';
   loopThreshold.value = cfg.loop_detection_threshold ?? 3;
   document.getElementById('agentLoopVal').textContent = cfg.loop_detection_threshold ?? 3;
-  const strategy = cfg.runtime_trim_strategy || 'none';
-  trimStrategy.value = strategy;
-  trimInterval.value = cfg.context_trim_interval || 5;
-  document.getElementById('agentTrimIntervalVal').textContent = cfg.context_trim_interval || 5;
-  toggleTrimInterval();
+  const strategy = cfg.runtime_trim_strategy || 'compress';
+  compressStrategy.value = strategy;
+  compressInterval.value = cfg.context_trim_interval || 5;
+  document.getElementById('agentCompressIntervalVal').textContent = cfg.context_trim_interval || 5;
+  toggleCompressInterval();
   maxSubagentDepth.value = cfg.max_subagent_depth ?? 3;
   document.getElementById('agentMaxSubagentDepthVal').textContent = cfg.max_subagent_depth ?? 3;
+  document.getElementById('agentOffloadThreshold').value = cfg.offload_threshold ?? '';
+  document.getElementById('agentOffloadStrategy').value = cfg.offload_summary_strategy || 'truncate';
+  document.getElementById('agentOffloadSummaryChars').value = cfg.offload_summary_chars ?? '';
 }
 
-function toggleTrimInterval() {
-  const strategy = document.getElementById('agentTrimStrategy').value;
-  const row = document.getElementById('trimIntervalRow');
-  if (strategy === 'none') {
-    row.classList.add('hidden');
+function toggleCompressInterval() {
+  const strategy = document.getElementById('agentCompressStrategy').value;
+  const compressRow = document.getElementById('compressIntervalRow');
+  const offloadOpts = document.getElementById('offloadOptions');
+  if (strategy === 'off') {
+    compressRow.classList.add('hidden');
+    if (offloadOpts) offloadOpts.classList.add('hidden');
   } else {
-    row.classList.remove('hidden');
+    compressRow.classList.remove('hidden');
+    if (offloadOpts) offloadOpts.classList.remove('hidden');
   }
 }
 
@@ -271,6 +289,7 @@ function openModal(agent){
   renderSkillOptions(agent?.skills || []);
   renderToolOptions(agent?.tools || []);
   switchTab('skills');
+  switchCtxTab('preflight');
   document.getElementById('modalOverlay').classList.add('open');
 }
 
@@ -337,18 +356,25 @@ async function saveAgent(){
   const engineSlowThink = parseInt(document.getElementById('agentSlowThink').value) || 3;
   const engineTokenBudget = toNullableInt(document.getElementById('agentTokenBudget').value);
   const engineLoopThreshold = parseInt(document.getElementById('agentLoopThreshold').value) || 3;
-  const trimStrategy = document.getElementById('agentTrimStrategy').value;
-  const trimInterval = parseInt(document.getElementById('agentTrimInterval').value) || 5;
+  const compressStrategy = document.getElementById('agentCompressStrategy').value;
+  const compressInterval = parseInt(document.getElementById('agentCompressInterval').value) || 5;
   const maxSubagentDepth = parseInt(document.getElementById('agentMaxSubagentDepth').value) || 3;
+
+  const offloadThreshold = toNullableInt(document.getElementById('agentOffloadThreshold').value);
+  const offloadStrategy = document.getElementById('agentOffloadStrategy').value;
+  const offloadSummaryChars = toNullableInt(document.getElementById('agentOffloadSummaryChars').value);
 
   const engineConfig = {
     max_steps: engineMaxSteps,
     slow_think_interval: engineSlowThink,
     token_budget: engineTokenBudget,
     loop_detection_threshold: engineLoopThreshold,
-    runtime_trim_strategy: trimStrategy,
-    context_trim_interval: trimInterval,
+    runtime_trim_strategy: compressStrategy,
+    context_trim_interval: compressInterval,
     max_subagent_depth: maxSubagentDepth,
+    offload_threshold: offloadThreshold,
+    offload_summary_strategy: offloadStrategy,
+    offload_summary_chars: offloadSummaryChars,
   };
 
   const body = {
