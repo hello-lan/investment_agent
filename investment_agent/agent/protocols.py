@@ -13,6 +13,9 @@ class ExecutionLoop(Protocol):
 
     当前实现：agent/core/engine.py 的 AgentEngine（双循环模式）。
     可替换为 Tree-of-Thought、ReAct 等其他执行策略。
+
+    system_prompt / tools / provider 等在构造时注入，
+    run() 仅接收消息列表并逐事件 yield 字典。
     """
 
     @property
@@ -30,16 +33,12 @@ class ExecutionLoop(Protocol):
     async def run(
         self,
         messages: list[dict],
-        system_prompt: str,
-        tools: list[dict],
-        tool_handlers: dict[str, Any],
-        provider: Any,
     ) -> AsyncGenerator[dict, None]:
         """执行 LLM 循环，逐事件 yield 字典。"""
         ...
 
 
-class ContextManager(Protocol):
+class ContextManagerProtocol(Protocol):
     """上下文管理策略接口。
 
     当前实现：agent/context/manager.py 的 ContextManager（Head-Body-Tail 模式）。

@@ -15,6 +15,103 @@ _log = logging.getLogger(__name__)
 
 # ── 事件转发辅助 ─────────────────────────────────────────────────────
 
+_AGENT_TYPE = "delegate"
+
+
+def _fwd_done(event: dict, prefix: str, delegate_id: str, depth: int) -> str:
+    return "done"
+
+
+def _fwd_error(event: dict, prefix: str, delegate_id: str, depth: int) -> str:
+    return "error"
+
+
+def _fwd_text_delta(event: dict, prefix: str, delegate_id: str, depth: int) -> dict:
+    return {
+        "type": f"{prefix}text_delta",
+        "delegate_id": delegate_id,
+        "depth": depth,
+        "agent_type": _AGENT_TYPE,
+        "content": event["content"],
+    }
+
+
+def _fwd_tool_event(event: dict, prefix: str, delegate_id: str, depth: int) -> dict:
+    forwarded: dict = {
+        "type": f"{prefix}{event.get('type', '')}",
+        "delegate_id": event.get("delegate_id", delegate_id),
+        "depth": event.get("depth", depth),
+        "agent_type": _AGENT_TYPE,
+        "tool": event.get("tool", ""),
+        "duration_ms": event.get("duration_ms", 0),
+    }
+    if "input" in event:
+        forwarded["input"] = str(event["input"])
+    if "output" in event:
+        forwarded["output"] = str(event["output"])
+    return forwarded
+
+
+def _fwd_llm_request(event: dict, prefix: str, delegate_id: str, depth: int) -> dict:
+    return {
+        "type": f"{prefix}llm_request",
+        "delegate_id": event.get("delegate_id", delegate_id),
+        "depth": event.get("depth", depth),
+        "agent_type": _AGENT_TYPE,
+        "step": event.get("step"),
+        "messages": event.get("messages"),
+    }
+
+
+def _fwd_llm_response(event: dict, prefix: str, delegate_id: str, depth: int) -> dict:
+    return {
+        "type": f"{prefix}llm_response",
+        "delegate_id": event.get("delegate_id", delegate_id),
+        "depth": event.get("depth", depth),
+        "agent_type": _AGENT_TYPE,
+        "step": event.get("step"),
+        "input_tokens": event.get("input_tokens"),
+        "output_tokens": event.get("output_tokens"),
+        "cache_read_tokens": event.get("cache_read_tokens"),
+        "cache_creation_tokens": event.get("cache_creation_tokens"),
+        "content": event.get("content"),
+        "reasoning": event.get("reasoning"),
+        "tool_calls": event.get("tool_calls"),
+    }
+
+
+def _fwd_context_trim(event: dict, prefix: str, delegate_id: str, depth: int) -> dict:
+    return {
+        "type": f"{prefix}context_trim",
+        "delegate_id": delegate_id,
+        "depth": depth,
+        "agent_type": _AGENT_TYPE,
+        "step": event.get("step"),
+    }
+
+
+def _fwd_nested(event: dict, prefix: str, delegate_id: str, depth: int) -> dict:
+    """透传嵌套孙Agent的事件（加一层前缀）。"""
+    forwarded = dict(event)
+    forwarded["type"] = f"sub_{event['type']}"
+    forwarded["depth"] = event.get("depth", depth)
+    forwarded["delegate_id"] = event.get("delegate_id", delegate_id)
+    forwarded.setdefault("agent_type", _AGENT_TYPE)
+    return forwarded
+
+
+# Dispatch table: event_type → 转发函数
+_FORWARDERS: dict[str, callable] = {
+    "done": _fwd_done,
+    "error": _fwd_error,
+    "text_delta": _fwd_text_delta,
+    "tool_call": _fwd_tool_event,
+    "tool_result": _fwd_tool_event,
+    "llm_request": _fwd_llm_request,
+    "llm_response": _fwd_llm_response,
+    "context_trim": _fwd_context_trim,
+}
+
 
 def forward_event(
     event: dict,
@@ -33,83 +130,19 @@ def forward_event(
     Returns:
         - dict: 可转发的转发事件
         - "done": 子引擎执行完成
-        - "error": 子引擎执行出错（message 在 event["message"] 中）
+        - "error": 子引擎执行出错
         - None: 无需转发的未知事件
     """
     event_type = event["type"]
-    agent_type = "delegate"
 
-    if event_type == "done":
-        return "done"
+    # 查 dispatch table
+    forwarder = _FORWARDERS.get(event_type)
+    if forwarder is not None:
+        return forwarder(event, prefix, delegate_id, depth)
 
-    if event_type == "error":
-        return "error"
-
-    if event_type == "text_delta":
-        return {
-            "type": f"{prefix}text_delta",
-            "delegate_id": delegate_id,
-            "depth": depth,
-            "agent_type": agent_type,
-            "content": event["content"],
-        }
-
-    if event_type in ("tool_call", "tool_result"):
-        sub_type = event.get("type", "")
-        forwarded_type = f"{prefix}{sub_type}"
-        forwarded: dict = {
-            "type": forwarded_type,
-            "delegate_id": event.get("delegate_id", delegate_id),
-            "depth": event.get("depth", depth),
-            "agent_type": agent_type,
-            "tool": event.get("tool", ""),
-            "duration_ms": event.get("duration_ms", 0),
-        }
-        if "input" in event:
-            forwarded["input"] = str(event["input"])
-        if "output" in event:
-            forwarded["output"] = str(event["output"])
-        return forwarded
-
-    if event_type in ("llm_request", "llm_response"):
-        sub_type = event.get("type", "")
-        forwarded_type = f"{prefix}{sub_type}"
-        forwarded = {
-            "type": forwarded_type,
-            "delegate_id": event.get("delegate_id", delegate_id),
-            "depth": event.get("depth", depth),
-            "agent_type": agent_type,
-            "step": event.get("step"),
-        }
-        if event_type == "llm_request":
-            forwarded["messages"] = event.get("messages")
-        else:
-            forwarded["input_tokens"] = event.get("input_tokens")
-            forwarded["output_tokens"] = event.get("output_tokens")
-            forwarded["cache_read_tokens"] = event.get("cache_read_tokens")
-            forwarded["cache_creation_tokens"] = event.get("cache_creation_tokens")
-            forwarded["content"] = event.get("content")
-            forwarded["reasoning"] = event.get("reasoning")
-            forwarded["tool_calls"] = event.get("tool_calls")
-        return forwarded
-
+    # 嵌套子Agent事件透传
     if event_type.startswith("sub_"):
-        # 透传嵌套孙Agent的事件（加一层前缀）
-        forwarded = dict(event)
-        forwarded["type"] = f"sub_{event_type}"
-        forwarded["depth"] = event.get("depth", depth)
-        forwarded["delegate_id"] = event.get("delegate_id", delegate_id)
-        forwarded.setdefault("agent_type", agent_type)
-        return forwarded
-
-    if event_type == "context_trim":
-        return {
-            "type": f"{prefix}context_trim",
-            "delegate_id": delegate_id,
-            "depth": depth,
-            "agent_type": agent_type,
-            "step": event.get("step"),
-        }
+        return _fwd_nested(event, prefix, delegate_id, depth)
 
     return None
 
@@ -134,7 +167,8 @@ def create_child_engine(
     Returns:
         配置好工具和技能的子 AgentEngine 实例
     """
-    from ..skills.tool import SkillTool
+    from ..config import EngineConfig
+    from ..tools.skill_tool import SkillTool
     from ..skills.loader import _registry as skill_registry
     from ..skills.dependency import expand_with_dependencies
     from ..tools.access_policy import AccessPolicy
@@ -151,12 +185,7 @@ def create_child_engine(
         0, parent.token_budget - parent.total_input_tokens - parent.total_output_tokens
     )
 
-    child = AgentEngine(
-        session_id=session_id,
-        system_prompt=SUBAGENT_SYSTEM_PROMPT.format(PROJECT_ROOT=PROJECT_ROOT),
-        provider=parent.provider,
-        temperature=parent.temperature,
-        max_tokens=parent.max_tokens,
+    child_cfg = EngineConfig(
         max_steps=parent.max_steps,
         slow_think_interval=0,
         token_budget=remaining_budget,
@@ -164,9 +193,18 @@ def create_child_engine(
         context_trim_interval=(
             parent.context_trim_interval if parent.context_trim_interval > 0 else 5
         ),
+        max_subagent_depth=parent.max_subagent_depth,
+    )
+
+    child = AgentEngine(
+        session_id=session_id,
+        system_prompt=SUBAGENT_SYSTEM_PROMPT.format(PROJECT_ROOT=PROJECT_ROOT),
+        provider=parent.provider,
+        temperature=parent.temperature,
+        max_tokens=parent.max_tokens,
+        config=child_cfg,
         runtime_trimmer=parent._runtime_trimmer,
         subagent_depth=depth,
-        max_subagent_depth=parent.max_subagent_depth,
     )
 
     # 共享中断信号
@@ -184,22 +222,13 @@ def create_child_engine(
 
     # Skill 工具：仅在 skill_names 非空时注册，并加闭包过滤（含依赖技能）
     if skill_names:
-        allowed_names = set(all_skill_names)
+        from ..skills.filtered_runner import make_filtered_skill_runner
+
         skill_tool = SkillTool()
-        original_run = skill_tool.run
-
-        async def filtered_skill_run(
-            name, _orig=original_run, _allowed=allowed_names,
-        ):
-            if name not in _allowed:
-                available = ", ".join(sorted(_allowed)) or "(无)"
-                return (
-                    f"技能 '{name}' 不在当前Agent的启用列表中。"
-                    f"可用技能: {available}"
-                )
-            return await _orig(name=name)
-
-        child.register_tool(skill_tool.schema, filtered_skill_run)
+        filtered_run = make_filtered_skill_runner(
+            set(all_skill_names), skill_tool.run,
+        )
+        child.register_tool(skill_tool.schema, filtered_run)
 
     # 设置允许的技能名称集合（含依赖）
     child._allowed_skill_names = set(all_skill_names)

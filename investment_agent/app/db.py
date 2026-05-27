@@ -2,7 +2,7 @@ import shutil
 
 import aiosqlite
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from ..config import get_settings, PROJECT_ROOT
@@ -18,6 +18,35 @@ async def get_db():
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         yield db
+
+
+async def _ensure_columns(
+    db: aiosqlite.Connection,
+    migrations: list[tuple[str, str, str]],
+) -> None:
+    """批量检查并添加缺失列。
+
+    Args:
+        db: 数据库连接
+        migrations: (表名, 列名, 类型定义) 列表
+    """
+    # 按表分组，减少 PRAGMA 调用
+    by_table: dict[str, list[tuple[str, str]]] = {}
+    for table, col, col_type in migrations:
+        by_table.setdefault(table, []).append((col, col_type))
+
+    for table, columns in by_table.items():
+        cursor = await db.execute(f"PRAGMA table_info({table})")
+        existing = {row[1] for row in await cursor.fetchall()}
+        changed = False
+        for col, col_type in columns:
+            if col not in existing:
+                await db.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {col} {col_type}"
+                )
+                changed = True
+        if changed:
+            await db.commit()
 
 
 async def init_db() -> None:
@@ -123,99 +152,52 @@ async def init_db() -> None:
         """)
         await db.commit()
 
-        # 迁移：旧 agents 表可能缺少 model_id / compress_config 列
+        # ── 声明式列迁移 ──────────────────────────────────────────────
+        # 格式: (表名, 列名, 类型定义)
+        # 按表分组执行，减少 PRAGMA 调用次数
+        column_migrations: list[tuple[str, str, str]] = [
+            ("agents", "model_id", "TEXT"),
+            ("agents", "compress_config", "TEXT"),
+            ("agents", "engine_config", "TEXT"),
+            ("agents", "tools", "TEXT DEFAULT '[]'"),
+            ("sessions", "current_task_id", "TEXT"),
+            ("sessions", "input_tokens", "INTEGER DEFAULT 0"),
+            ("sessions", "output_tokens", "INTEGER DEFAULT 0"),
+            ("sessions", "cost_usd", "REAL DEFAULT 0"),
+            ("trace_log", "agent_name", "TEXT"),
+            ("trace_log", "detail_size", "INTEGER DEFAULT 0"),
+            ("cost_log", "agent_name", "TEXT"),
+            ("cost_log", "currency", "TEXT"),
+            ("models", "input_price", "REAL"),
+            ("models", "output_price", "REAL"),
+            ("models", "currency", "TEXT DEFAULT 'USD'"),
+        ]
+        await _ensure_columns(db, column_migrations)
+
+        # ── 特殊迁移（数据回填）──────────────────────────────────────
+        # agents.model_id: 从旧列 model_name 回填
         cursor = await db.execute("PRAGMA table_info(agents)")
-        columns = {row[1] for row in await cursor.fetchall()}
-        changed = False
-        if "model_id" not in columns:
-            await db.execute("ALTER TABLE agents ADD COLUMN model_id TEXT")
-            changed = True
-            if "model_name" in columns:
-                await db.execute("UPDATE agents SET model_id = model_name WHERE model_id IS NULL")
-        if "compress_config" not in columns:
-            await db.execute("ALTER TABLE agents ADD COLUMN compress_config TEXT")
-            changed = True
-        if "engine_config" not in columns:
-            await db.execute("ALTER TABLE agents ADD COLUMN engine_config TEXT")
-            changed = True
-        if "tools" not in columns:
-            await db.execute("ALTER TABLE agents ADD COLUMN tools TEXT DEFAULT '[]'")
-            changed = True
-        if changed:
+        agent_cols = {row[1] for row in await cursor.fetchall()}
+        if "model_name" in agent_cols:
+            await db.execute(
+                "UPDATE agents SET model_id = model_name WHERE model_id IS NULL"
+            )
             await db.commit()
 
-        # 迁移：sessions 可能缺少 current_task_id 列（后台任务追踪）
-        cursor = await db.execute("PRAGMA table_info(sessions)")
-        columns = {row[1] for row in await cursor.fetchall()}
-        changed = False
-        if "current_task_id" not in columns:
-            await db.execute("ALTER TABLE sessions ADD COLUMN current_task_id TEXT")
-            changed = True
-        if "input_tokens" not in columns:
-            await db.execute("ALTER TABLE sessions ADD COLUMN input_tokens INTEGER DEFAULT 0")
-            changed = True
-        if "output_tokens" not in columns:
-            await db.execute("ALTER TABLE sessions ADD COLUMN output_tokens INTEGER DEFAULT 0")
-            changed = True
-        if "cost_usd" not in columns:
-            await db.execute("ALTER TABLE sessions ADD COLUMN cost_usd REAL DEFAULT 0")
-            changed = True
-        if changed:
-            await db.commit()
+        # trace_log.detail_size: 回填已有记录
+        await db.execute(
+            "UPDATE trace_log SET detail_size = LENGTH(detail) "
+            "WHERE detail_size IS NULL OR detail_size = 0"
+        )
+        await db.commit()
 
-        # 恢复：服务器重启时，将遗留的 running 会话重置为 active
+        # ── 恢复：服务器重启时，将遗留的 running 会话重置为 active ──
         await db.execute(
             "UPDATE sessions SET status = 'active', current_task_id = NULL WHERE status = 'running'"
         )
         await db.commit()
 
-        # 迁移：trace_log 可能缺少 agent_name / detail_size 列
-        cursor = await db.execute("PRAGMA table_info(trace_log)")
-        columns = {row[1] for row in await cursor.fetchall()}
-        changed = False
-        if "agent_name" not in columns:
-            await db.execute("ALTER TABLE trace_log ADD COLUMN agent_name TEXT")
-            changed = True
-        if "detail_size" not in columns:
-            await db.execute("ALTER TABLE trace_log ADD COLUMN detail_size INTEGER DEFAULT 0")
-            # 回填已有记录的 detail_size
-            await db.execute(
-                "UPDATE trace_log SET detail_size = LENGTH(detail) WHERE detail_size IS NULL OR detail_size = 0"
-            )
-            changed = True
-        if changed:
-            await db.commit()
-
-        # 迁移：cost_log 可能缺少 agent_name / currency 列
-        cursor = await db.execute("PRAGMA table_info(cost_log)")
-        columns = {row[1] for row in await cursor.fetchall()}
-        changed = False
-        if "agent_name" not in columns:
-            await db.execute("ALTER TABLE cost_log ADD COLUMN agent_name TEXT")
-            changed = True
-        if "currency" not in columns:
-            await db.execute("ALTER TABLE cost_log ADD COLUMN currency TEXT")
-            changed = True
-        if changed:
-            await db.commit()
-
-        # 迁移：models 可能缺少 input_price / output_price / currency 列
-        cursor = await db.execute("PRAGMA table_info(models)")
-        columns = {row[1] for row in await cursor.fetchall()}
-        changed = False
-        if "input_price" not in columns:
-            await db.execute("ALTER TABLE models ADD COLUMN input_price REAL")
-            changed = True
-        if "output_price" not in columns:
-            await db.execute("ALTER TABLE models ADD COLUMN output_price REAL")
-            changed = True
-        if "currency" not in columns:
-            await db.execute("ALTER TABLE models ADD COLUMN currency TEXT DEFAULT 'USD'")
-            changed = True
-        if changed:
-            await db.commit()
-
-        # 创建查询优化索引（IF NOT EXISTS 确保幂等）
+        # ── 创建查询优化索引（IF NOT EXISTS 确保幂等）──────────────
         await db.executescript("""
             -- cost_log 索引：支持 JOIN 条件、WHERE 过滤、ORDER BY
             CREATE INDEX IF NOT EXISTS idx_cost_session_task
@@ -248,8 +230,8 @@ async def cleanup_old_records(
     trace_log 保留 trace_days 天（默认 30），cost_log 保留 cost_days 天（默认 90）。
     返回各表删除的行数。可在 init_db 启动时调用，也可通过 API 手动触发。
     """
-    trace_cutoff = (datetime.utcnow() - timedelta(days=trace_days)).isoformat()
-    cost_cutoff = (datetime.utcnow() - timedelta(days=cost_days)).isoformat()
+    trace_cutoff = (datetime.now(timezone.utc) - timedelta(days=trace_days)).isoformat()
+    cost_cutoff = (datetime.now(timezone.utc) - timedelta(days=cost_days)).isoformat()
     result = {"trace_deleted": 0, "cost_deleted": 0}
 
     async def _do_cleanup(conn: aiosqlite.Connection):

@@ -10,6 +10,7 @@ from .token_utils import (
     count_tokens,
     count_tool_tokens,
     get_model_context_limit,
+    truncate_text,
 )
 
 logger = logging.getLogger(__name__)
@@ -277,18 +278,7 @@ class ContextManager:
         return base + "\n\n" + "\n\n---\n\n".join(parts)
 
     def _truncate_text(self, text: str, max_tokens: int) -> str:
-        if max_tokens <= 0:
-            return ""
-        if count_tokens(text) <= max_tokens:
-            return text
-        lo, hi = 0, len(text)
-        while lo < hi:
-            mid = (lo + hi + 1) // 2
-            if count_tokens(text[:mid]) <= max_tokens:
-                lo = mid
-            else:
-                hi = mid - 1
-        return text[:lo] + "\n...[compressed]"
+        return truncate_text(text, max_tokens, mode="tokens")
 
     def _emergency_trim(self, messages: list[dict], excess: int) -> list[dict]:
         """pre-flight 失败时的紧急裁剪：从头部开始缩减。"""

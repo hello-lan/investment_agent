@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..db import get_db
 
@@ -21,7 +21,7 @@ async def log_trace(
     agent_name: str | None = None,
 ) -> None:
     """记录每一步的执行事件到 trace_log 表，用于链路追踪和调试"""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     detail_str = _safe_detail(detail)
     async with get_db() as db:
         await db.execute(

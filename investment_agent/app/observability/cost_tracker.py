@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..db import get_db
 
@@ -25,7 +25,7 @@ async def log_cost(
     currency: str = "USD",
 ) -> None:
     """任务结束时记录 Token 用量和预估成本到 cost_log 表"""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     cost_usd = _estimate_cost_usd(input_tokens, output_tokens, input_price, output_price)
     async with get_db() as db:
         await db.execute(

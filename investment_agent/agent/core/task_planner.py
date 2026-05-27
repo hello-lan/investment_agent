@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from ..config import TASK_PLANNER_SYSTEM, TASK_PLANNER_PROMPT
 
 if TYPE_CHECKING:
-    from .models import ModelProvider
+    from .provider import ModelProvider
 
 _log = logging.getLogger(__name__)
 

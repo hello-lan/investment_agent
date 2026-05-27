@@ -1,8 +1,8 @@
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..db import get_db
@@ -37,7 +37,7 @@ async def list_agents():
 @router.post("")
 async def create_agent(body: AgentEntry):
     agent_id = str(uuid.uuid4())[:8]
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     async with get_db() as db:
         await db.execute(
             "INSERT INTO agents (id, name, description, system_prompt, model_id, temperature, max_tokens, skills, tools, compress_config, engine_config, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -67,17 +67,17 @@ async def get_agent(agent_id: str):
         row = await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
         agent = await row.fetchone()
     if not agent:
-        return {"error": "Agent not found"}
+        raise HTTPException(status_code=404, detail="Agent not found")
     return dict(agent)
 
 
 @router.put("/{agent_id}")
 async def update_agent(agent_id: str, body: AgentEntry):
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     async with get_db() as db:
         row = await db.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))
         if not await row.fetchone():
-            return {"error": "Agent not found"}
+            raise HTTPException(status_code=404, detail="Agent not found")
         await db.execute(
             "UPDATE agents SET name=?, description=?, system_prompt=?, model_id=?, temperature=?, max_tokens=?, skills=?, tools=?, compress_config=?, engine_config=?, updated_at=? WHERE id=?",
             (

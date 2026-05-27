@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from .config import AgentRunConfig
+from .config import AgentRunConfig, EngineConfig
 from .context.manager import ContextManager, ContextResult
 from .context.runtime_trimmer import get_runtime_trimmer
 from .core.engine import AgentEngine
@@ -154,6 +154,20 @@ class AgentRunner:
 
         return result.messages
 
+    @property
+    def storage(self) -> Storage:
+        """公开 Storage 实例，供 TaskManager 等外部组件使用。"""
+        return self._storage
+
+    @property
+    def context_result(self) -> ContextResult | None:
+        """获取上下文管理的结果（prepare_context 后可用）。"""
+        return self._context_result
+
+    def set_assistant_content(self, content: str) -> None:
+        """设置 assistant 回复内容（由 TaskManager 在任务完成后调用）。"""
+        self._assistant_content = content
+
     def cleanup(self, task_id: str) -> None:
         """移除引擎，释放内存。"""
         self._engines.pop(task_id, None)
@@ -179,20 +193,23 @@ class AgentRunner:
         runtime_trimmer = get_runtime_trimmer(
             config.runtime_trim_strategy, config.tool_trim_limits,
         )
-        engine = AgentEngine(
-            session_id=session_id,
-            system_prompt=config.system_prompt,
-            provider=config.provider,
-            temperature=config.temperature,
-            max_tokens=config.max_tokens,
+        engine_cfg = EngineConfig(
             max_steps=config.max_steps,
             slow_think_interval=config.slow_think_interval,
             token_budget=config.token_budget,
             loop_detection_threshold=config.loop_detection_threshold,
             context_trim_interval=config.context_trim_interval,
             tool_trim_limits=config.tool_trim_limits,
-            runtime_trimmer=runtime_trimmer,
             max_subagent_depth=config.max_subagent_depth,
+        )
+        engine = AgentEngine(
+            session_id=session_id,
+            system_prompt=config.system_prompt,
+            provider=config.provider,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+            config=engine_cfg,
+            runtime_trimmer=runtime_trimmer,
         )
         allowed_tools = AUTO_BOUND_TOOLS | set(config.tools)
 
@@ -222,21 +239,12 @@ class AgentRunner:
 
             # Skill 工具加闭包过滤，只允许访问已启用的技能
             if tool.name == "Skill" and config.skills:
-                allowed_names = set(config.skills)
-                original_run = tool.run
+                from .skills.filtered_runner import make_filtered_skill_runner
 
-                async def filtered_skill_run(
-                    name, _orig=original_run, _allowed=allowed_names,
-                ):
-                    if name not in _allowed:
-                        available = ", ".join(sorted(_allowed)) or "(无)"
-                        return (
-                            f"技能 '{name}' 不在当前Agent的启用列表中。"
-                            f"可用技能: {available}"
-                        )
-                    return await _orig(name=name)
-
-                engine.register_tool(tool_schema, filtered_skill_run)
+                filtered_run = make_filtered_skill_runner(
+                    set(config.skills), tool.run,
+                )
+                engine.register_tool(tool_schema, filtered_run)
 
             else:
                 engine.register_tool(tool_schema, tool.run)

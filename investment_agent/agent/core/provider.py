@@ -1,6 +1,16 @@
+"""LLM Provider 抽象层：共享数据类型 + 多模型适配器。
+
+数据类型（ToolCall, LLMResponse）供 engine / tool_executor 等模块共用。
+ModelProvider ABC 定义统一接口，ClaudeProvider 和 OpenAICompatProvider
+分别对接 Anthropic SDK 和 OpenAI Chat Completions 格式。
+"""
+
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 
 # ── 数据结构 ────────────────────────────────────────────────────────────────
@@ -32,9 +42,20 @@ class LLMResponse:
 class ModelProvider(ABC):
     """多模型抽象层基类：ClaudeProvider / OpenAICompatProvider 继承此接口"""
 
-    def _convert_messages(self, messages: list[dict]) -> list[dict]:
-        """格式转换钩子：Anthropic 原生格式无需转换，OpenAI 需要转换"""
+    # 定价信息（由 app 层工厂方法设置）
+    input_price: float | None = None
+    output_price: float | None = None
+    currency: str = "USD"
+
+    def convert_messages(self, messages: list[dict]) -> list[dict]:
+        """格式转换：Anthropic 原生格式无需转换，OpenAI 需要转换。
+
+        公开 API，供 engine 等外部组件调用。
+        """
         return messages
+
+    # 保留 protected 别名，向后兼容
+    _convert_messages = convert_messages
 
     @abstractmethod
     async def chat(
@@ -58,13 +79,17 @@ class ClaudeProvider(ModelProvider):
         self.model = model
 
     async def chat(self, messages, system="", tools=None, max_tokens=4096, temperature=0.7) -> LLMResponse:
+        # Anthropic ephemeral 缓存标记：确保 system 和 tools 被正确标记
+        system = self._ensure_cache_markers(system)
+        if tools:
+            tools = self._ensure_tools_cache(tools)
+
         kwargs: dict[str, Any] = {
             "model": self.model,
             "max_tokens": max_tokens,
             "messages": messages,
         }
         if system:
-            # 支持 str 或带 cache_control 的 content block 列表
             kwargs["system"] = system
         if tools:
             kwargs["tools"] = tools
@@ -97,6 +122,25 @@ class ClaudeProvider(ModelProvider):
             cache_creation_tokens=cache_creation,
         )
 
+    @staticmethod
+    def _ensure_cache_markers(system) -> Any:
+        """确保 system prompt 有 ephemeral 缓存标记。
+
+        - str → 转为带 cache_control 的 content block 列表
+        - list[dict] → 原样返回（ContextManager 已处理）
+        """
+        if isinstance(system, str) and system:
+            return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+        return system
+
+    @staticmethod
+    def _ensure_tools_cache(tools: list[dict]) -> list[dict]:
+        """确保最后一个 tool 有 ephemeral 缓存标记。"""
+        tools = list(tools)
+        if tools and "cache_control" not in tools[-1]:
+            tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
+        return tools
+
 
 # ── OpenAI 兼容接口（DeepSeek / Qwen / Ollama / vLLM 等）────────────────
 
@@ -108,7 +152,7 @@ class OpenAICompatProvider(ModelProvider):
         self.client = AsyncOpenAI(api_key=api_key or None, base_url=base_url)
         self.model = model
 
-    def _convert_messages(self, messages: list[dict]) -> list[dict]:
+    def convert_messages(self, messages: list[dict]) -> list[dict]:
         """将 Anthropic 格式的消息列表转换为 OpenAI Chat Completions 格式
 
         Anthropic 的 content 是 list[content_block]，OpenAI 则是 string 或 tool_calls，
@@ -189,9 +233,6 @@ class OpenAICompatProvider(ModelProvider):
 
         resp = await self.client.chat.completions.create(**kwargs)
         msg = resp.choices[0].message
-
-        import logging
-        _log = logging.getLogger(__name__)
 
         content = msg.content or ""
         reasoning = getattr(msg, "reasoning_content", None) or None

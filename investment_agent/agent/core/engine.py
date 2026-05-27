@@ -3,13 +3,15 @@
 import asyncio
 import logging
 import uuid
-from datetime import datetime
 from typing import AsyncGenerator, Callable
 
-from .models import ModelProvider, LLMResponse, ToolCall
+from ._signals import _Inject, _Terminal, _Value
+from .provider import ModelProvider, LLMResponse, ToolCall
+from .prompt_builder import PromptBuilder
 from .tool_executor import ToolExecutor, LoopDetector
 from .task_planner import TaskPlanner, extract_text_from_content
 from ..config import (
+    EngineConfig,
     SLOW_THINK_PROMPT,
     TRUNCATION_CONTINUE_PROMPT,
 )
@@ -32,23 +34,18 @@ class AgentEngine:
     def __init__(
         self,
         session_id: str,
+        config: EngineConfig,
         system_prompt: str = "",
         provider: ModelProvider | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
-        max_steps: int = 30,
-        slow_think_interval: int = 3,
-        token_budget: int = 100000,
-        loop_detection_threshold: int = 3,
-        context_trim_interval: int = 0,
-        tool_trim_limits: dict | None = None,
         runtime_trimmer: RuntimeTrimmer | None = None,
         subagent_depth: int = 0,
-        max_subagent_depth: int = 3,
     ):
         self.session_id = session_id
         self.task_id = str(uuid.uuid4())
         self._system_prompt = system_prompt
+        self._prompt_builder: PromptBuilder | None = None
         self.provider = provider
         self.tools: list[dict] = []
         self.tool_handlers: dict[str, Callable] = {}
@@ -58,12 +55,14 @@ class AgentEngine:
 
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.max_steps = max_steps
-        self.slow_think_interval = slow_think_interval
-        self.token_budget = token_budget
-        self.loop_threshold = loop_detection_threshold
-        self.context_trim_interval = context_trim_interval
-        self.tool_trim_limits = tool_trim_limits or {}
+
+        # 引擎参数：全部来自 config
+        self.max_steps = config.max_steps
+        self.slow_think_interval = config.slow_think_interval
+        self.token_budget = config.token_budget
+        self.loop_threshold = config.loop_detection_threshold
+        self.context_trim_interval = config.context_trim_interval
+        self.tool_trim_limits = config.tool_trim_limits
         self._runtime_trimmer = runtime_trimmer
 
         self.total_input_tokens = 0
@@ -73,7 +72,7 @@ class AgentEngine:
 
         # ── 子Agent配置 ──
         self.subagent_depth = subagent_depth
-        self.max_subagent_depth = max_subagent_depth
+        self.max_subagent_depth = config.max_subagent_depth
 
         # ── 组合组件 ──
         self._tool_executor = ToolExecutor()
@@ -92,49 +91,19 @@ class AgentEngine:
         """注册技能：记录 skill 对象，供 system_prompt property 拼接 prompt"""
         self._skills.append(skill)
         self._allowed_skill_names.add(skill.name)
+        self._prompt_builder = None  # 技能变更，下次访问时重建
 
     @property
     def system_prompt(self) -> str | list[dict]:
         """动态拼接：基础 prompt + 项目路径 + 已注册 skill 的名称/描述"""
-        prompt = self._system_prompt
-
-        # ContextManager 已处理为带 cache_control 的 content block 列表，直接返回
-        if isinstance(prompt, list):
-            return prompt
-
-        if "## 项目路径" not in prompt:
-            from ...config import PROJECT_ROOT
-            prompt += (
-                f"\n\n## 项目路径\n\n"
-                f"PROJECT_ROOT = {PROJECT_ROOT}\n\n"
-                f"## 当前时间\n"
-                f"{datetime.now()}\n"
-            )
-
-        if not self._skills:
-            return prompt
-        if "# 可用技能" in prompt:
-            return prompt
-        lines = []
-        for s in self._skills:
-            prefix = "[orch] " if s.skill_type == "orch" else ""
-            deps = f"（含 {len(s.depends_on)} 个子流程）" if s.depends_on else ""
-            lines.append(f"- {prefix}**{s.name}**: {s.description}{deps}")
-        return (
-            prompt
-            + "\n\n---\n\n# 可用技能\n\n"
-            + "\n".join(lines)
-            + "\n\n> 使用 Skill 工具加载技能完整说明后再执行。\n\n"
-            "## 子任务委派策略\n"
-            "加载技能说明后，分析其工作流程是否包含互不依赖的子阶段。若技能明确分为多个独立分析维度"
-            "应使用 DelegateTask 将各维度委派给子Agent逐个执行。"
-            "父Agent保留全局判断（交叉验证、综合定级），子Agent返回结果后汇总整合。"
-            "简单场景（如仅查单一指标）直接执行，无需委派。"
-        )
+        if self._prompt_builder is None:
+            self._prompt_builder = PromptBuilder(self._system_prompt, self._skills)
+        return self._prompt_builder.build()
 
     @system_prompt.setter
     def system_prompt(self, value: str) -> None:
         self._system_prompt = value
+        self._prompt_builder = None  # 基础 prompt 变更，下次访问时重建
 
     def interrupt(self) -> None:
         """发送中断信号，优雅停止当前任务"""
@@ -182,34 +151,37 @@ class AgentEngine:
 
             # 慢思考
             async for event in self._maybe_slow_think(messages, step):
-                if event.get("_inject"):
-                    messages.append(event["_inject"])
+                if isinstance(event, _Inject):
+                    messages.append(event.message)
                 else:
                     yield event
 
             # LLM 调用
             response = None
             async for event in self._call_llm(messages, step):
-                if event.get("_result"):
-                    response = event["_result"]
+                if isinstance(event, _Value):
+                    response = event.value
                 else:
                     yield event
             if not response:
                 return  # 错误事件已 yield
 
             # 处理 LLM 响应
+            has_tool_calls = False
             async for event in self._process_response(messages, response, step):
-                if event.get("_messages"):
-                    messages = event["_messages"]
-                elif event.get("_terminal"):
-                    yield event["_terminal"]
-                    if event["_terminal"]["type"] == "done":
+                if isinstance(event, _Value):
+                    has_tool_calls = event.value
+                elif isinstance(event, _Terminal):
+                    if event.event is not None:
+                        yield event.event
+                    if event.event is not None and event.event.get("type") == "done":
                         return
-                    continue  # 截断恢复，继续循环
+                    # event.event is None → 截断恢复，继续循环
+                    break
                 else:
                     yield event
 
-            if response.tool_calls:
+            if has_tool_calls:
                 # 死循环检测
                 if loop_detector.check(response.tool_calls):
                     yield loop_detector.error_event()
@@ -218,8 +190,8 @@ class AgentEngine:
                 # 工具执行
                 tool_results = []
                 async for event in self._tool_executor.execute(response.tool_calls, self):
-                    if event.get("_internal_result"):
-                        tool_results = event["_internal_result"]
+                    if isinstance(event, _Value):
+                        tool_results = event.value
                     else:
                         yield event
                 messages.append({"role": "user", "content": tool_results})
@@ -253,18 +225,18 @@ class AgentEngine:
             return messages, {"type": "context_trim", "step": step}
         return messages, None
 
-    async def _maybe_slow_think(self, messages: list[dict], step: int) -> AsyncGenerator[dict, None]:
-        """每 N 步触发慢思考。yield 事件 + _inject 消息。"""
+    async def _maybe_slow_think(self, messages: list[dict], step: int) -> AsyncGenerator:
+        """每 N 步触发慢思考。yield 公共事件 + _Inject 信号。"""
         if self.slow_think_interval <= 0 or step <= 1 or step % self.slow_think_interval != 0:
             return
         reflection = await self._do_slow_think(messages, step)
         if reflection:
             yield {"type": "slow_think", "content": reflection}
-            yield {"_inject": {"role": "user", "content": f"[慢思考反思 @ step {step}] {reflection}"}}
+            yield _Inject({"role": "user", "content": f"[慢思考反思 @ step {step}] {reflection}"})
 
-    async def _call_llm(self, messages: list[dict], step: int) -> AsyncGenerator[dict, None]:
+    async def _call_llm(self, messages: list[dict], step: int) -> AsyncGenerator:
         """调用 LLM，yield llm_request / llm_response / text_delta 事件。
-        最后 yield {"_result": response} 返回 LLMResponse。
+        最后 yield _Value(response) 返回 LLMResponse。
         """
         yield {
             "type": "llm_request",
@@ -274,19 +246,8 @@ class AgentEngine:
         system = self.system_prompt
         tools = list(self.tools) if self.tools else None
 
-        # 为 Anthropic provider 启用 ephemeral 缓存
-        # 父Agent: system 已由 ContextManager 转为 list[dict] 格式，此处仅补 tools 缓存
-        # 子Agent: system 为字符串，此处一并转换并标记缓存
-        if self.provider and getattr(self.provider, "provider_type", "") == "anthropic":
-            if isinstance(system, str):
-                system = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
-            if tools:
-                tools = list(tools)
-                if "cache_control" not in tools[-1]:
-                    tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
-
         chat_kwargs: dict = {
-            "messages": self.provider._convert_messages(messages),
+            "messages": self.provider.convert_messages(messages),
             "system": system,
             "tools": tools,
         }
@@ -320,17 +281,17 @@ class AgentEngine:
         if response.content:
             yield {"type": "text_delta", "content": response.content}
 
-        yield {"_result": response}
+        yield _Value(response)
 
     async def _process_response(
         self, messages: list[dict], response: LLMResponse, step: int,
-    ) -> AsyncGenerator[dict, None]:
+    ) -> AsyncGenerator:
         """处理 LLM 响应：构造 assistant 消息，处理截断或完成。
 
-        yield 事件类型：
-        - {"_messages": [...]} — 更新消息列表（工具调用场景）
-        - {"_terminal": {...}} — 终止事件（done 或截断恢复后的 continue）
-        - {"type": "text_delta", ...} — 截断恢复提示
+        yield 信号类型：
+        - _Value(bool) — 是否有工具调用（消息已就地修改）
+        - _Terminal(event) — 终止事件（done）或截断恢复（event=None）
+        - dict — 公共事件（截断恢复提示 text_delta）
         """
         if not response.tool_calls:
             # 无工具调用
@@ -340,13 +301,13 @@ class AgentEngine:
                     messages.append({"role": "assistant", "content": response.content})
                 messages.append({"role": "user", "content": TRUNCATION_CONTINUE_PROMPT})
                 yield {"type": "text_delta", "content": "\n\n[输出被截断，自动请求继续...]\n\n"}
-                yield {"_terminal": None}  # 非 done，continue
+                yield _Terminal(None)  # 非 done，continue
                 return
 
             # 正常结束
             assistant_msg = self._build_assistant_message(response)
             messages.append(assistant_msg)
-            yield {"_terminal": {
+            yield _Terminal({
                 "type": "done",
                 "usage": {
                     "input_tokens": self.total_input_tokens,
@@ -354,10 +315,10 @@ class AgentEngine:
                     "cache_read_tokens": self.total_cache_read_tokens,
                     "cache_creation_tokens": self.total_cache_creation_tokens,
                 },
-            }}
+            })
             return
 
-        # 有工具调用 → 构造 assistant 消息
+        # 有工具调用 → 构造 assistant 消息（就地修改 messages）
         assistant_content = []
         if response.reasoning_content:
             assistant_content.append({"type": "reasoning", "content": self._truncate_reasoning(response.reasoning_content)})
@@ -368,7 +329,7 @@ class AgentEngine:
         for tc in response.tool_calls:
             assistant_content.append({"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.input})
         messages.append({"role": "assistant", "content": assistant_content})
-        yield {"_messages": messages}
+        yield _Value(True)  # 有工具调用
 
     def _build_assistant_message(self, response: LLMResponse) -> dict:
         """构造 assistant 消息（兼容 Anthropic content block 格式）。"""
@@ -439,7 +400,7 @@ class AgentEngine:
 
         try:
             think_kwargs: dict = {
-                "messages": self.provider._convert_messages(slim_messages),
+                "messages": self.provider.convert_messages(slim_messages),
                 "system": minimal_system,
             }
             if self.temperature is not None:

@@ -8,24 +8,20 @@ from __future__ import annotations
 import json
 
 from ..agent.config import AgentRunConfig, DEFAULT_SYSTEM_PROMPT
-from ..agent.core.models import ClaudeProvider, ModelProvider, OpenAICompatProvider
+from ..agent.core.provider import ClaudeProvider, ModelProvider, OpenAICompatProvider
 from ..agent.skills.cache import get_cache
 from ..config import get_settings
-from .db import get_db
+from .storage import SqliteStorage
+
+_storage = SqliteStorage()
 
 
 async def get_provider(model_id: str | None = None) -> ModelProvider:
-    """从数据库 models 表读取配置，创建对应的 ModelProvider 实例"""
-    async with get_db() as db:
-        if model_id:
-            row = await db.execute("SELECT * FROM models WHERE id = ?", (model_id,))
-        else:
-            row = await db.execute("SELECT * FROM models WHERE is_default = 1 LIMIT 1")
-        cfg = await row.fetchone()
+    """从数据库 models 表读取配置，创建对应的 ModelProvider 实例。
 
-        if not cfg:
-            row = await db.execute("SELECT * FROM models LIMIT 1")
-            cfg = await row.fetchone()
+    复用 SqliteStorage.get_model_config 的查询逻辑，避免重复。
+    """
+    cfg = await _storage.get_model_config(model_id)
 
     if not cfg:
         raise ValueError("No model configured. Please add a model in Settings.")
@@ -38,9 +34,9 @@ async def get_provider(model_id: str | None = None) -> ModelProvider:
             model=cfg["model"],
             base_url=cfg["base_url"] or "https://api.openai.com/v1",
         )
-    provider._input_price = cfg["input_price"] if cfg["input_price"] is not None else None
-    provider._output_price = cfg["output_price"] if cfg["output_price"] is not None else None
-    provider._currency = cfg["currency"] or "USD"
+    provider.input_price = cfg["input_price"] if cfg["input_price"] is not None else None
+    provider.output_price = cfg["output_price"] if cfg["output_price"] is not None else None
+    provider.currency = cfg["currency"] or "USD"
     return provider
 
 
@@ -70,6 +66,50 @@ def _resolve_context_config(agent_compress_cfg: dict | None) -> dict:
     return context_cfg
 
 
+def _parse_json_field(value, default=None):
+    """安全解析 JSON 字段：支持 str/dict/None 输入。"""
+    if value is None:
+        return default
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return json.loads(value)
+        except Exception:
+            return default
+    return default
+
+
+def _parse_agent_fields(agent_row: dict | None) -> dict:
+    """从 agent DB 行解析所有字段，返回标准化的配置字典。"""
+    if not agent_row:
+        return {
+            "system_prompt": DEFAULT_SYSTEM_PROMPT,
+            "agent_name": None,
+            "model_id": None,
+            "temperature": None,
+            "max_tokens": None,
+            "skills": [],
+            "tools": [],
+            "engine_config": None,
+            "compress_config": None,
+        }
+
+    return {
+        "system_prompt": agent_row["system_prompt"] or DEFAULT_SYSTEM_PROMPT,
+        "agent_name": agent_row["name"],
+        "model_id": agent_row["model_id"] or None,
+        "temperature": agent_row["temperature"] if agent_row["temperature"] is not None else None,
+        "max_tokens": agent_row["max_tokens"] if agent_row["max_tokens"] is not None else None,
+        "skills": _parse_json_field(agent_row["skills"], []),
+        "tools": _parse_json_field(agent_row["tools"], []),
+        "engine_config": _parse_json_field(agent_row["engine_config"]),
+        "compress_config": _parse_json_field(agent_row["compress_config"]),
+    }
+
+
 async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
     """加载并合并所有配置源，返回一次 Agent 运行所需的全部配置。
 
@@ -82,90 +122,43 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
     # —— 加载 Agent DB 行 ——
     agent_row = None
     if agent_id:
-        async with get_db() as db:
-            row = await db.execute(
-                "SELECT * FROM agents WHERE id = ?", (agent_id,),
-            )
-            agent_row = await row.fetchone()
+        agent_row = await _storage.get_agent_config(agent_id)
 
-    # —— System prompt ——
-    system_prompt = DEFAULT_SYSTEM_PROMPT
-    agent_name = None
-    model_id = None
-    enabled_skill_names: list[str] = []
-    enabled_tool_names: list[str] = []
-    agent_engine_config: dict | None = None
-    agent_compress_config: dict | None = None
-    temperature: float | None = None
-    max_tokens: int | None = None
-
-    if agent_row:
-        agent_name = agent_row["name"]
-        if agent_row["system_prompt"]:
-            system_prompt = agent_row["system_prompt"]
-        model_id = agent_row["model_id"] or None
-        temperature = agent_row["temperature"] if agent_row["temperature"] is not None else None
-        max_tokens = agent_row["max_tokens"] if agent_row["max_tokens"] is not None else None
-        try:
-            enabled_skill_names = json.loads(agent_row["skills"] or "[]")
-        except Exception:
-            enabled_skill_names = []
-        try:
-            enabled_tool_names = json.loads(agent_row["tools"] or "[]")
-        except Exception:
-            enabled_tool_names = []
-        try:
-            raw_engine = agent_row["engine_config"]
-            if isinstance(raw_engine, str) and raw_engine.strip():
-                agent_engine_config = json.loads(raw_engine)
-            elif isinstance(raw_engine, dict):
-                agent_engine_config = raw_engine
-        except Exception:
-            agent_engine_config = None
-        try:
-            raw_compress = agent_row["compress_config"]
-            if isinstance(raw_compress, str) and raw_compress.strip():
-                agent_compress_config = json.loads(raw_compress)
-            elif isinstance(raw_compress, dict):
-                agent_compress_config = raw_compress
-        except Exception:
-            agent_compress_config = None
-
+    fields = _parse_agent_fields(agent_row)
 
     # —— 配置 Skill body 缓存 TTL ——
     ttl = get_settings().get("engine", {}).get("skill_body_ttl", 600)
     get_cache().set_ttl(ttl)
 
     # —— Provider ——
-    provider = await get_provider(model_id)
-    model_name = provider.model
+    provider = await get_provider(fields["model_id"])
 
     # —— Engine params ——
-    engine_params = _resolve_engine_params(agent_engine_config)
+    engine_params = _resolve_engine_params(fields["engine_config"])
 
     # —— Context config ——
-    context_cfg = _resolve_context_config(agent_compress_config)
+    context_cfg = _resolve_context_config(fields["compress_config"])
 
     return AgentRunConfig(
         provider=provider,
-        model_name=model_name,
-        system_prompt=system_prompt,
+        model_name=provider.model,
+        system_prompt=fields["system_prompt"],
         agent_id=agent_id,
-        agent_name=agent_name,
-        temperature=temperature,
-        max_tokens=max_tokens,
+        agent_name=fields["agent_name"],
+        temperature=fields["temperature"],
+        max_tokens=fields["max_tokens"],
         max_steps=engine_params["max_steps"],
         slow_think_interval=engine_params["slow_think_interval"],
         token_budget=engine_params["token_budget"],
         loop_detection_threshold=engine_params["loop_detection_threshold"],
         context_trim_interval=engine_params["context_trim_interval"],
         runtime_trim_strategy=engine_params["runtime_trim_strategy"],
-        tools=enabled_tool_names,
-        skills=enabled_skill_names,
+        tools=fields["tools"],
+        skills=fields["skills"],
         tool_trim_limits=engine_params["tool_trim_limits"],
         context=context_cfg,
         max_subagent_depth=engine_params["max_subagent_depth"],
-        input_price=getattr(provider, "_input_price", None),
-        output_price=getattr(provider, "_output_price", None),
-        currency=getattr(provider, "_currency", "USD"),
+        input_price=provider.input_price,
+        output_price=provider.output_price,
+        currency=provider.currency,
     )

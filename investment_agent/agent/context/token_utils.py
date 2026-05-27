@@ -41,23 +41,6 @@ def estimate_tokens(text: str) -> int:
     return int(latin / 4.0 + cjk / 2.0)
 
 
-def estimate_message_tokens(message: dict) -> int:
-    """估算单条消息的 token 数（heuristic 版本）。"""
-    content = message.get("content", "")
-    if isinstance(content, str):
-        return estimate_tokens(content)
-    if isinstance(content, list):
-        total = 0
-        for block in content:
-            if isinstance(block, dict):
-                text = block.get("text") or block.get("content") or ""
-                total += estimate_tokens(str(text))
-            else:
-                total += estimate_tokens(str(block))
-        return total
-    return 0
-
-
 # ── Real token counting ─────────────────────────────────────────────
 
 # Message formatting overhead in tokens (Anthropic API overhead)
@@ -157,3 +140,43 @@ def get_model_context_limit(model_name: str | None) -> int:
 
     logger.warning("Unknown model %r — assuming %d context limit", model_name, _DEFAULT_CONTEXT_LIMIT)
     return _DEFAULT_CONTEXT_LIMIT
+
+
+# ── Unified text truncation ───────────────────────────────────────────
+
+
+def truncate_text(
+    text: str,
+    limit: int,
+    mode: str = "chars",
+    marker: str = "...[compressed]",
+) -> str:
+    """统一文本截断：支持按字符或按 token 截断。
+
+    Args:
+        text: 待截断文本
+        limit: 截断上限（字符数或 token 数）
+        mode: "chars"（按字符）或 "tokens"（按 token，使用二分搜索）
+        marker: 截断后追加的标记文本
+
+    Returns:
+        截断后的文本（如未超限则原样返回）
+    """
+    if not text or limit <= 0:
+        return "" if limit <= 0 else text
+
+    if mode == "tokens":
+        if count_tokens(text) <= limit:
+            return text
+        lo, hi = 0, len(text)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if count_tokens(text[:mid]) <= limit:
+                lo = mid
+            else:
+                hi = mid - 1
+        return text[:lo] + "\n" + marker
+    else:
+        if len(text) <= limit:
+            return text
+        return text[:limit] + "\n" + marker

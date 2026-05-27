@@ -1,9 +1,9 @@
 """Skill 加载工具：LLM 按需加载 Skill 的完整 body。"""
 
-from ..tools.base import BaseTool
-from ..tools.registry import register_tool
-from .loader import _registry
-from .cache import get_cache
+from .base import BaseTool
+from .registry import register_tool
+from ..skills.loader import _registry
+from ..skills.cache import get_cache
 
 
 @register_tool

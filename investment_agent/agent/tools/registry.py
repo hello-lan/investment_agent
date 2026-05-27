@@ -29,7 +29,7 @@ def register_tool(cls):
 # 不再需要手动逐个 _register() 调用。
 from .run_command import RunCommandTool  # noqa: F401
 from .delegate_task import DelegateTaskTool  # noqa: F401
-from ..skills.tool import SkillTool  # noqa: F401
+from .skill_tool import SkillTool  # noqa: F401
 
 
 # ── 查询 API（_tool_registry 是内部实现，外部只通过以下函数访问）──

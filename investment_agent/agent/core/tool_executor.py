@@ -11,7 +11,8 @@ import uuid
 from collections import Counter
 from typing import AsyncGenerator, TYPE_CHECKING
 
-from .models import ToolCall
+from ._signals import _Value
+from .provider import ToolCall
 from .subagent import run_delegate_task
 
 if TYPE_CHECKING:
@@ -235,4 +236,4 @@ class ToolExecutor:
                 "tool_use_id": tc.id,
                 "content": result,
             })
-        yield {"_internal_result": tool_results}
+        yield _Value(tool_results)

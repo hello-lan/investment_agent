@@ -90,111 +90,109 @@ class TaskManager:
         self._tasks[task_id] = state
 
         # 关键：在返回前同步更新 DB，确保 HTTP 响应发出时 status 已是 'running'
-        from .db import get_db
         try:
-            async with get_db() as db:
-                await db.execute(
-                    "UPDATE sessions SET status = 'running', current_task_id = ? WHERE id = ?",
-                    (task_id, session_id),
-                )
-                await db.commit()
+            await runner.storage.update_session_task(
+                session_id, status="running", task_id=task_id,
+            )
         except Exception:
             logger.exception("Failed to update session status to running")
 
         state.asyncio_task = asyncio.create_task(self._run_task(state))
 
     async def _run_task(self, state: _TaskState) -> None:
-        """后台任务：执行引擎循环，缓冲事件，管理会话状态。"""
-        from .db import get_db
-
-        task_id = state.task_id
-        session_id = state.session_id
-
-        # 创建可观测性 hooks
+        """后台任务编排：创建 hooks → 执行引擎循环 → 清理资源。"""
         hooks = ObservabilityHooks(
-            task_id=task_id,
-            session_id=session_id,
+            task_id=state.task_id,
+            session_id=state.session_id,
             agent_name=getattr(state.config, "agent_name", None),
         )
 
-        cost_logged = False
-        final_status = "active"
-
         try:
-            # 1. 准备上下文
-            messages = await state.runner.prepare_context(task_id, hooks=hooks)
-            if not messages:
-                await self._broadcast(state, {"type": "error", "message": "Task not found or preparation failed"})
-                state.status = "error"
-                state.done = True
-                return
-
-            # 2. 执行引擎循环
-            async for event in state.engine.run(messages):
-                event_type = event.get("type", "unknown")
-                step = event.get("step")
-                if isinstance(step, int):
-                    state.last_step = step
-
-                # 触发 trace hook
-                await self._fire_event_hook(hooks, state.last_step, event_type, event)
-
-                # 累积文本
-                if event_type == "text_delta":
-                    state.accumulated_text += event["content"]
-
-                # 终端事件 → cost + cache hooks + 更新会话统计
-                if event_type in ("done", "error", "interrupted") and not cost_logged:
-                    await self._fire_terminal_hooks(hooks, state.engine, state.last_step, event)
-                    await self._update_session_usage(state, event)
-                    cost_logged = True
-
-                # 缓冲渲染事件并广播给订阅者（包括子Agent事件）
-                if event_type in _RENDER_EVENTS or event_type.startswith("sub_"):
-                    await self._broadcast(state, event)
-
-                if event_type == "error":
-                    state.status = "error"
-                elif event_type in ("done", "interrupted"):
-                    state.status = "done"
-
+            await self._execute_engine_loop(state, hooks)
         except asyncio.CancelledError:
-            logger.info("Task %s was cancelled", task_id)
+            logger.info("Task %s was cancelled", state.task_id)
             state.status = "error"
         except Exception as e:
-            logger.exception("Task %s failed with exception", task_id)
+            logger.exception("Task %s failed with exception", state.task_id)
             await self._broadcast(state, {"type": "error", "message": str(e)})
             state.status = "error"
         finally:
+            await self._finalize_task(state)
+
+    async def _execute_engine_loop(
+        self, state: _TaskState, hooks: ObservabilityHooks,
+    ) -> None:
+        """准备上下文 + 驱动引擎循环，处理事件广播和 hook 触发。"""
+        # 1. 准备上下文
+        messages = await state.runner.prepare_context(state.task_id, hooks=hooks)
+        if not messages:
+            await self._broadcast(
+                state, {"type": "error", "message": "Task not found or preparation failed"},
+            )
+            state.status = "error"
             state.done = True
+            return
 
-            # 保存 assistant 回复 —— 必须在 cleanup 之前执行，
-            # 因为 save_response() 需要从 _engines 获取 session_id
-            try:
-                state.runner._assistant_content = state.accumulated_text
-                await self._safe_save_response(state)
-            except Exception:
-                logger.exception("Failed to save response for task %s", task_id)
+        # 2. 执行引擎循环
+        cost_logged = False
+        async for event in state.engine.run(messages):
+            event_type = event.get("type", "unknown")
+            step = event.get("step")
+            if isinstance(step, int):
+                state.last_step = step
 
-            # 清理引擎（从 _engines 中移除）
-            try:
-                state.runner.cleanup(task_id)
-            except Exception:
-                logger.exception("Failed to cleanup engine for task %s", task_id)
+            # 触发 trace hook
+            await self._fire_event_hook(hooks, state.last_step, event_type, event)
 
-            # 恢复会话状态
-            try:
-                async with get_db() as db:
-                    await db.execute(
-                        "UPDATE sessions SET status = ?, current_task_id = NULL WHERE id = ?",
-                        (final_status, session_id),
-                    )
-                    await db.commit()
-            except Exception:
-                logger.exception("Failed to update session status after task completion")
+            # 累积文本
+            if event_type == "text_delta":
+                state.accumulated_text += event["content"]
 
-            # 延迟清理缓冲
-            asyncio.create_task(self._cleanup_later(task_id))
+            # 终端事件 → cost + cache hooks + 更新会话统计
+            if event_type in ("done", "error", "interrupted") and not cost_logged:
+                await self._fire_terminal_hooks(hooks, state.engine, state.last_step, event)
+                await self._update_session_usage(state, event)
+                cost_logged = True
+
+            # 缓冲渲染事件并广播给订阅者（包括子Agent事件）
+            if event_type in _RENDER_EVENTS or event_type.startswith("sub_"):
+                await self._broadcast(state, event)
+
+            if event_type == "error":
+                state.status = "error"
+            elif event_type in ("done", "interrupted"):
+                state.status = "done"
+
+    async def _finalize_task(self, state: _TaskState) -> None:
+        """任务收尾：保存回复、清理引擎、恢复会话状态、调度延迟清理。"""
+        state.done = True
+        task_id = state.task_id
+        session_id = state.session_id
+
+        # 保存 assistant 回复 —— 必须在 cleanup 之前执行
+        try:
+            state.runner.set_assistant_content(state.accumulated_text)
+            await self._safe_save_response(state)
+        except Exception:
+            logger.exception("Failed to save response for task %s", task_id)
+
+        # 清理引擎（从 _engines 中移除）
+        try:
+            state.runner.cleanup(task_id)
+        except Exception:
+            logger.exception("Failed to cleanup engine for task %s", task_id)
+
+        # 恢复会话状态：正常完成恢复 active，出错保持 error
+        final_status = "active" if state.status == "done" else state.status
+        try:
+            await state.runner.storage.update_session_task(
+                session_id, status=final_status, task_id=None,
+            )
+        except Exception:
+            logger.exception("Failed to update session status after task completion")
+
+        # 延迟清理缓冲
+        asyncio.create_task(self._cleanup_later(task_id))
 
     async def _safe_save_response(self, state: _TaskState) -> None:
         """安全保存 assistant 回复：直接使用 state 中的信息，不依赖 _engines 查找。
@@ -205,15 +203,15 @@ class TaskManager:
         if not state.accumulated_text:
             return
 
-        msg_id = await state.runner._storage.save_assistant_message(
+        msg_id = await state.runner.storage.save_assistant_message(
             state.session_id, state.accumulated_text,
         )
 
         # 保存摘要（如果有上下文管理结果）
-        result = state.runner._context_result
+        result = state.runner.context_result
         if result and result.did_summarize and result.new_summary:
             try:
-                await state.runner._storage.save_summary(
+                await state.runner.storage.save_summary(
                     session_id=state.session_id,
                     summary=result.new_summary,
                     through_message_id=msg_id,
@@ -256,14 +254,12 @@ class TaskManager:
 
         try:
             if hasattr(hooks, "on_cost"):
-                input_price = getattr(engine.provider, "_input_price", None)
-                output_price = getattr(engine.provider, "_output_price", None)
-                currency = getattr(engine.provider, "_currency", "USD")
                 await hooks.on_cost(
                     getattr(engine.provider, "model", "unknown"),
                     input_tokens, output_tokens,
-                    input_price=input_price, output_price=output_price,
-                    currency=currency,
+                    input_price=engine.provider.input_price,
+                    output_price=engine.provider.output_price,
+                    currency=engine.provider.currency,
                 )
         except Exception:
             logger.debug("on_cost hook failed", exc_info=True)
@@ -287,12 +283,14 @@ class TaskManager:
         if not input_tokens and not output_tokens:
             return
 
-        input_price = getattr(state.engine.provider, "_input_price", None)
-        output_price = getattr(state.engine.provider, "_output_price", None)
-        cost_usd = _estimate_cost_usd(input_tokens, output_tokens, input_price, output_price) or 0
+        cost_usd = _estimate_cost_usd(
+            input_tokens, output_tokens,
+            state.engine.provider.input_price,
+            state.engine.provider.output_price,
+        ) or 0
 
         try:
-            await state.runner._storage.update_session_usage(
+            await state.runner.storage.update_session_usage(
                 state.session_id,
                 input_tokens=int(input_tokens),
                 output_tokens=int(output_tokens),

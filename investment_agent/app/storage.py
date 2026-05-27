@@ -25,7 +25,7 @@ class SqliteStorage:
             row = await db.execute("SELECT id FROM sessions WHERE id = ?", (session_id,))
             exists = await row.fetchone()
             if not exists:
-                now = datetime.utcnow().isoformat()
+                now = datetime.now(timezone.utc).isoformat()
                 await db.execute(
                     "INSERT INTO sessions (id, agent_id, title, status, created_at) "
                     "VALUES (?, ?, ?, 'active', ?)",
@@ -37,7 +37,7 @@ class SqliteStorage:
     async def save_user_message(self, session_id: str, content: str) -> str:
         """保存用户消息，返回 message_id。"""
         msg_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         async with get_db() as db:
             await db.execute(
                 "INSERT INTO messages (id, session_id, role, content, created_at) "

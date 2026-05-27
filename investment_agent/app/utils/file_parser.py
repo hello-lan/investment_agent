@@ -25,9 +25,9 @@ def normalize_name(name: str | None) -> str:
 
 
 def clip_text(text: str, max_chars: int = MAX_FILE_TEXT_CHARS) -> str:
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars] + "\n...[文件内容已截断]"
+    """截断文件文本，使用统一的 truncate_text 工具。"""
+    from ...agent.context.token_utils import truncate_text
+    return truncate_text(text, max_chars, mode="chars", marker="...[文件内容已截断]")
 
 
 def _extract_pdf_text(content: bytes) -> str:

@@ -71,6 +71,19 @@ TRUNCATION_CONTINUE_PROMPT = "你的上一次回复因达到token上限被截断
 
 
 @dataclass
+class EngineConfig:
+    """引擎执行参数子集，供 AgentEngine 构造使用。"""
+
+    max_steps: int = 30
+    slow_think_interval: int = 3
+    token_budget: int = 100_000
+    loop_detection_threshold: int = 3
+    context_trim_interval: int = 0
+    tool_trim_limits: dict = field(default_factory=dict)
+    max_subagent_depth: int = 3
+
+
+@dataclass
 class AgentRunConfig:
     """一次 Agent 运行的完整配置快照。
 

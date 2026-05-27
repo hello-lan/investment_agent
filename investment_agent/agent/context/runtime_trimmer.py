@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from .token_utils import truncate_text
 from .trim_limits import resolve_limit
 
 
@@ -100,9 +101,7 @@ class DefaultRuntimeTrimmer(RuntimeTrimmer):
 
     @staticmethod
     def _truncate_text(text: str, max_chars: int) -> str:
-        if len(text) <= max_chars:
-            return text
-        return text[:max_chars] + "\n...[已截断]"
+        return truncate_text(text, max_chars, mode="chars", marker="...[已截断]")
 
 
 class NoOpRuntimeTrimmer(RuntimeTrimmer):

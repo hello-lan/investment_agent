@@ -1,6 +1,6 @@
 import uuid
-from datetime import datetime
-from fastapi import APIRouter
+from datetime import datetime, timezone
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ...config import get_settings, save_settings
 from ...agent.skills.loader import reload_skills
@@ -40,11 +40,11 @@ async def list_models():
 async def add_model(body: ModelEntry):
     """添加模型：第一个模型自动设为默认"""
     mid = body.id.strip() or str(uuid.uuid4())[:8]
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     async with get_db() as db:
         row = await db.execute("SELECT id FROM models WHERE id = ?", (mid,))
         if await row.fetchone():
-            return {"error": f"Model id '{mid}' already exists."}
+            raise HTTPException(status_code=409, detail=f"Model id '{mid}' already exists.")
         # 首个模型自动成为默认
         count = await db.execute("SELECT COUNT(*) FROM models")
         is_first = (await count.fetchone())[0] == 0
@@ -74,7 +74,7 @@ async def update_model(model_id: str, body: ModelEntry):
         row = await db.execute("SELECT api_key FROM models WHERE id = ?", (model_id,))
         existing = await row.fetchone()
         if not existing:
-            return {"error": "Model not found"}
+            raise HTTPException(status_code=404, detail="Model not found")
         # 前端传来脱敏值 *** 表示不修改 Key
         api_key = existing["api_key"] if body.api_key == "***" else body.api_key
         await db.execute(

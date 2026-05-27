@@ -2,7 +2,7 @@ from .runner import AgentRunner
 from .config import AgentRunConfig
 from .protocols import (
     ExecutionLoop,
-    ContextManager as ContextManagerProtocol,
+    ContextManagerProtocol,
     Storage,
     LifecycleHooks,
 )
