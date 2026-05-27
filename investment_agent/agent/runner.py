@@ -9,7 +9,7 @@ import os
 import shutil
 from typing import ClassVar
 
-from .config import AgentRunConfig, EngineConfig
+from .config import AgentRunConfig, EngineConfig, OFFLOAD_AWARE_PROMPT
 from .context.context_offloader import ContextOffloader
 from .context.manager import ContextManager, ContextResult
 from .context.runtime_compressor import CompressRuntimeCompressor, NoOpRuntimeCompressor
@@ -254,6 +254,7 @@ class AgentRunner:
 
         policy = AccessPolicy.for_agent(str(PROJECT_ROOT), all_skill_names)
         engine._system_prompt += policy.prompt_section()
+        engine._system_prompt += OFFLOAD_AWARE_PROMPT
         run_tool = RunCommandTool()
         run_tool.access_policy = policy
         engine.register_tool(run_tool.schema, run_tool.run)
@@ -268,7 +269,7 @@ class AgentRunner:
                 from .skills.filtered_runner import make_filtered_skill_runner
 
                 filtered_run = make_filtered_skill_runner(
-                    set(config.skills), tool.run,
+                    set(all_skill_names), tool.run,
                 )
                 engine.register_tool(tool_schema, filtered_run)
 
