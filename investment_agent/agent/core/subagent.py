@@ -205,8 +205,10 @@ def create_child_engine(
         offloader=offloader,
     )
 
+    # 子Agent 执行繁重IO任务，保底 max_steps=60（父Agent的50可能不足以拆分大文件）
+    child_max_steps = max(parent.max_steps, 60)
     child_cfg = EngineConfig(
-        max_steps=parent.max_steps,
+        max_steps=child_max_steps,
         slow_think_interval=0,
         token_budget=remaining_budget,
         loop_detection_threshold=parent.loop_threshold,
@@ -266,15 +268,19 @@ def create_child_engine(
             child.register_skill(skill)
 
     # 自动注入技能体摘要到子Agent system prompt，减少一次 Skill 工具调用
+    # 截断长度与 engine.py SKILL_BODY_MAX_CHARS (3000) 保持一致
     for name in skill_names:
         skill = skill_registry.get(name)
         if skill and skill.body:
-            body_excerpt = skill.body[:1500]
+            body_excerpt = skill.body[:3000]
             child._system_prompt += (
                 f"\n\n---\n\n# 技能 {name} 快速参考\n\n"
                 f"{body_excerpt}\n\n"
-                f"> 完整说明请调用 Skill(name=\"{name}\")"
             )
+            if len(skill.body) > 3000:
+                child._system_prompt += (
+                    f"> 以上为摘要。完整说明请调用 Skill(name=\"{name}\")\n"
+                )
 
     _log.info(
         "[SubEngine] 创建完成: id=%s, session=%s, depth=%d, "

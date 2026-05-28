@@ -176,11 +176,13 @@ class ToolExecutor:
 
             if tc.name == "DelegateTask":
                 prepared = await prepare_delegate_task(engine, tc)
+                _delegate_id = None
                 if isinstance(prepared, str):
                     result = prepared
                     _log.info("[Delegate] 委派失败(prepare阶段): %s", prepared[:200])
                 else:
                     skill_names, prompt, delegate_id = prepared
+                    _delegate_id = delegate_id
                     tokens_before = (
                         engine.total_input_tokens + engine.total_output_tokens
                     )
@@ -230,6 +232,8 @@ class ToolExecutor:
                     "total_used": engine.total_input_tokens + engine.total_output_tokens,
                     "budget": engine.token_budget,
                     "remaining": engine.token_budget - engine.total_input_tokens - engine.total_output_tokens,
+                    "delegate_id": _delegate_id,
+                    "depth": engine.subagent_depth + 1,
                 }
             tool_results.append({
                 "type": "tool_result",

@@ -151,8 +151,11 @@ def convert_pdf_to_markdown(pdf_path: str, output_path: str | None = None) -> st
     result = re.sub(r"\n{3,}", "\n\n", result)
 
     if output_path:
-        Path(output_path).write_text(result, encoding="utf-8")
-        print(f"Saved: {output_path}")
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(result, encoding="utf-8")
+        line_count = len(result.split("\n"))
+        print(f"[pdf-to-markdown] 完成: {output_path} ({line_count:,} 行, {len(result):,} 字符)")
 
     return result
 
@@ -178,7 +181,6 @@ def main():
         args.output = str(Path(args.pdf).parent / f"{stem}.md")
 
     convert_pdf_to_markdown(args.pdf, args.output)
-    print(f"Done: {args.output}")
 
 
 if __name__ == "__main__":

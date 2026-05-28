@@ -5,7 +5,7 @@ description: 将 markdown 格式的财报按章节目录切割为独立的章节
 
 # Markdown 财报章节切割
 
-按以下 6 步流程操作，核心原则：**Python 做廉价工作（正则找行号），AI 只做判断（识别目录、歧义消解）**。
+按以下 6 步流程操作，核心原则：**Python 做廉价工作（正则找行号），AI 只做判断（识别目录、歧义消解）。关键优化：步骤 2-3 批量处理所有章节，避免逐章节消耗 LLM 步数。**
 
 ## 工具脚本
 
@@ -45,14 +45,34 @@ description: 将 markdown 格式的财报按章节目录切割为独立的章节
 
 ## 第 2 步：提取章节标题
 
-读取目录完整内容，识别顶级章节标题（非子章节、非前言）。输出清洗后的标题列表。
+读取目录完整内容，识别顶级章节标题（非子章节、非前言）。**批量清洗后**输出标题列表。
 
 规则：
 - 顶级章节通常以"第X节"或"第X章"开头
 - 排除不含页码的纯文字行（可能是前言或说明）
-- 用 `normalize` 命令清洗，或手动剔除省略号和页码
 
-输出格式示例：
+将 TOC 中提取的原始标题行用 `normalize` 命令**批量清洗**（一次管道命令处理所有标题，避免逐个调用）：
+
+```bash
+printf "原始行1\n原始行2\n..." | while IFS= read -r line; do
+  python3 scripts/split_report.py normalize "$line"
+done
+```
+
+或者将所有标题保存到临时文件后批量处理：
+
+```bash
+cat > $PROJECT_ROOT/data/tmp/titles_raw.txt << 'EOF'
+第一节 重要提示、目录和释义 ........... 3
+第二节 公司简介和主要财务指标 ............ 5
+...
+EOF
+while IFS= read -r line; do
+  python3 scripts/split_report.py normalize "$line"
+done < $PROJECT_ROOT/data/tmp/titles_raw.txt
+```
+
+输出清洗后的标题列表：
 ```
 第一节 重要提示、目录和释义
 第二节 公司简介和主要财务指标
@@ -60,31 +80,47 @@ description: 将 markdown 格式的财报按章节目录切割为独立的章节
 第十节 财务报告
 ```
 
-## 第 3 步：逐章节模糊匹配找行号
+## 第 3 步：批量找章节行号
 
-对每个章节标题，执行：
+**所有章节标题一次性批量查找**——用单个 shell 脚本循环处理全部标题，避免逐个调用 `find`（每个调用消耗 1 个 LLM 步骤）：
 
 ```bash
-python3 scripts/split_report.py find <文件> "<标题>" --exclude-before <toc_end_line>
+# 将所有清洗后的标题写入临时文件（每行一个）:
+cat > $PROJECT_ROOT/data/tmp/chapters.txt << 'EOF'
+第一节 重要提示、目录和释义
+第二节 公司简介和主要财务指标
+...
+第十节 财务报告
+EOF
+
+# 逐行读取，批量查找所有章节的行号（单次 run_command 完成）:
+while IFS= read -r title; do
+  echo "=== $title ==="
+  python3 scripts/split_report.py find <文件> "$title" --exclude-before <toc_end_line>
+done < $PROJECT_ROOT/data/tmp/chapters.txt
 ```
 
 模糊正则在每个字符间插入了 `\s*`，能匹配 PDF 转换导致的字符间多余空格（如 "第 一 节" 仍能匹配 "第一节"）。
 
-结果有三种情况：
-- **1 个匹配** → 直接确认行号
-- **0 个匹配** → 进入三级兜底流程（见下方）
+批量查找结果：大部分章节可直接确认行号。仅对以下情况进入人工处理：
+
+- **0 个匹配** → 进入零匹配批量兜底（见下方）
 - **多个匹配** → 进入第 4 步歧义消解
 
-### 第 3.A 步：零匹配三级兜底
+### 第 3.A 步：零匹配批量兜底
 
-当 `find` 对某章节返回 0 个候选时，按以下顺序递进：
+当某些章节返回 0 个候选时，**同样批量重试**——将所有零匹配的标题写入脚本一次性执行，不要逐个调用 find：
 
-**Tier 1：脚本宽泛重试**
-
-```
-1. 缩短标题重试（去掉括号内容、只保留前半部分），重新 find
-2. 用章节号模式重试：find "第X节"（利用顶级章节编号规律的强约束）
-   → fuzzy_regex 的 \s* 已处理字符间空格和标点噪声
+```bash
+while IFS= read -r title; do
+  echo "=== $title ==="
+  # Tier 1a: 缩短标题重试（去掉括号内容、只保留前半部分）
+  short=$(echo "$title" | sed 's/（.*）//' | cut -c1-10)
+  python3 scripts/split_report.py find <文件> "$short" --exclude-before <toc_end_line>
+  # Tier 1b: 用章节号模式重试
+  sec_num=$(echo "$title" | grep -oP '第[一二三四五六七八九十百]+[节章]')
+  [ -n "$sec_num" ] && python3 scripts/split_report.py find <文件> "$sec_num" --exclude-before <toc_end_line>
+done < $PROJECT_ROOT/data/tmp/missing_chapters.txt
 ```
 
 **Tier 2：脚本计算搜索范围**
