@@ -38,7 +38,8 @@
     "summarization": {
       "enabled": false,
       "max_summary_tokens": 2000,
-      "trigger_after_messages": 25
+      "trigger_after_messages": 25,
+      "model_id": null
     },
     "caching": {
       "enabled": true

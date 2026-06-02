@@ -152,3 +152,6 @@ class AgentRunConfig:
     input_price: float | None = None
     output_price: float | None = None
     currency: str = "USD"
+
+    # ── 压缩模型（独立的廉价 Provider，用于上下文摘要）──
+    compression_provider: Any = None

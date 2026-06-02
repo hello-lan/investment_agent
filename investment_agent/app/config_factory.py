@@ -140,11 +140,23 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
     # —— Provider ——
     provider = await get_provider(fields["model_id"])
 
+    # —— 压缩模型：支持使用更便宜的模型做上下文摘要 ——
+    compression_provider = None
+    context_cfg = _resolve_context_config(fields["compress_config"])
+    compression_model_id = (
+        context_cfg.get("model_id")  # agent 级 compress_config.model_id
+        or context_cfg.get("summarization", {}).get("model_id")  # 全局 settings summarization.model_id
+    )
+    if compression_model_id:
+        try:
+            compression_provider = await get_provider(compression_model_id)
+        except Exception:
+            pass  # 降级：使用主模型
+
     # —— Engine params ——
     engine_params = _resolve_engine_params(fields["engine_config"])
 
     # —— Context config ——
-    context_cfg = _resolve_context_config(fields["compress_config"])
 
     return AgentRunConfig(
         provider=provider,
@@ -172,4 +184,5 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         input_price=provider.input_price,
         output_price=provider.output_price,
         currency=provider.currency,
+        compression_provider=compression_provider,
     )

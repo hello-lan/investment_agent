@@ -137,7 +137,7 @@ class AgentRunner:
             system_prompt=engine.system_prompt,
             tools=engine.tools,
             messages=messages,
-            provider=engine.provider,
+            provider=getattr(self._config, "compression_provider", None) or engine.provider,
             existing_summary=existing_summary,
         )
         self._context_result = result
