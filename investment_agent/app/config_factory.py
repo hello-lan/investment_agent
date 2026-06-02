@@ -61,6 +61,8 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
                                     or global_cfg.get("offload_summary_strategy", "truncate"),
         "offload_summary_chars": agent_cfg.get("offload_summary_chars")
                                  or global_cfg.get("offload_summary_chars", 200),
+        "offload_summary_model_id": agent_cfg.get("offload_summary_model_id")
+                                    or global_cfg.get("offload_summary_model_id"),
     }
 
 
@@ -156,6 +158,14 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
     # —— Engine params ——
     engine_params = _resolve_engine_params(fields["engine_config"])
 
+    # —— 运行时卸载摘要模型：支持使用独立的廉价模型生成摘要 ——
+    offload_summary_provider = None
+    if engine_params["offload_summary_strategy"] == "llm" and engine_params.get("offload_summary_model_id"):
+        try:
+            offload_summary_provider = await get_provider(engine_params["offload_summary_model_id"])
+        except Exception:
+            pass  # 降级：使用主模型
+
     # —— Context config ——
 
     return AgentRunConfig(
@@ -181,8 +191,10 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         offload_threshold=engine_params["offload_threshold"],
         offload_summary_strategy=engine_params["offload_summary_strategy"],
         offload_summary_chars=engine_params["offload_summary_chars"],
+        offload_summary_model_id=engine_params.get("offload_summary_model_id"),
         input_price=provider.input_price,
         output_price=provider.output_price,
         currency=provider.currency,
         compression_provider=compression_provider,
+        offload_summary_provider=offload_summary_provider,
     )

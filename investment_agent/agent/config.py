@@ -132,6 +132,7 @@ class AgentRunConfig:
     offload_threshold: int = 800
     offload_summary_strategy: str = "truncate"
     offload_summary_chars: int = 200
+    offload_summary_model_id: str | None = None
 
     # ── Agent 级工具选择（空列表=全部工具，向后兼容）──
     tools: list[str] = field(default_factory=list)
@@ -155,3 +156,6 @@ class AgentRunConfig:
 
     # ── 压缩模型（独立的廉价 Provider，用于上下文摘要）──
     compression_provider: Any = None
+
+    # ── 卸载摘要模型（独立的廉价 Provider，用于 tool_result 摘要）──
+    offload_summary_provider: Any = None

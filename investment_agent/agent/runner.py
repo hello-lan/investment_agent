@@ -207,7 +207,7 @@ class AgentRunner:
                 threshold=config.offload_threshold,
                 summary_strategy=config.offload_summary_strategy,
                 summary_chars=config.offload_summary_chars,
-                provider=config.provider,
+                provider=config.offload_summary_provider or config.provider,
             )
             runtime_compressor = CompressRuntimeCompressor(
                 tool_trim_limits=config.tool_trim_limits,

@@ -194,13 +194,6 @@
               <div class="hint">对话过长时自动用 LLM 生成语义摘要替代旧消息截断，显著提升长对话质量与连贯性</div>
             </div>
             <div class="form-row">
-              <label>压缩模型</label>
-              <select id="agentSumModel">
-                <option value="">使用主模型</option>
-              </select>
-              <div class="hint">用于生成摘要的模型，留空则使用 Agent 主模型（可选择更便宜的模型如 Haiku 降低成本）</div>
-            </div>
-            <div class="form-row">
               <label>触发摘要的消息数阈值</label>
               <input type="number" id="agentSumTrigger" min="10" max="100" step="5" placeholder="留空=默认 25">
               <div class="hint">总消息数超过此值时自动触发摘要生成</div>
@@ -248,12 +241,17 @@
               </div>
               <div class="form-row">
                 <label>摘要策略</label>
-                <select id="agentOffloadStrategy">
+                <select id="agentOffloadStrategy" onchange="toggleOffloadModel()">
                   <option value="truncate">截断（取前N字符，零成本）</option>
                   <option value="local">抽取式（通用打分，无LLM）</option>
                   <option value="llm">LLM 摘要（高质量，有额外token消耗）</option>
                 </select>
                 <div class="hint">卸载时如何生成摘要：截断最快、抽取式平衡、LLM 质量最高</div>
+              </div>
+              <div class="form-row" id="offloadModelRow" style="display: none;">
+                <label>摘要模型</label>
+                <select id="agentOffloadModel"></select>
+                <div class="hint">用于生成摘要的模型，留空则使用 Agent 主模型（可选择更便宜的模型如 Haiku 降低成本）</div>
               </div>
               <div class="form-row">
                 <label>摘要字符数</label>

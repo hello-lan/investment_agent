@@ -168,10 +168,21 @@ function normalizeEngineConfig(raw) {
   return raw;
 }
 
-function fillSumModelDropdown() {
-  const select = document.getElementById('agentSumModel');
+function fillOffloadModelDropdown() {
+  const select = document.getElementById('agentOffloadModel');
+  if (!select) return;
   select.innerHTML = '<option value="">使用主模型</option>' +
     availableModels.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+}
+
+function toggleOffloadModel() {
+  const strategy = document.getElementById('agentOffloadStrategy').value;
+  const modelRow = document.getElementById('offloadModelRow');
+  if (strategy === 'llm') {
+    modelRow.style.display = '';
+  } else {
+    modelRow.style.display = 'none';
+  }
 }
 
 function fillContextFields(cfg) {
@@ -180,7 +191,6 @@ function fillContextFields(cfg) {
   const elCtxSysBudget = document.getElementById('agentCtxSystemBudget');
   const elSumEnabled = document.getElementById('agentSumEnabled');
   const elSumTrigger = document.getElementById('agentSumTrigger');
-  const elSumModel = document.getElementById('agentSumModel');
   const elCacheEnabled = document.getElementById('agentCacheEnabled');
 
   if (!cfg) {
@@ -189,7 +199,6 @@ function fillContextFields(cfg) {
     elCtxSysBudget.value = '';
     elSumEnabled.value = 'inherit';
     elSumTrigger.value = '';
-    elSumModel.value = '';
     elCacheEnabled.value = 'inherit';
     return;
   }
@@ -212,7 +221,6 @@ function fillContextFields(cfg) {
   else if (summ.enabled === false) elSumEnabled.value = 'false';
   else elSumEnabled.value = 'inherit';
   elSumTrigger.value = summ.trigger_after_messages ?? '';
-  elSumModel.value = summ.model_id ?? '';
 
   // caching
   const cache = cfg.caching || {};
@@ -267,6 +275,10 @@ function fillEngineFields(cfg) {
   document.getElementById('agentOffloadThreshold').value = cfg.offload_threshold ?? '';
   document.getElementById('agentOffloadStrategy').value = cfg.offload_summary_strategy || 'truncate';
   document.getElementById('agentOffloadSummaryChars').value = cfg.offload_summary_chars ?? '';
+  fillOffloadModelDropdown();
+  const offloadModelId = cfg.offload_summary_model_id || '';
+  document.getElementById('agentOffloadModel').value = offloadModelId;
+  toggleOffloadModel();
 }
 
 function toggleCompressInterval() {
@@ -339,13 +351,12 @@ async function saveAgent(){
   const ctxSysBudget = toNullableInt(document.getElementById('agentCtxSystemBudget').value);
   const sumEnabled = document.getElementById('agentSumEnabled').value;
   const sumTrigger = toNullableInt(document.getElementById('agentSumTrigger').value);
-  const sumModel = document.getElementById('agentSumModel').value || null;
   const cacheEnabled = document.getElementById('agentCacheEnabled').value;
 
   let compressConfig = null;
   if (
     ctxEnabled !== 'inherit' || ctxRecentKeep !== null || ctxSysBudget !== null ||
-    sumEnabled !== 'inherit' || sumTrigger !== null || sumModel !== null || cacheEnabled !== 'inherit'
+    sumEnabled !== 'inherit' || sumTrigger !== null || cacheEnabled !== 'inherit'
   ) {
     compressConfig = {};
     if (ctxEnabled !== 'inherit') compressConfig.enabled = ctxEnabled === 'true';
@@ -353,11 +364,10 @@ async function saveAgent(){
     if (ctxSysBudget !== null) {
       compressConfig.budget = { system_max_tokens: ctxSysBudget };
     }
-    if (sumEnabled !== 'inherit' || sumTrigger !== null || sumModel !== null) {
+    if (sumEnabled !== 'inherit' || sumTrigger !== null) {
       compressConfig.summarization = {};
       if (sumEnabled !== 'inherit') compressConfig.summarization.enabled = sumEnabled === 'true';
       if (sumTrigger !== null) compressConfig.summarization.trigger_after_messages = sumTrigger;
-      if (sumModel !== null) compressConfig.summarization.model_id = sumModel;
     }
     if (cacheEnabled !== 'inherit') {
       compressConfig.caching = { enabled: cacheEnabled === 'true' };
@@ -375,6 +385,7 @@ async function saveAgent(){
   const offloadThreshold = toNullableInt(document.getElementById('agentOffloadThreshold').value);
   const offloadStrategy = document.getElementById('agentOffloadStrategy').value;
   const offloadSummaryChars = toNullableInt(document.getElementById('agentOffloadSummaryChars').value);
+  const offloadSummaryModelId = document.getElementById('agentOffloadModel').value || null;
 
   const engineConfig = {
     max_steps: engineMaxSteps,
@@ -387,6 +398,7 @@ async function saveAgent(){
     offload_threshold: offloadThreshold,
     offload_summary_strategy: offloadStrategy,
     offload_summary_chars: offloadSummaryChars,
+    offload_summary_model_id: offloadSummaryModelId,
   };
 
   const body = {
