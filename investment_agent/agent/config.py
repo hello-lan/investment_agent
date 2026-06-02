@@ -88,6 +88,7 @@ class EngineConfig:
     slow_think_interval: int = 3
     token_budget: int = 100_000
     loop_detection_threshold: int = 3
+    run_command_limit: int = 15
     context_trim_interval: int = 0
     tool_trim_limits: dict = field(default_factory=dict)
     max_subagent_depth: int = 3
@@ -123,6 +124,7 @@ class AgentRunConfig:
     slow_think_interval: int = 3
     token_budget: int = 100000
     loop_detection_threshold: int = 3
+    run_command_limit: int = 15
     context_trim_interval: int = 0
     runtime_trim_strategy: str = "compress"
 

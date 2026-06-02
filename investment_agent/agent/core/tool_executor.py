@@ -8,7 +8,6 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from collections import Counter
 from typing import AsyncGenerator, TYPE_CHECKING
 
 from ._signals import _Value
@@ -29,33 +28,118 @@ DELEGATE_MIN_REMAINING = 50_000    # 委派模式最低剩余 token
 # ── 死循环检测 ────────────────────────────────────────────────────────
 
 class LoopDetector:
-    """滑动窗口死循环检测：同一工具连续调用超过阈值则中止。"""
+    """增强死循环检测：参数感知 + 振荡检测 + run_command 限流。
 
-    def __init__(self, threshold: int, whitelist: set[str]):
+    检测规则：
+    1. 相同工具 + 相同关键参数连续调用超过阈值 → 死循环
+    2. 连续滑动窗口内呈现 A→B→A→B 振荡模式 → 策略混乱
+    3. run_command 总有次数上限（不再无限豁免）
+    """
+
+    # 各工具的关键参数（用于区分"不同参数的同名调用"）
+    _KEY_PARAMS: dict[str, list[str]] = {
+        "get_stock_info": ["symbol"],
+        "get_stock_price": ["symbol", "period"],
+        "get_income_statement": ["symbol", "report_type"],
+        "get_balance_sheet": ["symbol", "report_type"],
+        "get_cash_flow": ["symbol", "report_type"],
+        "get_valuation": ["symbol"],
+        "get_financial_indicators": ["symbol"],
+        "run_command": ["command"],
+        "DelegateTask": ["task"],
+    }
+
+    def __init__(self, threshold: int, whitelist: set[str], run_command_limit: int = 15):
         self._threshold = threshold
         self._whitelist = whitelist
+        self._run_command_limit = run_command_limit
         self._recent: list[str] = []
+        self._recent_params: list[str] = []  # 参数哈希，用于精确匹配
         self._detected_tool: str = ""
+        self._detected_reason: str = ""  # "repeat" | "oscillation" | "run_command_limit"
+        self._run_command_count = 0
+
+    @staticmethod
+    def _hash_key_params(tool_name: str, input: dict) -> str:
+        """提取关键参数并哈希，用于区分不同参数的同名工具调用。"""
+        import hashlib, json
+        key_fields = LoopDetector._KEY_PARAMS.get(tool_name, [])
+        if not key_fields:
+            # 未知工具：对所有参数排序后哈希
+            key_fields = sorted(input.keys())
+        key_params = {k: input.get(k) for k in key_fields if k in input}
+        raw = json.dumps(key_params, sort_keys=True, ensure_ascii=False)
+        return hashlib.md5(raw.encode()).hexdigest()[:8]
 
     def check(self, tool_calls: list[ToolCall]) -> bool:
         """记录工具调用并检测死循环。返回 True 表示检测到。"""
         for tc in tool_calls:
             self._recent.append(tc.name)
-        candidates = [n for n in self._recent if n not in self._whitelist]
-        self._recent = self._recent[-self._threshold * 2:]  # 保持滑动窗口
-        counts = Counter(candidates[-self._threshold:])
-        if counts and counts.most_common(1)[0][1] >= self._threshold:
-            self._detected_tool = counts.most_common(1)[0][0]
-            return True
+            param_hash = self._hash_key_params(tc.name, tc.input)
+            self._recent_params.append(f"{tc.name}:{param_hash}")
+
+            # run_command 限流
+            if tc.name == "run_command":
+                self._run_command_count += 1
+                if self._run_command_count > self._run_command_limit:
+                    self._detected_tool = "run_command"
+                    self._detected_reason = "run_command_limit"
+                    return True
+
+        # 保持滑动窗口（oscillation 检测需要两倍阈值保证覆盖两个周期）
+        max_keep = self._threshold * 3
+        self._recent = self._recent[-max_keep:]
+        self._recent_params = self._recent_params[-max_keep:]
+
+        # 检测 1: 相同工具+相同参数连续重复（参数感知）
+        candidates = [
+            p for p, n in zip(self._recent_params, self._recent)
+            if n not in self._whitelist
+        ]
+        if len(candidates) >= self._threshold:
+            tail = candidates[-self._threshold:]
+            if len(set(tail)) == 1:
+                self._detected_tool = tail[0].split(":")[0]
+                self._detected_reason = "repeat"
+                return True
+
+        # 检测 2: 振荡模式 A→B→A→B（不区分参数，只看工具名切换）
+        if len(self._recent) >= 6:
+            tools = [n for n in self._recent if n not in self._whitelist]
+            if len(tools) >= 4:
+                last4 = tools[-4:]
+                if last4[0] == last4[2] and last4[1] == last4[3] and last4[0] != last4[1]:
+                    self._detected_tool = f"{last4[0]} ↔ {last4[1]}"
+                    self._detected_reason = "oscillation"
+                    return True
+
         return False
 
     def error_event(self) -> dict:
         """返回死循环错误事件。"""
+        if self._detected_reason == "run_command_limit":
+            return {
+                "type": "error",
+                "message": (
+                    f"run_command 调用次数超限({self._run_command_limit}次)，"
+                    f"已调用 {self._run_command_count} 次"
+                ),
+                "recent_tool_calls": list(self._recent),
+            }
+        if self._detected_reason == "oscillation":
+            return {
+                "type": "error",
+                "message": (
+                    f"检测到工具振荡模式: {self._detected_tool}，"
+                    f"策略可能陷入循环"
+                ),
+                "recent_tool_calls": list(self._recent),
+            }
         return {
             "type": "error",
             "message": (
-                f"Dead loop detected: '{self._detected_tool}' "
-                f"called {self._threshold} times in a row."
+                f"死循环检测: '{self._detected_tool}' "
+                f"使用相同参数连续调用 {self._threshold} 次"
             ),
             "recent_tool_calls": list(self._recent),
         }

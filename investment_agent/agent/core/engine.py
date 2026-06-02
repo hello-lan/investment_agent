@@ -61,6 +61,7 @@ class AgentEngine:
         self.slow_think_interval = config.slow_think_interval
         self.token_budget = config.token_budget
         self.loop_threshold = config.loop_detection_threshold
+        self.run_command_limit = config.run_command_limit
         self.context_trim_interval = config.context_trim_interval
         self.tool_trim_limits = config.tool_trim_limits
         self._runtime_compressor = runtime_compressor
@@ -136,7 +137,7 @@ class AgentEngine:
             return
 
         self._ensure_task_planner()
-        loop_detector = LoopDetector(self.loop_threshold, self.LOOP_WHITELIST)
+        loop_detector = LoopDetector(self.loop_threshold, self.LOOP_WHITELIST, self.run_command_limit)
         step = 0
 
         while step < self.max_steps:
