@@ -323,7 +323,13 @@ async def run_delegate_task(
     """
     child = create_child_engine(parent, skill_names, delegate_id)
 
-    child_messages: list[dict] = [{"role": "user", "content": prompt}]
+    # 为首条消息添加 cache_control，使子Agent的对话前缀可跨调用缓存
+    child_messages: list[dict] = [{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}
+        ],
+    }]
     depth = parent.subagent_depth + 1
     prefix = "sub_" * depth
 

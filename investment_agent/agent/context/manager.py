@@ -163,9 +163,12 @@ class ContextManager:
 
         # 8. cache structure (Phase 4)
         if self.caching_enabled and self.provider_type == "anthropic":
-            sys_prompt, final_messages, _ = self._apply_cache_markers(
+            sys_prompt, final_messages, cached = self._apply_cache_markers(
                 sys_prompt, final_messages
             )
+            if cached:
+                logger.debug("Cache markers applied: system=%d tokens, messages=%d",
+                           sys_tokens, msg_tokens)
 
         return ContextResult(
             system_prompt=sys_prompt, tools=kept_tools, messages=final_messages,

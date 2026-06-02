@@ -75,7 +75,8 @@ class AgentEngine:
         self.total_cache_read_tokens = 0
         self.total_cache_creation_tokens = 0
 
-        # ── 子Agent配置 ──
+        # 慢思考缓存
+        self._cached_role_system: str | None = None
         self.subagent_depth = subagent_depth
         self.max_subagent_depth = config.max_subagent_depth
 
@@ -357,6 +358,9 @@ class AgentEngine:
 
     def _extract_role_from_system(self) -> str:
         """从 system_prompt 中提取角色定义（第一段），用于慢思考的精简 system。"""
+        if self._cached_role_system is not None:
+            return self._cached_role_system
+
         prompt = self.system_prompt or ""
         if isinstance(prompt, list):
             for block in prompt:
@@ -376,7 +380,9 @@ class AgentEngine:
         max_chars = self.SYSTEM_PROMPT_EXCERPT_CHARS
         if len(prompt) > max_chars:
             prompt = prompt[:max_chars].rsplit("。", 1)[0] + "。"
-        return prompt + " 请基于对话历史评估当前任务进展是否正常。"
+        result = prompt + " 请基于对话历史评估当前任务进展是否正常。"
+        self._cached_role_system = result
+        return result
 
     def _truncate_reasoning(self, content: str, max_chars: int | None = None) -> str:
         """截断推理内容：短于 max_chars 完整保留，否则保留首尾各一半。"""
@@ -389,7 +395,7 @@ class AgentEngine:
 
     async def _do_slow_think(self, messages: list[dict], step: int) -> str | None:
         """慢思考：仅发送最近消息 + 精简 system prompt，检查是否跑偏。"""
-        slim_messages = [messages[0]]
+        slim_messages = [self._ensure_cache_on_first_message(messages[0])]
         assistant_positions = [
             i for i, m in enumerate(messages) if m.get("role") == "assistant"
         ]
@@ -417,9 +423,26 @@ class AgentEngine:
             resp = await self.provider.chat(**think_kwargs)
             self.total_input_tokens += resp.input_tokens
             self.total_output_tokens += resp.output_tokens
+            self.total_cache_read_tokens += resp.cache_read_tokens
+            self.total_cache_creation_tokens += resp.cache_creation_tokens
             if resp.content:
                 return resp.content.strip()
         except Exception:
             _log.warning("Slow think failed at step %d", step, exc_info=True)
 
         return None
+
+    @staticmethod
+    def _ensure_cache_on_first_message(msg: dict) -> dict:
+        """给消息添加 cache_control 标记（用于慢思考等场景）。"""
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            return {
+                "role": msg["role"],
+                "content": [
+                    {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
+                ],
+            }
+        if isinstance(content, list) and content:
+            content[0] = {**content[0], "cache_control": {"type": "ephemeral"}}
+        return msg

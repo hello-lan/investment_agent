@@ -1,12 +1,11 @@
 """System prompt 动态拼装 — 从 AgentEngine 中分离。
 
-将基础 prompt + 项目路径 + 时间 + 技能列表 + 委派策略的拼装逻辑
+将基础 prompt + 项目路径 + 技能列表 + 委派策略的拼装逻辑
 提取为独立类，职责单一且可独立测试。
 """
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -72,7 +71,7 @@ class PromptBuilder:
         )
 
     def _ensure_project_info(self, prompt: str) -> str:
-        """确保 prompt 包含项目路径和当前时间。"""
+        """确保 prompt 包含项目路径。"""
         if "## 项目路径" in prompt:
             return prompt
 
@@ -80,9 +79,7 @@ class PromptBuilder:
 
         return prompt + (
             f"\n\n## 项目路径\n\n"
-            f"PROJECT_ROOT = {PROJECT_ROOT}\n\n"
-            f"## 当前时间\n"
-            f"{datetime.now()}\n"
+            f"PROJECT_ROOT = {PROJECT_ROOT}\n"
         )
 
     def _format_skills(self) -> str:

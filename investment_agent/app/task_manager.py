@@ -251,6 +251,8 @@ class TaskManager:
         usage = event.get("usage", {})
         input_tokens = usage.get("input_tokens", engine.total_input_tokens)
         output_tokens = usage.get("output_tokens", engine.total_output_tokens)
+        cache_read = engine.total_cache_read_tokens
+        cache_create = engine.total_cache_creation_tokens
 
         try:
             if hasattr(hooks, "on_cost"):
@@ -260,18 +262,27 @@ class TaskManager:
                     input_price=engine.provider.input_price,
                     output_price=engine.provider.output_price,
                     currency=engine.provider.currency,
+                    cache_read_tokens=cache_read,
+                    cache_creation_tokens=cache_create,
                 )
         except Exception:
             logger.debug("on_cost hook failed", exc_info=True)
 
+        # 缓存命中率诊断
+        total_cacheable = input_tokens + cache_read + cache_create
+        hit_ratio = cache_read / total_cacheable if total_cacheable > 0 else 0
+        provider_type = getattr(engine.provider, "provider_type", "")
+        if provider_type == "anthropic" and cache_read == 0 and input_tokens > 5000:
+            logger.warning(
+                "Zero cache hits for anthropic provider (input=%d tokens). "
+                "System prompt may not be stable — check for dynamic content.",
+                input_tokens,
+            )
+
         try:
             if hasattr(hooks, "on_cache_metrics"):
-                if engine.total_cache_read_tokens or engine.total_cache_creation_tokens:
-                    await hooks.on_cache_metrics(
-                        last_step or None,
-                        engine.total_cache_read_tokens,
-                        engine.total_cache_creation_tokens,
-                    )
+                if cache_read or cache_create:
+                    await hooks.on_cache_metrics(last_step or None, cache_read, cache_create)
         except Exception:
             logger.debug("on_cache_metrics hook failed", exc_info=True)
 

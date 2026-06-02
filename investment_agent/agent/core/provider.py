@@ -271,6 +271,19 @@ class OpenAICompatProvider(ModelProvider):
         else:
             stop_reason = raw_reason
 
+        # 提取缓存指标（DeepSeek 自动前缀缓存 / OpenAI prompt caching）
+        cache_read = 0
+        cache_creation = 0
+        if resp.usage:
+            # DeepSeek 格式
+            cache_read = getattr(resp.usage, 'prompt_cache_hit_tokens', 0) or 0
+            cache_creation = getattr(resp.usage, 'prompt_cache_miss_tokens', 0) or 0
+            # OpenAI 格式
+            if not cache_read:
+                details = getattr(resp.usage, 'prompt_tokens_details', None)
+                if details:
+                    cache_read = getattr(details, 'cached_tokens', 0) or 0
+
         return LLMResponse(
             content=content,
             tool_calls=tool_calls,
@@ -278,4 +291,6 @@ class OpenAICompatProvider(ModelProvider):
             input_tokens=resp.usage.prompt_tokens if resp.usage else 0,
             output_tokens=resp.usage.completion_tokens if resp.usage else 0,
             stop_reason=stop_reason,
+            cache_read_tokens=cache_read,
+            cache_creation_tokens=cache_creation,
         )

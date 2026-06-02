@@ -143,8 +143,10 @@ class LifecycleHooks(Protocol):
         input_price: float | None = None,
         output_price: float | None = None,
         currency: str = "USD",
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
     ) -> None:
-        """终端事件（done/error/interrupted）时触发，记录 Token 成本。"""
+        """终端事件（done/error/interrupted）时触发，记录 Token 成本和缓存指标。"""
         ...
 
     async def on_context_budget(self, context_result: Any) -> None:
