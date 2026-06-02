@@ -37,11 +37,14 @@
 
     <div class="form-section">连接配置</div>
     <div class="form-row">
-      <label>类型 <span class="required">*</span></label>
-      <select id="mType" onchange="toggleBaseUrl()">
-        <option value="anthropic">Anthropic（原生 Claude SDK）</option>
-        <option value="openai_compat">OpenAI 兼容（DeepSeek / Qwen / Ollama 等）</option>
+      <label>Provider 类型 <span class="required">*</span></label>
+      <select id="mType" onchange="toggleBaseUrl(); toggleCacheTip()">
+        <option value="anthropic">Anthropic Claude（原生 SDK + Prompt Caching）</option>
+        <option value="deepseek">DeepSeek（OpenAI 兼容 + 自动缓存）</option>
+        <option value="qwen">Qwen / 通义千问（DashScope + 自动缓存）</option>
+        <option value="openai_compat">OpenAI 兼容（通用，无缓存）</option>
       </select>
+      <div class="hint" id="cacheTip" style="margin-top: 4px; color: #666;"></div>
     </div>
     <div class="form-row">
       <label>Model Name <span class="required">*</span></label>
@@ -55,6 +58,14 @@
       <label>Base URL <span class="required">*</span></label>
       <input type="text" id="mBaseUrl" placeholder="如：https://api.deepseek.com">
       <div class="hint">留空则使用 https://api.openai.com/v1</div>
+    </div>
+
+    <div class="form-row" id="cacheRow">
+      <label>
+        <input type="checkbox" id="mEnableCache" checked style="width: auto; margin-right: 6px;">
+        启用 Prompt 缓存优化
+      </label>
+      <div class="hint" id="cacheDetailTip">Claude: 节省 80-90% 输入成本 | DeepSeek/Qwen: 自动缓存</div>
     </div>
 
     <div class="form-section">可选</div>
@@ -90,5 +101,27 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script>
+// 缓存提示映射
+const CACHE_TIPS = {
+    'anthropic': '✅ 支持显式 Prompt Caching（cache_control），预计降低 80-90% 输入成本',
+    'deepseek': '✅ 支持自动前缀缓存，系统会优化 prompt 结构以提升命中率',
+    'qwen': '✅ 自动 KV 缓存（需安装 dashscope SDK），无需额外配置',
+    'openai_compat': '⚠️ 不提供原生缓存支持，每次请求全量计费',
+};
+function toggleCacheTip() {
+    const type = document.getElementById('mType').value;
+    const tipEl = document.getElementById('cacheTip');
+    const detailEl = document.getElementById('cacheDetailTip');
+    const cacheRow = document.getElementById('cacheRow');
+    if (tipEl) tipEl.textContent = CACHE_TIPS[type] || '';
+    // 非 Claude 的 provider 不显示缓存复选框（自动缓存，无需配置）
+    if (cacheRow) cacheRow.style.display = (type === 'anthropic') ? '' : 'none';
+}
+// 页面加载时初始化
+document.addEventListener('DOMContentLoaded', function() {
+    toggleCacheTip();
+});
+</script>
 <script src="/static/js/model.js?v=2"></script>
 {% endblock %}

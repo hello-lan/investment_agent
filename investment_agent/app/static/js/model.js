@@ -1,5 +1,7 @@
 const BADGE = {
-  anthropic: '<span class="badge badge-anthropic">Anthropic</span>',
+  anthropic: '<span class="badge badge-anthropic">Claude</span>',
+  deepseek: '<span class="badge badge-deepseek">DeepSeek</span>',
+  qwen: '<span class="badge badge-qwen">Qwen</span>',
   openai_compat: '<span class="badge badge-openai">OpenAI 兼容</span>',
 };
 
@@ -35,6 +37,7 @@ function renderModelList() {
           ${m.input_price != null || m.output_price != null
             ? ' · 价格: ' + (m.currency === 'CNY' ? '¥' : '$') + (m.input_price != null ? m.input_price : '?') + ' / ' + (m.currency === 'CNY' ? '¥' : '$') + (m.output_price != null ? m.output_price : '?') + ' /M'
             : ''}
+          ${m.enable_cache !== false ? ' · 🗜️缓存' : ''}
         </div>
       </div>
       <div class="model-actions">
@@ -71,9 +74,11 @@ function openModal(id) {
   document.getElementById('mBaseUrl').value = m?.base_url || '';
   document.getElementById('mInputPrice').value = m?.input_price != null ? m.input_price : '';
   document.getElementById('mOutputPrice').value = m?.output_price != null ? m.output_price : '';
+  document.getElementById('mEnableCache').checked = m?.enable_cache !== false;  // 默认true
   var cur = m?.currency || 'USD';
   document.querySelector('input[name=mCurrency][value=' + cur + ']').checked = true;
   toggleBaseUrl();
+  toggleCacheTip();
   document.getElementById('modalOverlay').classList.add('open');
 }
 
@@ -99,6 +104,7 @@ async function saveModel() {
     base_url: document.getElementById('mBaseUrl').value.trim(),
     input_price: inputPriceVal !== '' ? parseFloat(inputPriceVal) : null,
     output_price: outputPriceVal !== '' ? parseFloat(outputPriceVal) : null,
+    enable_cache: document.getElementById('mEnableCache').checked,
     currency: document.querySelector('input[name=mCurrency]:checked').value,
   };
   if (!body.name || !body.model) { alert('请填写名称和模型名'); return; }

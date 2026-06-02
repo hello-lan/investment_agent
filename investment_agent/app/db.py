@@ -191,6 +191,29 @@ async def init_db() -> None:
             )
             await db.commit()
 
+
+    # 添加 models 表的 provider_type 字段（优化1：多provider缓存支持）
+    try:
+        await db.execute("ALTER TABLE models ADD COLUMN provider_type TEXT DEFAULT 'openai_compat'")
+    except Exception:
+        pass
+
+    # 添加 models 表的 enable_cache 字段
+    try:
+        await db.execute("ALTER TABLE models ADD COLUMN enable_cache BOOLEAN DEFAULT 1")
+    except Exception:
+        pass
+
+    # 添加 cost_log 表的缓存指标字段
+    try:
+        await db.execute("ALTER TABLE cost_log ADD COLUMN cache_creation_tokens INTEGER DEFAULT 0")
+    except Exception:
+        pass
+
+    try:
+        await db.execute("ALTER TABLE cost_log ADD COLUMN cache_read_tokens INTEGER DEFAULT 0")
+    except Exception:
+        pass
         # trace_log.detail_size: 回填已有记录
         await db.execute(
             "UPDATE trace_log SET detail_size = LENGTH(detail) "
@@ -202,6 +225,30 @@ async def init_db() -> None:
         await db.execute(
             "UPDATE sessions SET status = 'active', current_task_id = NULL WHERE status = 'running'"
         )
+
+    # 添加 models 表的 provider_type 字段（优化1：多provider缓存支持）
+    try:
+        await db.execute("ALTER TABLE models ADD COLUMN provider_type TEXT DEFAULT 'openai_compat'")
+    except Exception:
+        pass
+
+    # 添加 models 表的 enable_cache 字段
+    try:
+        await db.execute("ALTER TABLE models ADD COLUMN enable_cache BOOLEAN DEFAULT 1")
+    except Exception:
+        pass
+
+    # 添加 cost_log 表的缓存指标字段
+    try:
+        await db.execute("ALTER TABLE cost_log ADD COLUMN cache_creation_tokens INTEGER DEFAULT 0")
+    except Exception:
+        pass
+
+    try:
+        await db.execute("ALTER TABLE cost_log ADD COLUMN cache_read_tokens INTEGER DEFAULT 0")
+    except Exception:
+        pass
+
         await db.commit()
 
         # ── 创建查询优化索引（IF NOT EXISTS 确保幂等）──────────────
