@@ -168,12 +168,19 @@ function normalizeEngineConfig(raw) {
   return raw;
 }
 
+function fillSumModelDropdown() {
+  const select = document.getElementById('agentSumModel');
+  select.innerHTML = '<option value="">使用主模型</option>' +
+    availableModels.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+}
+
 function fillContextFields(cfg) {
   const elCtxEnabled = document.getElementById('agentCtxEnabled');
   const elCtxRecentKeep = document.getElementById('agentCtxRecentKeep');
   const elCtxSysBudget = document.getElementById('agentCtxSystemBudget');
   const elSumEnabled = document.getElementById('agentSumEnabled');
   const elSumTrigger = document.getElementById('agentSumTrigger');
+  const elSumModel = document.getElementById('agentSumModel');
   const elCacheEnabled = document.getElementById('agentCacheEnabled');
 
   if (!cfg) {
@@ -182,6 +189,7 @@ function fillContextFields(cfg) {
     elCtxSysBudget.value = '';
     elSumEnabled.value = 'inherit';
     elSumTrigger.value = '';
+    elSumModel.value = '';
     elCacheEnabled.value = 'inherit';
     return;
   }
@@ -204,6 +212,7 @@ function fillContextFields(cfg) {
   else if (summ.enabled === false) elSumEnabled.value = 'false';
   else elSumEnabled.value = 'inherit';
   elSumTrigger.value = summ.trigger_after_messages ?? '';
+  elSumModel.value = summ.model_id ?? '';
 
   // caching
   const cache = cfg.caching || {};
@@ -284,6 +293,7 @@ function openModal(agent){
   document.getElementById('agentModel').innerHTML = buildModelOptions(agent?.model_id || '');
   document.getElementById('agentTemp').value = agent?.temperature ?? 0.7;
   document.getElementById('agentMaxTokens').value = agent?.max_tokens || 4096;
+  fillSumModelDropdown();
   fillContextFields(compressConfig);
   fillEngineFields(engineConfig);
   renderSkillOptions(agent?.skills || []);
@@ -329,12 +339,13 @@ async function saveAgent(){
   const ctxSysBudget = toNullableInt(document.getElementById('agentCtxSystemBudget').value);
   const sumEnabled = document.getElementById('agentSumEnabled').value;
   const sumTrigger = toNullableInt(document.getElementById('agentSumTrigger').value);
+  const sumModel = document.getElementById('agentSumModel').value || null;
   const cacheEnabled = document.getElementById('agentCacheEnabled').value;
 
   let compressConfig = null;
   if (
     ctxEnabled !== 'inherit' || ctxRecentKeep !== null || ctxSysBudget !== null ||
-    sumEnabled !== 'inherit' || sumTrigger !== null || cacheEnabled !== 'inherit'
+    sumEnabled !== 'inherit' || sumTrigger !== null || sumModel !== null || cacheEnabled !== 'inherit'
   ) {
     compressConfig = {};
     if (ctxEnabled !== 'inherit') compressConfig.enabled = ctxEnabled === 'true';
@@ -342,10 +353,11 @@ async function saveAgent(){
     if (ctxSysBudget !== null) {
       compressConfig.budget = { system_max_tokens: ctxSysBudget };
     }
-    if (sumEnabled !== 'inherit' || sumTrigger !== null) {
+    if (sumEnabled !== 'inherit' || sumTrigger !== null || sumModel !== null) {
       compressConfig.summarization = {};
       if (sumEnabled !== 'inherit') compressConfig.summarization.enabled = sumEnabled === 'true';
       if (sumTrigger !== null) compressConfig.summarization.trigger_after_messages = sumTrigger;
+      if (sumModel !== null) compressConfig.summarization.model_id = sumModel;
     }
     if (cacheEnabled !== 'inherit') {
       compressConfig.caching = { enabled: cacheEnabled === 'true' };
