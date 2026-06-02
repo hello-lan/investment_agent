@@ -30,6 +30,7 @@ class AgentEngine:
     SYSTEM_PROMPT_EXCERPT_CHARS = 200 # 慢思考 system prompt 截取长度
     REASONING_MAX_CHARS = 300         # 推理内容保留长度
     LOOP_WHITELIST = {"run_command", "DelegateTask"}  # 不受死循环检测限制的工具
+    SLOW_THINK_MAX_INTERVAL = 8       # 慢思考最大间隔（保底触发）
 
     def __init__(
         self,
@@ -80,6 +81,12 @@ class AgentEngine:
         self._cached_role_system: str | None = None
         self.subagent_depth = subagent_depth
         self.max_subagent_depth = config.max_subagent_depth
+
+        # 自适应慢思考触发器状态
+        self._consecutive_failures = 0
+        self._slow_think_tool_switches = 0
+        self._last_tool: str | None = None
+        self._last_slow_think_step = 0
 
         # ── 组合组件 ──
         self._tool_executor = ToolExecutor()
@@ -189,6 +196,13 @@ class AgentEngine:
                     yield event
 
             if has_tool_calls:
+                # 自适应慢思考：追踪工具切换
+                for tc in response.tool_calls:
+                    if tc.name != self._last_tool:
+                        if self._last_tool is not None:
+                            self._slow_think_tool_switches += 1
+                        self._last_tool = tc.name
+
                 # 死循环检测
                 if loop_detector.check(response.tool_calls):
                     yield loop_detector.error_event()
@@ -196,11 +210,23 @@ class AgentEngine:
 
                 # 工具执行
                 tool_results = []
+                has_error = False
                 async for event in self._tool_executor.execute(response.tool_calls, self):
                     if isinstance(event, _Value):
                         tool_results = event.value
                     else:
+                        if event.get("type") == "tool_result":
+                            output = str(event.get("output", ""))
+                            if "error" in output.lower() or "失败" in output or "错误" in output:
+                                has_error = True
                         yield event
+
+                # 自适应慢思考：追踪失败
+                if has_error:
+                    self._consecutive_failures += 1
+                else:
+                    self._consecutive_failures = 0
+
                 messages.append({"role": "user", "content": tool_results})
 
         else:
@@ -233,12 +259,41 @@ class AgentEngine:
         return messages, None
 
     async def _maybe_slow_think(self, messages: list[dict], step: int) -> AsyncGenerator:
-        """每 N 步触发慢思考。yield 公共事件 + _Inject 信号。"""
-        if self.slow_think_interval <= 0 or step <= 1 or step % self.slow_think_interval != 0:
+        """自适应慢思考：基于信号触发而非固定间隔。
+
+        触发条件（优先级从高到低）：
+        1. 工具连续失败 ≥2 次 → 需要重新规划
+        2. 最近 5 步频繁切换工具（≥3 种不同工具）→ 策略不稳定
+        3. 距上次反思超过 SLOW_THINK_MAX_INTERVAL 步 → 保底触发
+        """
+        trigger_reason = ""
+
+        # 条件 1: 连续失败
+        if self._consecutive_failures >= 2:
+            trigger_reason = "工具连续失败，需要重新规划"
+
+        # 条件 2: 频繁切换工具
+        if not trigger_reason and self._slow_think_tool_switches >= 3:
+            trigger_reason = "策略不稳定，频繁切换工具"
+
+        # 条件 3: 保底触发
+        steps_since = step - self._last_slow_think_step
+        if not trigger_reason and steps_since >= self.SLOW_THINK_MAX_INTERVAL:
+            trigger_reason = f"距上次反思已 {steps_since} 步"
+
+        # 传统 fixed-interval 也保留作为额外触发（向后兼容）
+        if not trigger_reason and self.slow_think_interval > 0 and step > 1:
+            if step % self.slow_think_interval == 0:
+                trigger_reason = f"定时反思 @ step {step}"
+
+        if not trigger_reason:
             return
+
         reflection = await self._do_slow_think(messages, step)
         if reflection:
-            yield {"type": "slow_think", "content": reflection}
+            self._last_slow_think_step = step
+            self._slow_think_tool_switches = 0  # 反思后重置切换计数
+            yield {"type": "slow_think", "content": reflection, "trigger": trigger_reason}
             yield _Inject({"role": "user", "content": f"[慢思考反思 @ step {step}] {reflection}"})
 
     async def _call_llm(self, messages: list[dict], step: int) -> AsyncGenerator:
