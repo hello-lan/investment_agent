@@ -76,6 +76,9 @@ class AgentEngine:
         self.total_output_tokens = 0
         self.total_cache_read_tokens = 0
         self.total_cache_creation_tokens = 0
+        self._llm_call_count = 0       # LLM 调用次数统计
+        self._tool_call_count = 0      # 工具调用次数统计
+        self._start_ts = 0.0           # 会话开始时间戳
 
         # 慢思考缓存
         self._cached_role_system: str | None = None
@@ -144,6 +147,7 @@ class AgentEngine:
             return
 
         self._ensure_task_planner()
+        self._start_ts = __import__('time').monotonic()
         loop_detector = LoopDetector(self.loop_threshold, self.LOOP_WHITELIST, self.run_command_limit)
         step = 0
 
@@ -209,6 +213,7 @@ class AgentEngine:
                     return
 
                 # 工具执行
+                self._tool_call_count += len(response.tool_calls)
                 tool_results = []
                 has_error = False
                 async for event in self._tool_executor.execute(response.tool_calls, self):
@@ -327,6 +332,7 @@ class AgentEngine:
         self.total_output_tokens += response.output_tokens
         self.total_cache_read_tokens += response.cache_read_tokens
         self.total_cache_creation_tokens += response.cache_creation_tokens
+        self._llm_call_count += 1
 
         yield {
             "type": "llm_response",
@@ -376,6 +382,16 @@ class AgentEngine:
                     "output_tokens": self.total_output_tokens,
                     "cache_read_tokens": self.total_cache_read_tokens,
                     "cache_creation_tokens": self.total_cache_creation_tokens,
+                },
+                "stats": {
+                    "llm_calls": self._llm_call_count,
+                    "tool_calls": self._tool_call_count,
+                    "cache_hit_ratio": round(
+                        self.total_cache_read_tokens / max(self.total_input_tokens, 1) * 100, 1
+                    ),
+                    "avg_tokens_per_call": (
+                        (self.total_input_tokens + self.total_output_tokens) // max(self._llm_call_count, 1)
+                    ),
                 },
             })
             return
