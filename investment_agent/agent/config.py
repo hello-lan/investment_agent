@@ -84,7 +84,7 @@ OFFLOAD_AWARE_PROMPT = """
 class EngineConfig:
     """引擎执行参数子集，供 AgentEngine 构造使用。"""
 
-    max_steps: int = 30
+    max_steps: int = 60
     slow_think_interval: int = 3
     token_budget: int = 100_000
     loop_detection_threshold: int = 3
@@ -120,7 +120,7 @@ class AgentRunConfig:
     max_tokens: int | None = None
 
     # ── 引擎参数 ──
-    max_steps: int = 30
+    max_steps: int = 60
     slow_think_interval: int = 3
     token_budget: int = 100000
     loop_detection_threshold: int = 3

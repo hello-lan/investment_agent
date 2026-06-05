@@ -151,12 +151,18 @@ class AgentEngine:
         loop_detector = LoopDetector(self.loop_threshold, self.LOOP_WHITELIST, self.run_command_limit)
         step = 0
 
+        # 注入当前日期到首条消息（不在 system prompt 中注入以保持 cache 命中）
+        self._inject_date(messages)
+
         while step < self.max_steps:
             # 安全检查
             stop_event = self._check_safety(step)
             if stop_event:
                 yield stop_event
                 return
+
+            # 步数预算预警
+            self._check_step_budget(step, messages)
 
             step += 1
             self._messages = messages
@@ -239,13 +245,49 @@ class AgentEngine:
 
     # ── run() 辅助方法 ────────────────────────────────────────────────
 
+    @staticmethod
+    def _inject_date(messages: list[dict]) -> None:
+        """将当前日期注入到第一条消息开头（避免破坏 system prompt cache）。"""
+        from datetime import datetime
+        now = datetime.now()
+        date_note = (
+            f"[系统信息] 当前时间为 {now.year} 年 {now.month} 月 {now.day} 日 "
+            f"{now.hour:02d}:{now.minute:02d}。"
+            f"请以当前时间为基准判断时间相关的问题。\n\n"
+        )
+        msg = messages[0]
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            msg["content"] = date_note + content
+        elif isinstance(content, list):
+            msg["content"] = [{"type": "text", "text": date_note}] + content
+
     def _check_safety(self, step: int) -> dict | None:
-        """安全检查：中断 + token 预算。返回终止事件或 None。"""
+        """安全检查：中断 + token 预算 + 步数预算警告。返回终止事件或 None。"""
         if self._interrupt.is_set():
             return {"type": "interrupted", "step": step}
         if self.total_input_tokens + self.total_output_tokens >= self.token_budget:
             return {"type": "error", "message": f"Token budget ({self.token_budget}) exceeded."}
         return None
+
+    def _check_step_budget(self, step: int, messages: list[dict]) -> bool:
+        """步数预算预警：剩余步数不足时注入提醒。返回 True 表示已注入。"""
+        remaining = self.max_steps - step
+        warn_threshold = max(5, int(self.max_steps * 0.25))  # 25% 或至少5步
+        if remaining <= warn_threshold:
+            # 仅在最近未注入过时注入（避免连续注入）
+            last_msg = messages[-1] if messages else {}
+            last_content = last_msg.get("content", "")
+            if isinstance(last_content, str) and "步数预算警告" in last_content:
+                return True  # 已注入过，跳过
+            warning = (
+                f"[步数预算警告] 剩余步数: {remaining}/{self.max_steps}。"
+                f"请评估当前进度：如果仍在数据准备阶段，考虑跳过中间步骤，"
+                f"直接使用已有数据快速进入核心分析。优先委派而非亲自调试。"
+            )
+            messages.append({"role": "user", "content": warning})
+            return True
+        return False
 
     async def _maybe_trim_context(self, messages: list[dict], step: int) -> tuple[list[dict], dict | None]:
         """每 N 步裁剪旧消息。返回 (messages, trim_event)。
@@ -267,14 +309,21 @@ class AgentEngine:
         """自适应慢思考：基于信号触发而非固定间隔。
 
         触发条件（优先级从高到低）：
+        0. 步数预算不足（≤25% 剩余）→ 强制策略调整
         1. 工具连续失败 ≥2 次 → 需要重新规划
         2. 最近 5 步频繁切换工具（≥3 种不同工具）→ 策略不稳定
         3. 距上次反思超过 SLOW_THINK_MAX_INTERVAL 步 → 保底触发
         """
         trigger_reason = ""
 
+        # 条件 0: 步数预算不足
+        remaining = self.max_steps - step
+        step_warn_threshold = max(3, int(self.max_steps * 0.25))
+        if remaining <= step_warn_threshold:
+            trigger_reason = f"步数预算不足（剩余 {remaining}/{self.max_steps}），需要调整策略"
+
         # 条件 1: 连续失败
-        if self._consecutive_failures >= 2:
+        if not trigger_reason and self._consecutive_failures >= 2:
             trigger_reason = "工具连续失败，需要重新规划"
 
         # 条件 2: 频繁切换工具
