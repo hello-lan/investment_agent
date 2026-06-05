@@ -330,6 +330,15 @@ async def run_delegate_task(
             {"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}
         ],
     }]
+    # 注入当前日期到首条消息（不在 system prompt 中注入以保持 cache 命中）
+    from datetime import datetime
+    now = datetime.now()
+    date_note = (
+        f"[系统信息] 当前时间为 {now.year} 年 {now.month} 月 {now.day} 日 "
+        f"{now.hour:02d}:{now.minute:02d}。"
+        f"请以当前时间为基准判断时间相关的问题。\n\n"
+    )
+    child_messages[0]["content"][0]["text"] = date_note + child_messages[0]["content"][0]["text"]
     depth = parent.subagent_depth + 1
     prefix = "sub_" * depth
 

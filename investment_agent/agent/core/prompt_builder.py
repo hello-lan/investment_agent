@@ -24,10 +24,10 @@ _DELEGATION_STRATEGY = (
 class PromptBuilder:
     """System prompt 拼装器。
 
-    将基础 prompt 与项目路径、当前时间、技能描述、委派策略组合，
+    将基础 prompt 与项目路径、技能描述、委派策略组合，
     生成供 LLM 使用的完整 system prompt。
 
-    幂等性：多次调用 build() 返回相同结果（时间戳除外）。
+    幂等性：多次调用 build() 返回相同结果。
     """
 
     def __init__(self, base_prompt: str, skills: list | None = None):
