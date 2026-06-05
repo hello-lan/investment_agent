@@ -174,6 +174,7 @@ def batch_download(
     end_year: int = None,
     categories: List[str] = None,
     delay: float = None,
+    preferred_source: str = None,
 ) -> Dict[str, List[Dict]]:
     """
     批量下载多只股票的财报（多数据源自动切换）
@@ -196,6 +197,7 @@ def batch_download(
             end_year=end_year,
             categories=categories,
             delay=delay,
+            preferred_source=preferred_source,
         )
         results[code] = downloaded
 
@@ -288,6 +290,7 @@ def main():
         end_year=end_year,
         categories=[args.category],
         delay=args.delay,
+        preferred_source=args.source,
     )
 
     # 应用 max_results

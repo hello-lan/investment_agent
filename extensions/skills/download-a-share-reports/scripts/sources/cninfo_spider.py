@@ -235,8 +235,15 @@ class CninfoSpider:
             if any(kw in a.get("announcementTitle", "") for kw in keywords)
         ]
 
-        # 按年份去重（每年只保留一条，完整报告优先于摘要）
-        all_announcements.sort(key=lambda x: (0 if "摘要" not in x.get("announcementTitle", "") else 1))
+        # 按年份去重（每年只保留一条，优先级：中文完整版 > 英文版 > 摘要版）
+        def _title_priority(title: str) -> int:
+            """标题优先级：0=中文完整版(最优先), 1=英文版, 2=摘要版(最不优先)"""
+            if "摘要" in title:
+                return 2
+            if "英文版" in title or "英文" in title or "English" in title:
+                return 1
+            return 0
+        all_announcements.sort(key=lambda x: _title_priority(x.get("announcementTitle", "")))
         seen_years = set()
         deduped = []
         for a in all_announcements:
