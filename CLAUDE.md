@@ -35,7 +35,7 @@ No test suite, linting, or type-checking is configured yet.
 
 The engine yields `dict` events (`text_delta`, `tool_call`, `tool_result`, `slow_think`, `done`, `error`, `interrupted`) that `chat.py` serializes into SSE.
 
-### Multi-model abstraction (`agent/core/models.py`)
+### Multi-model abstraction (`agent/core/provider.py`)
 
 `ModelProvider` is an ABC with two implementations:
 - `ClaudeProvider` — native Anthropic SDK (content blocks format).
@@ -127,7 +127,7 @@ Optionally add a `scripts/` directory with a Python entry point. The script rece
 
 ### Session Trace 分析工作流
 
-当用户提供一个 session_id 时，按以下流程分析执行轨迹并找出改进点（完整说明见 `extensions/skills/analyze-session-trace/SKILL.md`）：
+当用户提供一个 session_id 时，按以下流程分析执行轨迹并找出改进点（完整说明见 `.claude/skills/analyze-session-trace/SKILL.md`）：
 
 1. **数据采集** — 从 `data/agent.db` 提取该 session 的 trace_log、messages、agent 配置
 2. **轨迹重建** — 按时间线梳理每步的事件类型、耗时、委派、错误
