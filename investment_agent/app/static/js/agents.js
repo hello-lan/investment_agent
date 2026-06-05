@@ -305,7 +305,6 @@ function openModal(agent){
   document.getElementById('agentModel').innerHTML = buildModelOptions(agent?.model_id || '');
   document.getElementById('agentTemp').value = agent?.temperature ?? 0.7;
   document.getElementById('agentMaxTokens').value = agent?.max_tokens || 4096;
-  fillSumModelDropdown();
   fillContextFields(compressConfig);
   fillEngineFields(engineConfig);
   renderSkillOptions(agent?.skills || []);
