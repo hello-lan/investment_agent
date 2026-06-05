@@ -10,15 +10,15 @@ import shutil
 from typing import ClassVar
 
 from .config import AgentRunConfig, EngineConfig, OFFLOAD_AWARE_PROMPT
+from .constants import RuntimeTrimStrategy, ProviderType
 from .context.context_offloader import ContextOffloader
 from .context.manager import ContextManager, ContextResult
 from .context.runtime_compressor import CompressRuntimeCompressor, NoOpRuntimeCompressor
 from .core.engine import AgentEngine
 from .protocols import ExecutionLoop, LifecycleHooks, Storage
+from .registry_container import AgentRegistry
 from .skills.dependency import expand_with_dependencies
 from .tools.access_policy import AccessPolicy
-from .tools.registry import AUTO_BOUND_TOOLS, get_schemas_for_names, get_tool
-from .tools.run_command import RunCommandTool
 from ..config import PROJECT_ROOT
 
 
@@ -128,7 +128,7 @@ class AgentRunner:
         # 2. 上下文管理
         context_mgr = self._context or ContextManager(
             self._config.context if self._config else {},
-            provider_type=getattr(engine.provider, "provider_type", "anthropic"),
+            provider_type=getattr(engine.provider, "provider_type", ProviderType.ANTHROPIC),
             model_name=getattr(engine.provider, "model", "unknown"),
         )
         existing_summary = await self._storage.load_summary(engine.session_id)
@@ -199,8 +199,12 @@ class AgentRunner:
 
     def _create_engine(self, config: AgentRunConfig, session_id: str) -> AgentEngine:
         """创建引擎并注册工具/技能。start() 和 setup() 共用。"""
+        # 创建注册容器 + 编目默认工具
+        registry = AgentRegistry()
+        registry.bootstrap_default_tools()
+
         # 创建 offloader + trimmer
-        if config.runtime_trim_strategy == "compress":
+        if config.runtime_trim_strategy == RuntimeTrimStrategy.COMPRESS:
             offload_dir = os.path.join(PROJECT_ROOT, "data", ".offload", session_id)
             offloader = ContextOffloader(
                 offload_dir,
@@ -237,7 +241,7 @@ class AgentRunner:
             config=engine_cfg,
             runtime_compressor=runtime_compressor,
         )
-        allowed_tools = AUTO_BOUND_TOOLS | set(config.tools)
+        allowed_tools = registry.auto_bound_tools | set(config.tools)
 
         # 展开 orch 技能的 depends_on 依赖，供 AccessPolicy 和 prepare_delegate_task 使用
         all_skill_names = expand_with_dependencies(config.skills) if config.skills else []
@@ -249,33 +253,34 @@ class AgentRunner:
         if not config.skills:
             allowed_tools = allowed_tools - {"Skill"}
 
-        # run_command 单独注册独立实例 + AccessPolicy（不修改全局单例）
+        # run_command 单独注册独立实例 + AccessPolicy（每个会话独立策略）
         allowed_tools = allowed_tools - {"run_command"}
 
         policy = AccessPolicy.for_agent(str(PROJECT_ROOT), all_skill_names)
         engine._system_prompt += policy.prompt_section()
         engine._system_prompt += OFFLOAD_AWARE_PROMPT
+        from .tools.run_command import RunCommandTool  # 延迟导入避免循环依赖
         run_tool = RunCommandTool()
         run_tool.access_policy = policy
         engine.register_tool(run_tool.schema, run_tool.run)
 
-        for tool_schema in get_schemas_for_names(allowed_tools):
-            tool = get_tool(tool_schema["name"])
+        # 通过 registry 注册其他工具
+        for tool_schema in registry.get_schemas_for_names(allowed_tools):
+            tool = registry.get_tool(tool_schema["name"])
             if not tool:
                 continue
 
             # Skill 工具加闭包过滤，只允许访问已启用的技能
             if tool.name == "Skill" and config.skills:
                 from .skills.filtered_runner import make_filtered_skill_runner
-
                 filtered_run = make_filtered_skill_runner(
                     set(all_skill_names), tool.run,
                 )
                 engine.register_tool(tool_schema, filtered_run)
-
             else:
                 engine.register_tool(tool_schema, tool.run)
 
+        # 技能加载（通过全局 loader，保持向后兼容）
         if config.skills:
             from .skills.loader import get_skill
             for name in config.skills:

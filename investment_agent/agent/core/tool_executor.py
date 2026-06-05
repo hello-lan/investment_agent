@@ -11,6 +11,7 @@ import uuid
 from typing import AsyncGenerator, TYPE_CHECKING
 
 from ._signals import _Value
+from ..constants import EventType, SkillType
 from .provider import ToolCall
 from .subagent import run_delegate_task
 
@@ -190,7 +191,7 @@ async def prepare_delegate_task(
     skill_names = [
         n for n in raw_skill_names
         if skill_registry.get(n)
-        and skill_registry[n].skill_type != "orch"
+        and skill_registry[n].skill_type != SkillType.ORCH
         and n in parent_allowed
     ]
 
@@ -255,45 +256,19 @@ class ToolExecutor:
     ) -> AsyncGenerator[dict, None]:
         tool_results = []
         for tc in tool_calls:
-            yield {"type": "tool_call", "tool": tc.name, "input": tc.input}
+            yield {"type": EventType.TOOL_CALL, "tool": tc.name, "input": tc.input}
             t0 = time.monotonic()
 
             if tc.name == "DelegateTask":
-                prepared = await prepare_delegate_task(engine, tc)
+                result = None
                 _delegate_id = None
-                if isinstance(prepared, str):
-                    result = prepared
-                    _log.info("[Delegate] 委派失败(prepare阶段): %s", prepared[:200])
-                else:
-                    skill_names, prompt, delegate_id = prepared
-                    _delegate_id = delegate_id
-                    tokens_before = (
-                        engine.total_input_tokens + engine.total_output_tokens
-                    )
-                    _log.info(
-                        "[Delegate] 开始执行: id=%s, skills=%s",
-                        delegate_id, skill_names,
-                    )
-                    result = ""
-                    async for event in run_delegate_task(engine, skill_names, prompt, delegate_id):
-                        if event["type"] == "__delegate_done__":
-                            result = event["result"]
-                        elif event["type"] == "__delegate_error__":
-                            result = f"子任务执行错误: {event['message']}"
-                        else:
-                            yield event
-                    tokens_after = (
-                        engine.total_input_tokens + engine.total_output_tokens
-                    )
-                    _log.info(
-                        "[Delegate] 执行结束: id=%s, tokens_consumed=%d, "
-                        "result_len=%d, duration=%.1fs",
-                        delegate_id,
-                        tokens_after - tokens_before,
-                        len(result),
-                        time.monotonic() - t0,
-                    )
+                async for event in self._execute_delegate_task(engine, tc, t0):
+                    if isinstance(event, _Value):
+                        result, _delegate_id = event.value
+                    else:
+                        yield event
             else:
+                _delegate_id = None
                 handler = engine.tool_handlers.get(tc.name)
                 if not handler:
                     result = f"Tool '{tc.name}' not found."
@@ -305,14 +280,14 @@ class ToolExecutor:
 
             duration_ms = int((time.monotonic() - t0) * 1000)
             yield {
-                "type": "tool_result",
+                "type": EventType.TOOL_RESULT,
                 "tool": tc.name,
                 "output": result,
                 "duration_ms": duration_ms,
             }
             if tc.name == "DelegateTask":
                 yield {
-                    "type": "budget_status",
+                    "type": EventType.BUDGET_STATUS,
                     "total_used": engine.total_input_tokens + engine.total_output_tokens,
                     "budget": engine.token_budget,
                     "remaining": engine.token_budget - engine.total_input_tokens - engine.total_output_tokens,
@@ -320,8 +295,46 @@ class ToolExecutor:
                     "depth": engine.subagent_depth + 1,
                 }
             tool_results.append({
-                "type": "tool_result",
+                "type": EventType.TOOL_RESULT,
                 "tool_use_id": tc.id,
                 "content": result,
             })
         yield _Value(tool_results)
+
+    # ── DelegateTask 拦截执行 ───────────────────────────────────────────
+
+    @staticmethod
+    async def _execute_delegate_task(
+        engine: "AgentEngine", tc: ToolCall, t0: float,
+    ) -> AsyncGenerator[dict, None]:
+        """拦截 DelegateTask 调用：准备 → 创建子引擎 → 执行。
+
+        将子Agent的执行事件转发给调用方，最后 yield _Value((result, delegate_id))。
+        """
+        prepared = await prepare_delegate_task(engine, tc)
+        if isinstance(prepared, str):
+            _log.info("[Delegate] 委派失败(prepare阶段): %s", prepared[:200])
+            yield _Value((prepared, None))
+            return
+
+        skill_names, prompt, delegate_id = prepared
+        tokens_before = engine.total_input_tokens + engine.total_output_tokens
+        _log.info("[Delegate] 开始执行: id=%s, skills=%s", delegate_id, skill_names)
+
+        result = ""
+        async for event in run_delegate_task(engine, skill_names, prompt, delegate_id):
+            if event["type"] == EventType._DELEGATE_DONE:
+                result = event["result"]
+            elif event["type"] == EventType._DELEGATE_ERROR:
+                result = f"子任务执行错误: {event['message']}"
+            else:
+                yield event  # 转发子Agent事件到SSE流
+
+        tokens_after = engine.total_input_tokens + engine.total_output_tokens
+        _log.info(
+            "[Delegate] 执行结束: id=%s, tokens_consumed=%d, "
+            "result_len=%d, duration=%.1fs",
+            delegate_id, tokens_after - tokens_before,
+            len(result), time.monotonic() - t0,
+        )
+        yield _Value((result, delegate_id))

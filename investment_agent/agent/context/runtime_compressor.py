@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 
 from .token_utils import truncate_text
 
+from ..constants import RuntimeTrimStrategy
+
 if TYPE_CHECKING:
     from .context_offloader import ContextOffloader
 
@@ -118,7 +120,7 @@ def get_runtime_compressor(
         tool_trim_limits: 工具结果截断限制（保留兼容，当前未使用）
         offloader: 上下文卸载器（仅 compress 策略使用）
     """
-    if strategy == "off":
+    if strategy == RuntimeTrimStrategy.OFF:
         return NoOpRuntimeCompressor()
     return CompressRuntimeCompressor(
         tool_trim_limits=tool_trim_limits,

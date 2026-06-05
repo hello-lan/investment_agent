@@ -1,7 +1,8 @@
-import uuid
-from datetime import datetime
-from fastapi import APIRouter
-from ..db import get_db
+"""会话 API 路由 — 薄层，委托 SessionService 处理业务逻辑。"""
+
+from fastapi import APIRouter, HTTPException
+
+from ..services.session_service import SessionService
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -9,46 +10,20 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 @router.get("")
 async def list_sessions():
     """历史会话列表（最近 50 条）"""
-    async with get_db() as db:
-        cursor = await db.execute(
-            """
-            SELECT s.id, s.agent_id, s.title, s.status, s.current_task_id,
-                   s.input_tokens, s.output_tokens, s.cost_usd, s.created_at,
-                   (SELECT SUBSTR(content, 1, 50) FROM messages
-                    WHERE session_id = s.id AND role = 'user'
-                    ORDER BY created_at LIMIT 1) AS preview
-            FROM sessions s
-            ORDER BY s.created_at DESC LIMIT 50
-            """
-        )
-        rows = await cursor.fetchall()
-    return [dict(r) for r in rows]
+    return await SessionService.list_sessions()
 
 
 @router.get("/{session_id}")
 async def get_session(session_id: str):
     """会话详情 + 全部消息记录"""
-    async with get_db() as db:
-        cursor = await db.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
-        session = await cursor.fetchone()
-        if not session:
-            return {"error": "Session not found"}
-        cursor = await db.execute(
-            "SELECT id, role, content, tool_calls, token_usage, created_at FROM messages WHERE session_id = ? ORDER BY created_at",
-            (session_id,),
-        )
-        messages = await cursor.fetchall()
-    return {
-        "session": dict(session),
-        "messages": [dict(m) for m in messages],
-    }
+    result = await SessionService.get_session_with_messages(session_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return result
 
 
 @router.delete("/{session_id}")
 async def delete_session(session_id: str):
     """删除会话及其关联消息"""
-    async with get_db() as db:
-        await db.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-        await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-        await db.commit()
+    await SessionService.delete_session(session_id)
     return {"success": True}

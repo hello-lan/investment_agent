@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .constants import OffloadSummaryStrategy, RuntimeTrimStrategy
+
 
 DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
 你可以调用工具获取股票行情、财务报表、估值指标等数据，帮助用户进行基本面分析。
@@ -93,7 +95,7 @@ class EngineConfig:
     tool_trim_limits: dict = field(default_factory=dict)
     max_subagent_depth: int = 3
     offload_threshold: int = 800
-    offload_summary_strategy: str = "truncate"
+    offload_summary_strategy: str = OffloadSummaryStrategy.TRUNCATE
     offload_summary_chars: int = 200
 
 
@@ -126,11 +128,11 @@ class AgentRunConfig:
     loop_detection_threshold: int = 3
     run_command_limit: int = 15
     context_trim_interval: int = 0
-    runtime_trim_strategy: str = "compress"
+    runtime_trim_strategy: str = RuntimeTrimStrategy.COMPRESS
 
     # ── 上下文卸载参数 ──
     offload_threshold: int = 800
-    offload_summary_strategy: str = "truncate"
+    offload_summary_strategy: str = OffloadSummaryStrategy.TRUNCATE
     offload_summary_chars: int = 200
     offload_summary_model_id: str | None = None
 

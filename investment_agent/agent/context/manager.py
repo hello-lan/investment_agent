@@ -13,6 +13,9 @@ from .token_utils import (
     truncate_text,
 )
 
+from ..constants import ProviderType
+from .cache_strategy import get_cache_strategy
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_SYSTEM_MAX = 40_000
@@ -45,7 +48,7 @@ class ContextManager:
     Tail (最近消息) 原始保留。pre-flight 检查确保总 token 不超模型窗口。
     """
 
-    def __init__(self, config: dict | None = None, provider_type: str = "anthropic",
+    def __init__(self, config: dict | None = None, provider_type: str = ProviderType.ANTHROPIC,
                  model_name: str | None = None):
         cfg = config or {}
         self.enabled = cfg.get("enabled", True)
@@ -162,8 +165,9 @@ class ContextManager:
             warnings.append("emergency_trim")
 
         # 8. cache structure (Phase 4)
-        if self.caching_enabled and self.provider_type == "anthropic":
-            sys_prompt, final_messages, cached = self._apply_cache_markers(
+        if self.caching_enabled and self.provider_type == ProviderType.ANTHROPIC:
+            strategy = get_cache_strategy(self.provider_type)
+            sys_prompt, final_messages, cached = strategy.apply_to_messages(
                 sys_prompt, final_messages
             )
             if cached:
@@ -306,44 +310,3 @@ class ContextManager:
         if explicit is not None:
             return explicit
         return get_model_context_limit(self.model_name)
-
-    # ── Prompt caching (Phase 4) ────────────────────────────────────
-
-    def _apply_cache_markers(
-        self, system_prompt: str, messages: list[dict],
-    ) -> tuple[list[dict], list[dict], bool]:
-        """给 system 和 summary 消息添加 Anthropic cache_control 标记。
-
-        缓存结构: [system (cached)] [summary (cached)] [msg_1] ... [msg_N]
-        system + summary 作为稳定前缀被缓存，后续消息动态变化。
-        仅对 provider_type="anthropic" 生效。
-        """
-        # system prompt → content block with cache marker
-        system_blocks = [
-            {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
-        ]
-
-        # 给第一条消息（通常是 summary）添加 cache marker
-        cached_messages = list(messages)
-        if cached_messages:
-            first = cached_messages[0]
-            content = first.get("content", "")
-            if isinstance(content, list):
-                # content block 格式：在第一个 text block 上加 marker
-                new_content = []
-                for i, block in enumerate(content):
-                    b = dict(block)
-                    if i == 0 and b.get("type") == "text":
-                        b["cache_control"] = {"type": "ephemeral"}
-                    new_content.append(b)
-                cached_messages[0] = {"role": first["role"], "content": new_content}
-            elif isinstance(content, str):
-                # 纯字符串：改为单 block 格式
-                cached_messages[0] = {
-                    "role": first["role"],
-                    "content": [
-                        {"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}
-                    ],
-                }
-
-        return system_blocks, cached_messages, True

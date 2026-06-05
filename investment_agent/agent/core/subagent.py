@@ -9,6 +9,7 @@ import logging
 from typing import AsyncGenerator
 
 from ..config import SUBAGENT_SYSTEM_PROMPT
+from ..constants import EventType
 
 _log = logging.getLogger(__name__)
 
@@ -19,11 +20,11 @@ _AGENT_TYPE = "delegate"
 
 
 def _fwd_done(event: dict, prefix: str, delegate_id: str, depth: int) -> str:
-    return "done"
+    return EventType.DONE
 
 
 def _fwd_error(event: dict, prefix: str, delegate_id: str, depth: int) -> str:
-    return "error"
+    return EventType.ERROR
 
 
 def _fwd_text_delta(event: dict, prefix: str, delegate_id: str, depth: int) -> dict:
@@ -102,14 +103,14 @@ def _fwd_nested(event: dict, prefix: str, delegate_id: str, depth: int) -> dict:
 
 # Dispatch table: event_type → 转发函数
 _FORWARDERS: dict[str, callable] = {
-    "done": _fwd_done,
-    "error": _fwd_error,
-    "text_delta": _fwd_text_delta,
-    "tool_call": _fwd_tool_event,
-    "tool_result": _fwd_tool_event,
-    "llm_request": _fwd_llm_request,
-    "llm_response": _fwd_llm_response,
-    "context_trim": _fwd_context_trim,
+    EventType.DONE: _fwd_done,
+    EventType.ERROR: _fwd_error,
+    EventType.TEXT_DELTA: _fwd_text_delta,
+    EventType.TOOL_CALL: _fwd_tool_event,
+    EventType.TOOL_RESULT: _fwd_tool_event,
+    EventType.LLM_REQUEST: _fwd_llm_request,
+    EventType.LLM_RESPONSE: _fwd_llm_response,
+    EventType.CONTEXT_TRIM: _fwd_context_trim,
 }
 
 
@@ -357,9 +358,9 @@ async def run_delegate_task(
             if event.get("type") == "tool_call":
                 child_tool_calls += 1
             forwarded = forward_event(event, prefix, delegate_id, depth)
-            if forwarded == "done":
+            if forwarded == EventType.DONE:
                 break
-            elif forwarded == "error":
+            elif forwarded == EventType.ERROR:
                 sync_tokens_from(parent, child)
                 _log.warning(
                     "[Delegate:%s] 运行出错: steps=%d, tool_calls=%d, "
@@ -368,7 +369,7 @@ async def run_delegate_task(
                     child.total_input_tokens, child.total_output_tokens,
                     event.get("message", ""),
                 )
-                yield {"type": "__delegate_error__", "message": event["message"]}
+                yield {"type": EventType._DELEGATE_ERROR, "message": event["message"]}
                 return
             elif forwarded is not None:
                 if forwarded["type"] == f"{prefix}text_delta":
@@ -383,7 +384,7 @@ async def run_delegate_task(
             child.total_input_tokens, child.total_output_tokens, str(e),
             exc_info=True,
         )
-        yield {"type": "__delegate_error__", "message": str(e)}
+        yield {"type": EventType._DELEGATE_ERROR, "message": str(e)}
         return
 
     sync_tokens_from(parent, child)
@@ -395,6 +396,6 @@ async def run_delegate_task(
         child.total_cache_read_tokens, len(result_text),
     )
     yield {
-        "type": "__delegate_done__",
+        "type": EventType._DELEGATE_DONE,
         "result": result_text.strip() or "(委派任务完成，无文本输出)",
     }

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 
 from ..agent.config import AgentRunConfig, DEFAULT_SYSTEM_PROMPT
+from ..agent.constants import OffloadSummaryStrategy, ProviderType, RuntimeTrimStrategy
 from ..agent.core.provider import ClaudeProvider, ModelProvider, OpenAICompatProvider
 from ..agent.skills.cache import get_cache
 from ..config import get_settings
@@ -26,7 +27,7 @@ async def get_provider(model_id: str | None = None) -> ModelProvider:
     if not cfg:
         raise ValueError("No model configured. Please add a model in Settings.")
 
-    if cfg["type"] == "anthropic":
+    if cfg["type"] == ProviderType.ANTHROPIC:
         provider = ClaudeProvider(api_key=cfg["api_key"], model=cfg["model"])
     else:
         provider = OpenAICompatProvider(
@@ -52,13 +53,13 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
         "loop_detection_threshold": agent_cfg.get("loop_detection_threshold") or global_cfg.get("loop_detection_threshold", 3),
         "run_command_limit": agent_cfg.get("run_command_limit") or global_cfg.get("run_command_limit", 15),
         "context_trim_interval": agent_cfg.get("context_trim_interval") or global_cfg.get("context_trim_interval", 0),
-        "runtime_trim_strategy": agent_cfg.get("runtime_trim_strategy") or global_cfg.get("runtime_trim_strategy", "compress"),
+        "runtime_trim_strategy": agent_cfg.get("runtime_trim_strategy") or global_cfg.get("runtime_trim_strategy", RuntimeTrimStrategy.COMPRESS),
         "tool_trim_limits": agent_cfg.get("tool_trim_limits") or global_cfg.get("tool_trim_limits", {}),
         "max_subagent_depth": agent_cfg.get("max_subagent_depth") or global_cfg.get("max_subagent_depth", 3),
         "offload_threshold": agent_cfg.get("offload_threshold")
                              or global_cfg.get("offload_threshold", 800),
         "offload_summary_strategy": agent_cfg.get("offload_summary_strategy")
-                                    or global_cfg.get("offload_summary_strategy", "truncate"),
+                                    or global_cfg.get("offload_summary_strategy", OffloadSummaryStrategy.TRUNCATE),
         "offload_summary_chars": agent_cfg.get("offload_summary_chars")
                                  or global_cfg.get("offload_summary_chars", 200),
         "offload_summary_model_id": agent_cfg.get("offload_summary_model_id")
@@ -160,7 +161,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
 
     # —— 运行时卸载摘要模型：支持使用独立的廉价模型生成摘要 ——
     offload_summary_provider = None
-    if engine_params["offload_summary_strategy"] == "llm" and engine_params.get("offload_summary_model_id"):
+    if engine_params["offload_summary_strategy"] == OffloadSummaryStrategy.LLM and engine_params.get("offload_summary_model_id"):
         try:
             offload_summary_provider = await get_provider(engine_params["offload_summary_model_id"])
         except Exception:

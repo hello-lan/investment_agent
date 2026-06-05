@@ -63,8 +63,8 @@ class DelegateTaskTool(BaseTool):
         }
 
     async def run(self, task: str, skill_names: list[str] | None = None) -> str:
-        """Fallback：正常流程由引擎拦截处理，不会执行到此方法。"""
-        return (
-            "DelegateTask 需要引擎的拦截机制来执行。"
-            "如果看到此消息，说明引擎未正确拦截 DelegateTask 调用。"
+        """DelegateTask 由 ToolExecutor 拦截执行，不应通过 BaseTool.run() 调用。"""
+        raise NotImplementedError(
+            "DelegateTask 由 ToolExecutor 拦截执行，不应通过 BaseTool.run() 调用。"
+            "如果看到此错误，说明 ToolExecutor 未正确拦截 DelegateTask 调用。"
         )

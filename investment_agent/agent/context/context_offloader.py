@@ -17,6 +17,8 @@ import re
 import shutil
 from typing import TYPE_CHECKING
 
+from ..constants import OffloadSummaryStrategy
+
 if TYPE_CHECKING:
     from ..core.provider import ModelProvider
 
@@ -62,7 +64,7 @@ class ContextOffloader:
         self,
         offload_dir: str,
         threshold: int = 800,
-        summary_strategy: str = "truncate",
+        summary_strategy: str = OffloadSummaryStrategy.TRUNCATE,
         summary_chars: int = 200,
         provider: "ModelProvider | None" = None,
     ):
@@ -105,9 +107,9 @@ class ContextOffloader:
 
     async def _generate_summary(self, content: str) -> str:
         """根据策略生成摘要。"""
-        if self._summary_strategy == "llm" and self._provider:
+        if self._summary_strategy == OffloadSummaryStrategy.LLM and self._provider:
             return await self._summarize_llm(content)
-        elif self._summary_strategy == "local":
+        elif self._summary_strategy == OffloadSummaryStrategy.LOCAL:
             return self._summarize_local(content)
         else:
             return self._summarize_truncate(content)

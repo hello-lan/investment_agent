@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..constants import SkillType
+
 
 @dataclass
 class ParsedSkill:
@@ -8,7 +10,7 @@ class ParsedSkill:
     name: str
     description: str
     tools: list[str]
-    skill_type: str       # "atomic" | "orch"，默认 "atomic"
+    skill_type: str       # SkillType.ATOMIC | SkillType.ORCH
     depends_on: list[str] # orch skill 依赖的原子 skill 名称列表
     schema: dict
     entry: str | None  # 入口脚本路径（相对于 skill 目录）
@@ -113,9 +115,9 @@ def parse_skill_markdown(md_path: Path) -> ParsedSkill:
     if not isinstance(tools, list):
         tools = []
 
-    skill_type = str(meta.get("type", "atomic")).strip()
-    if skill_type not in ("atomic", "orch"):
-        skill_type = "atomic"
+    skill_type = str(meta.get("type", SkillType.ATOMIC)).strip()
+    if skill_type not in (SkillType.ATOMIC, SkillType.ORCH):
+        skill_type = SkillType.ATOMIC
 
     depends_on = meta.get("depends_on", [])
     if not isinstance(depends_on, list):

@@ -1,13 +1,15 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from ..constants import SkillType
+
 
 class BaseSkill(ABC):
     """Skill 基类：所有 Skill 必须实现 body、skill_dir、schema、run 四个成员"""
     name: str
     description: str
     tools: list[str] = []        # Skill 依赖的外部工具名
-    skill_type: str = "atomic"   # "atomic" | "orch"
+    skill_type: str = SkillType.ATOMIC
     depends_on: list[str] = []   # orch skill 依赖的原子 skill 名称列表
 
     @property
