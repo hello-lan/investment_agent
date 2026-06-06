@@ -38,7 +38,7 @@
     <div class="form-section">连接配置</div>
     <div class="form-row">
       <label>Provider 类型 <span class="required">*</span></label>
-      <select id="mType" onchange="toggleBaseUrl(); toggleCacheTip()">
+      <select id="mType" onchange="toggleBaseUrl(); toggleCacheTip(); togglePricingFields()">
         <option value="anthropic">Anthropic Claude（原生 SDK + Prompt Caching）</option>
         <option value="deepseek">DeepSeek（OpenAI 兼容 + 自动缓存）</option>
         <option value="qwen">Qwen / 通义千问（DashScope + 自动缓存）</option>
@@ -73,12 +73,12 @@
       <label>计价币种 <span class="optional">（可选）</span></label>
       <div class="radio-row">
         <label class="radio-label">
-          <input type="radio" name="mCurrency" value="USD" checked>
+          <input type="radio" name="mCurrency" value="USD">
           <span class="radio-circle"></span>
           USD ($)
         </label>
         <label class="radio-label">
-          <input type="radio" name="mCurrency" value="CNY">
+          <input type="radio" name="mCurrency" value="CNY" checked>
           <span class="radio-circle"></span>
           CNY (¥)
         </label>
@@ -91,6 +91,16 @@
     <div class="form-row">
       <label>输出价格 <span class="optional">（可选）</span></label>
       <input type="number" id="mOutputPrice" step="0.01" placeholder="每百万 token 价格，留空则不估算费用">
+    </div>
+    <div class="form-row" id="cacheReadPriceRow">
+      <label>缓存命中价格 <span class="optional">（可选）</span></label>
+      <input type="number" id="mCacheReadPrice" step="0.0001" placeholder="留空默认 = 输入价格 × 10%">
+      <div class="hint" id="cacheReadHint">缓存命中的 token 单价。不同厂商差异大：DeepSeek ¥0.025、Kimi $0.10、Anthropic 输入价×10%</div>
+    </div>
+    <div class="form-row" id="cacheCreationPriceRow">
+      <label>缓存写入价格 <span class="optional">（可选）</span></label>
+      <input type="number" id="mCacheCreationPrice" step="0.0001" placeholder="留空默认 = 输入价格 × 1.25">
+      <div class="hint">⚠️ 仅 Anthropic 有此费用：缓存写入 token 溢价 25%（cache write = 输入价 × 1.25），其他厂商无此项</div>
     </div>
 
     <div class="modal-footer">
@@ -109,18 +119,58 @@ const CACHE_TIPS = {
     'qwen': '✅ 自动 KV 缓存（需安装 dashscope SDK），无需额外配置',
     'openai_compat': '⚠️ 不提供原生缓存支持，每次请求全量计费',
 };
+
+// 各 provider 需要显示的计费字段
+const PRICING_FIELDS = {
+    'anthropic':     { cacheRead: true,  cacheCreation: true  },
+    'deepseek':      { cacheRead: true,  cacheCreation: false },
+    'qwen':          { cacheRead: true,  cacheCreation: false },
+    'openai_compat': { cacheRead: false, cacheCreation: false },
+};
+
 function toggleCacheTip() {
     const type = document.getElementById('mType').value;
     const tipEl = document.getElementById('cacheTip');
-    const detailEl = document.getElementById('cacheDetailTip');
     const cacheRow = document.getElementById('cacheRow');
     if (tipEl) tipEl.textContent = CACHE_TIPS[type] || '';
     // 非 Claude 的 provider 不显示缓存复选框（自动缓存，无需配置）
     if (cacheRow) cacheRow.style.display = (type === 'anthropic') ? '' : 'none';
 }
+
+function togglePricingFields() {
+    const type = document.getElementById('mType').value;
+    const fields = PRICING_FIELDS[type] || { cacheRead: false, cacheCreation: false };
+
+    const cacheReadRow = document.getElementById('cacheReadPriceRow');
+    const cacheCreationRow = document.getElementById('cacheCreationPriceRow');
+    if (cacheReadRow) cacheReadRow.style.display = fields.cacheRead ? '' : 'none';
+    if (cacheCreationRow) cacheCreationRow.style.display = fields.cacheCreation ? '' : 'none';
+
+    // 动态更新 placeholder 和 hint
+    const cacheReadInput = document.getElementById('mCacheReadPrice');
+    const cacheReadHint = document.getElementById('cacheReadHint');
+    const cacheCreationInput = document.getElementById('mCacheCreationPrice');
+
+    if (type === 'anthropic') {
+        if (cacheReadInput) cacheReadInput.placeholder = '留空默认 = 输入价格 × 10%';
+        if (cacheReadHint) cacheReadHint.textContent = 'Anthropic 缓存命中 token 享受约 90% 折扣（输入价 × 10%）';
+        if (cacheCreationInput) cacheCreationInput.placeholder = '留空默认 = 输入价格 × 1.25';
+    } else if (type === 'deepseek') {
+        if (cacheReadInput) cacheReadInput.placeholder = '如 deepseek-chat: ¥0.025/M（缓存命中价）';
+        if (cacheReadHint) cacheReadHint.textContent = 'DeepSeek 缓存命中折扣价。缓存未命中按正常输入价计费，无额外缓存写入费用';
+    } else if (type === 'qwen') {
+        if (cacheReadInput) cacheReadInput.placeholder = '留空默认 = 输入价格 × 10%';
+        if (cacheReadHint) cacheReadHint.textContent = '千问缓存命中折扣价。缓存未命中按正常输入价计费，无额外缓存写入费用';
+    } else {
+        // openai_compat — 无缓存，但保留默认 placeholder（字段已隐藏）
+        if (cacheReadInput) cacheReadInput.placeholder = '留空默认 = 输入价格 × 10%';
+    }
+}
+
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', function() {
     toggleCacheTip();
+    togglePricingFields();
 });
 </script>
 <script src="/static/js/model.js?v=2"></script>

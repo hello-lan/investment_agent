@@ -151,8 +151,14 @@ class TaskManager:
             # 终端事件 → cost + cache hooks + 更新会话统计
             if event_type in ("done", "error", "interrupted") and not cost_logged:
                 await self._fire_terminal_hooks(hooks, state.engine, state.last_step, event)
-                await self._update_session_usage(state, event)
+                cost_info = await self._update_session_usage(state, event)
                 cost_logged = True
+                # 将 cost + cache 信息注入终端事件，前端可据此更新用量面板
+                if cost_info and event_type == "done":
+                    event["cost"] = cost_info["cost"]
+                    event["currency"] = cost_info["currency"]
+                    event["cache_read_tokens"] = cost_info["cache_read_tokens"]
+                    event["cache_creation_tokens"] = cost_info["cache_creation_tokens"]
 
             # 缓冲渲染事件并广播给订阅者（包括子Agent事件）
             if event_type in _RENDER_EVENTS or event_type.startswith("sub_"):
@@ -251,6 +257,8 @@ class TaskManager:
                     currency=engine.provider.currency,
                     cache_read_tokens=cache_read,
                     cache_creation_tokens=cache_create,
+                    cache_read_price=engine.provider.cache_read_price,
+                    cache_creation_price=engine.provider.cache_creation_price,
                 )
         except Exception:
             logger.debug("on_cost hook failed", exc_info=True)
@@ -273,18 +281,26 @@ class TaskManager:
         except Exception:
             logger.debug("on_cache_metrics hook failed", exc_info=True)
 
-    async def _update_session_usage(self, state: _TaskState, event: dict) -> None:
-        """将本次任务的 token 用量累加到 sessions 表。"""
+    async def _update_session_usage(self, state: _TaskState, event: dict) -> dict | None:
+        """将本次任务的 token 用量累加到 sessions 表。返回 cost 信息用于注入前端事件。"""
         usage = event.get("usage", {})
         input_tokens = usage.get("input_tokens", state.engine.total_input_tokens)
         output_tokens = usage.get("output_tokens", state.engine.total_output_tokens)
         if not input_tokens and not output_tokens:
-            return
+            return None
+
+        cache_read = state.engine.total_cache_read_tokens
+        cache_create = state.engine.total_cache_creation_tokens
+        currency = state.engine.provider.currency or "USD"
 
         cost_usd = _estimate_cost_usd(
             input_tokens, output_tokens,
-            state.engine.provider.input_price,
-            state.engine.provider.output_price,
+            cache_read_tokens=cache_read,
+            cache_creation_tokens=cache_create,
+            input_price=state.engine.provider.input_price,
+            output_price=state.engine.provider.output_price,
+            cache_read_price=state.engine.provider.cache_read_price,
+            cache_creation_price=state.engine.provider.cache_creation_price,
         ) or 0
 
         try:
@@ -293,9 +309,19 @@ class TaskManager:
                 input_tokens=int(input_tokens),
                 output_tokens=int(output_tokens),
                 cost_usd=float(cost_usd),
+                cache_read_tokens=int(cache_read),
+                cache_creation_tokens=int(cache_create),
+                currency=currency,
             )
         except Exception:
             logger.debug("update_session_usage failed for task %s", state.task_id, exc_info=True)
+
+        return {
+            "cost": cost_usd,
+            "currency": currency,
+            "cache_read_tokens": cache_read,
+            "cache_creation_tokens": cache_create,
+        }
 
     async def _cleanup_later(self, task_id: str) -> None:
         """延迟清理任务状态和缓冲。"""

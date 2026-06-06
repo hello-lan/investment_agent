@@ -37,6 +37,12 @@ function renderModelList() {
           ${m.input_price != null || m.output_price != null
             ? ' · 价格: ' + (m.currency === 'CNY' ? '¥' : '$') + (m.input_price != null ? m.input_price : '?') + ' / ' + (m.currency === 'CNY' ? '¥' : '$') + (m.output_price != null ? m.output_price : '?') + ' /M'
             : ''}
+          ${(m.type === 'anthropic' && (m.cache_read_price != null || m.cache_creation_price != null))
+            ? ' · 缓存: ' + (m.currency === 'CNY' ? '¥' : '$') + (m.cache_read_price != null ? m.cache_read_price : '?') + ' / ' + (m.currency === 'CNY' ? '¥' : '$') + (m.cache_creation_price != null ? m.cache_creation_price : '?') + ' /M'
+            : ''}
+          ${(m.type === 'deepseek' || m.type === 'qwen') && m.cache_read_price != null
+            ? ' · 缓存命中: ' + (m.currency === 'CNY' ? '¥' : '$') + m.cache_read_price + ' /M'
+            : ''}
           ${m.enable_cache !== false ? ' · 🗜️缓存' : ''}
         </div>
       </div>
@@ -74,11 +80,14 @@ function openModal(id) {
   document.getElementById('mBaseUrl').value = m?.base_url || '';
   document.getElementById('mInputPrice').value = m?.input_price != null ? m.input_price : '';
   document.getElementById('mOutputPrice').value = m?.output_price != null ? m.output_price : '';
+  document.getElementById('mCacheReadPrice').value = m?.cache_read_price != null ? m.cache_read_price : '';
+  document.getElementById('mCacheCreationPrice').value = m?.cache_creation_price != null ? m.cache_creation_price : '';
   document.getElementById('mEnableCache').checked = m?.enable_cache !== false;  // 默认true
-  var cur = m?.currency || 'USD';
+  var cur = m?.currency || 'CNY';
   document.querySelector('input[name=mCurrency][value=' + cur + ']').checked = true;
   toggleBaseUrl();
   toggleCacheTip();
+  togglePricingFields();
   document.getElementById('modalOverlay').classList.add('open');
 }
 
@@ -95,6 +104,8 @@ async function saveModel() {
   const editId = document.getElementById('mEditId').value;
   const inputPriceVal = document.getElementById('mInputPrice').value.trim();
   const outputPriceVal = document.getElementById('mOutputPrice').value.trim();
+  const cacheReadPriceVal = document.getElementById('mCacheReadPrice').value.trim();
+  const cacheCreationPriceVal = document.getElementById('mCacheCreationPrice').value.trim();
   const body = {
     id: document.getElementById('mId').value.trim(),
     name: document.getElementById('mName').value.trim(),
@@ -104,6 +115,8 @@ async function saveModel() {
     base_url: document.getElementById('mBaseUrl').value.trim(),
     input_price: inputPriceVal !== '' ? parseFloat(inputPriceVal) : null,
     output_price: outputPriceVal !== '' ? parseFloat(outputPriceVal) : null,
+    cache_read_price: cacheReadPriceVal !== '' ? parseFloat(cacheReadPriceVal) : null,
+    cache_creation_price: cacheCreationPriceVal !== '' ? parseFloat(cacheCreationPriceVal) : null,
     enable_cache: document.getElementById('mEnableCache').checked,
     currency: document.querySelector('input[name=mCurrency]:checked').value,
   };

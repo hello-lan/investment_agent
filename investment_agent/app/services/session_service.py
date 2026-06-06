@@ -18,7 +18,9 @@ class SessionService:
             cursor = await db.execute(
                 """
                 SELECT s.id, s.agent_id, s.title, s.status, s.current_task_id,
-                       s.input_tokens, s.output_tokens, s.cost_usd, s.created_at,
+                       s.input_tokens, s.output_tokens, s.cost_usd,
+                       s.cache_read_tokens, s.cache_creation_tokens, s.currency,
+                       s.created_at,
                        (SELECT SUBSTR(content, 1, 50) FROM messages
                         WHERE session_id = s.id AND role = 'user'
                         ORDER BY created_at LIMIT 1) AS preview

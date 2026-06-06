@@ -26,6 +26,8 @@ class ModelProvider(ABC):
     input_price: float | None = None
     output_price: float | None = None
     currency: str = "USD"
+    cache_read_price: float | None = None       # 缓存命中价格（每百万 token）
+    cache_creation_price: float | None = None   # 缓存写入价格（每百万 token）
 
     # 是否支持显式 cache_control: { type: "ephemeral" } 标记
     supports_cache_control: bool = False

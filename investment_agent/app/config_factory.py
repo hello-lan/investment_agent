@@ -38,6 +38,8 @@ async def get_provider(model_id: str | None = None) -> ModelProvider:
     provider.input_price = cfg["input_price"] if cfg["input_price"] is not None else None
     provider.output_price = cfg["output_price"] if cfg["output_price"] is not None else None
     provider.currency = cfg["currency"] or "USD"
+    provider.cache_read_price = cfg.get("cache_read_price")
+    provider.cache_creation_price = cfg.get("cache_creation_price")
 
     # 缓存控制：仅当模型配置明确启用 + provider 类型支持时才开启
     if cfg.get("enable_cache", True):

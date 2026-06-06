@@ -158,6 +158,9 @@ async def init_db() -> None:
             ("sessions", "input_tokens", "INTEGER DEFAULT 0"),
             ("sessions", "output_tokens", "INTEGER DEFAULT 0"),
             ("sessions", "cost_usd", "REAL DEFAULT 0"),
+            ("sessions", "cache_read_tokens", "INTEGER DEFAULT 0"),
+            ("sessions", "cache_creation_tokens", "INTEGER DEFAULT 0"),
+            ("sessions", "currency", "TEXT"),
             ("trace_log", "agent_name", "TEXT"),
             ("trace_log", "detail_size", "INTEGER DEFAULT 0"),
             ("cost_log", "agent_name", "TEXT"),
@@ -170,6 +173,8 @@ async def init_db() -> None:
             ("models", "currency", "TEXT DEFAULT 'USD'"),
             ("models", "provider_type", "TEXT DEFAULT 'openai_compat'"),
             ("models", "enable_cache", "INTEGER DEFAULT 1"),
+            ("models", "cache_read_price", "REAL"),
+            ("models", "cache_creation_price", "REAL"),
         ]
         await _ensure_columns(db, column_migrations)
 

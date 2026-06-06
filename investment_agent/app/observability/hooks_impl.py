@@ -43,6 +43,8 @@ class ObservabilityHooks:
         currency: str = "USD",
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
+        cache_read_price: float | None = None,
+        cache_creation_price: float | None = None,
     ) -> None:
         await log_cost(
             session_id=self.session_id,
@@ -56,6 +58,8 @@ class ObservabilityHooks:
             currency=currency,
             cache_read_tokens=cache_read_tokens,
             cache_creation_tokens=cache_creation_tokens,
+            cache_read_price=cache_read_price,
+            cache_creation_price=cache_creation_price,
         )
 
     async def on_context_budget(self, context_result: Any) -> None:

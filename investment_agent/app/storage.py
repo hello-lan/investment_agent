@@ -139,6 +139,7 @@ class SqliteStorage:
 
     async def update_session_usage(
         self, session_id: str, *, input_tokens: int, output_tokens: int, cost_usd: float,
+        cache_read_tokens: int = 0, cache_creation_tokens: int = 0, currency: str = "USD",
     ) -> None:
         """累加会话的 token 用量和费用。"""
         async with get_db() as db:
@@ -146,9 +147,14 @@ class SqliteStorage:
                 "UPDATE sessions SET "
                 "input_tokens = COALESCE(input_tokens, 0) + ?, "
                 "output_tokens = COALESCE(output_tokens, 0) + ?, "
-                "cost_usd = COALESCE(cost_usd, 0) + ? "
+                "cost_usd = COALESCE(cost_usd, 0) + ?, "
+                "cache_read_tokens = COALESCE(cache_read_tokens, 0) + ?, "
+                "cache_creation_tokens = COALESCE(cache_creation_tokens, 0) + ?, "
+                "currency = CASE WHEN currency IS NULL THEN ? ELSE currency END "
                 "WHERE id = ?",
-                (input_tokens, output_tokens, cost_usd, session_id),
+                (input_tokens, output_tokens, cost_usd,
+                 cache_read_tokens, cache_creation_tokens, currency,
+                 session_id),
             )
             await db.commit()
 

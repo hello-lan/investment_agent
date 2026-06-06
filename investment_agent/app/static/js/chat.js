@@ -1,4 +1,4 @@
-let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,totalCostUsd=0,currentAgentId=null,currentFile=null;
+let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,totalCacheReadTokens=0,totalCacheCreationTokens=0,totalCostUsd=0,totalCurrency='USD',currentAgentId=null,currentFile=null;
 let allSessions=[],agentMap={};
 let userScrolledUp=false, hasNewContentSinceScroll=false;
 
@@ -145,7 +145,7 @@ function selectAgent(id, silent){
   if (!silent) {
     currentSessionId = null;
     document.getElementById('messages').innerHTML = _welcomeHtml();
-    totalInputTokens = 0; totalOutputTokens = 0; totalCostUsd = 0; updateStats();
+    totalInputTokens = 0; totalOutputTokens = 0; totalCacheReadTokens = 0; totalCacheCreationTokens = 0; totalCostUsd = 0; totalCurrency = 'USD'; updateStats();
   }
   loadSessions();
 }
@@ -235,7 +235,10 @@ async function loadSession(sid){
     const sess = data.session || {};
     totalInputTokens = sess.input_tokens || 0;
     totalOutputTokens = sess.output_tokens || 0;
+    totalCacheReadTokens = sess.cache_read_tokens || 0;
+    totalCacheCreationTokens = sess.cache_creation_tokens || 0;
     totalCostUsd = sess.cost_usd || 0;
+    totalCurrency = sess.currency || 'USD';
     updateStats();
     setRunning(false);
     loadSessions();
@@ -250,7 +253,7 @@ async function deleteSession(sid){
   if (currentSessionId === sid) {
     currentSessionId = null;
     document.getElementById('messages').innerHTML = _welcomeHtml();
-    totalInputTokens = 0; totalOutputTokens = 0; totalCostUsd = 0; updateStats();
+    totalInputTokens = 0; totalOutputTokens = 0; totalCacheReadTokens = 0; totalCacheCreationTokens = 0; totalCostUsd = 0; totalCurrency = 'USD'; updateStats();
   }
   loadSessions();
 }
@@ -259,7 +262,7 @@ function newSession(){
   if (currentEventSource){ currentEventSource.close(); currentEventSource = null; }
   currentSessionId = null;
   document.getElementById('messages').innerHTML = _welcomeHtml();
-  totalInputTokens = 0; totalOutputTokens = 0; totalCostUsd = 0; updateStats();
+  totalInputTokens = 0; totalOutputTokens = 0; totalCacheReadTokens = 0; totalCacheCreationTokens = 0; totalCostUsd = 0; totalCurrency = 'USD'; updateStats();
   setRunning(false);
   loadSessions();
 }
@@ -417,9 +420,34 @@ function updateStats(override){
   const inp = override?.input ?? totalInputTokens;
   const out = override?.output ?? totalOutputTokens;
   const cost = override?.cost ?? totalCostUsd;
+  const cacheRead = override?.cacheRead ?? totalCacheReadTokens;
+  const cacheCreation = override?.cacheCreation ?? totalCacheCreationTokens;
+  const currency = override?.currency ?? totalCurrency;
   document.getElementById('statInput').textContent = inp.toLocaleString();
   document.getElementById('statOutput').textContent = out.toLocaleString();
-  document.getElementById('statCost').textContent = cost > 0 ? '$' + cost.toFixed(4) : '-';
+
+  // 缓存命中
+  const cacheReadRow = document.getElementById('statCacheReadRow');
+  const cacheReadVal = document.getElementById('statCacheRead');
+  if (cacheRead > 0) {
+    if (cacheReadRow) cacheReadRow.style.display = '';
+    if (cacheReadVal) cacheReadVal.textContent = cacheRead.toLocaleString();
+  } else {
+    if (cacheReadRow) cacheReadRow.style.display = 'none';
+  }
+
+  // 缓存未命中（写入）
+  const cacheMissRow = document.getElementById('statCacheMissRow');
+  const cacheMissVal = document.getElementById('statCacheMiss');
+  if (cacheCreation > 0) {
+    if (cacheMissRow) cacheMissRow.style.display = '';
+    if (cacheMissVal) cacheMissVal.textContent = cacheCreation.toLocaleString();
+  } else {
+    if (cacheMissRow) cacheMissRow.style.display = 'none';
+  }
+
+  const symbol = currency === 'CNY' ? '¥' : '$';
+  document.getElementById('statCost').textContent = cost > 0 ? symbol + cost.toFixed(4) : '-';
 }
 
 function setRunning(r){
@@ -496,6 +524,14 @@ function _handleStreamEvent(ev, state){
     } else { removeThinking(); }
     totalInputTokens += (ev.usage?.input_tokens || 0);
     totalOutputTokens += (ev.usage?.output_tokens || 0);
+    // 缓存统计：优先使用事件中嵌入的信息（由 task_manager 注入），fallback 到 usage
+    totalCacheReadTokens += (ev.cache_read_tokens || ev.usage?.cache_read_tokens || 0);
+    totalCacheCreationTokens += (ev.cache_creation_tokens || ev.usage?.cache_creation_tokens || 0);
+    // 费用：由 task_manager 注入，累加到当前会话总计
+    if (ev.cost != null) {
+      totalCostUsd += Number(ev.cost);
+      totalCurrency = ev.currency || 'USD';
+    }
     updateStats(); finishStream();
   } else if (ev.type === 'interrupted'){
     removeThinking();
@@ -560,7 +596,7 @@ async function retryTask(){
 
   // 重置状态
   showThinking(); setRunning(true);
-  totalInputTokens = 0; totalOutputTokens = 0; totalCostUsd = 0; updateStats();
+  totalInputTokens = 0; totalOutputTokens = 0; totalCacheReadTokens = 0; totalCacheCreationTokens = 0; totalCostUsd = 0; totalCurrency = 'USD'; updateStats();
 
   try {
     const res = await fetch('/api/chat/retry', {

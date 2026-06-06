@@ -9,19 +9,30 @@ def _estimate_cost_usd(input_tokens: int, output_tokens: int,
                        cache_creation_tokens: int = 0,
                        input_price: float | None = None,
                        output_price: float | None = None,
-                       cache_read_price: float | None = None) -> float | None:
+                       cache_read_price: float | None = None,
+                       cache_creation_price: float | None = None) -> float | None:
     """按模型配置的每百万 token 价格估算成本，未配置则返回 None。
 
-    Anthropic cache_read 价格为 input_price 的 10%，cache_creation 为 input_price 的 125%。
+    input_tokens 是总输入 token 数（包含缓存部分），扣除缓存部分避免双重计费：
+    regular_input = input_tokens - cache_read - cache_creation
+
+    缓存价格默认值（未配置时）：
+    - cache_read_price = input_price * 0.10（Anthropic 惯例）
+    - cache_creation_price = input_price（无写入溢价，适用于 DeepSeek/Kimi/多数厂商）
+    Anthropic 用户如需 1.25 倍写入溢价，应显式设置 cache_creation_price。
     """
     if input_price is None or output_price is None:
         return None
     if cache_read_price is None:
         cache_read_price = input_price * 0.10
+    if cache_creation_price is None:
+        cache_creation_price = input_price
+    # 扣除缓存 token，避免双重计费
+    regular_input = max(0, input_tokens - cache_read_tokens - cache_creation_tokens)
     return (
-        (cache_read_tokens * cache_read_price)
-        + (cache_creation_tokens * input_price * 1.25)
-        + (input_tokens * input_price)
+        (regular_input * input_price)
+        + (cache_read_tokens * cache_read_price)
+        + (cache_creation_tokens * cache_creation_price)
         + (output_tokens * output_price)
     ) / 1_000_000
 
@@ -38,6 +49,8 @@ async def log_cost(
     currency: str = "USD",
     cache_read_tokens: int = 0,
     cache_creation_tokens: int = 0,
+    cache_read_price: float | None = None,
+    cache_creation_price: float | None = None,
 ) -> None:
     """任务结束时记录 Token 用量和预估成本到 cost_log 表"""
     now = datetime.now(timezone.utc).isoformat()
@@ -47,6 +60,8 @@ async def log_cost(
         cache_creation_tokens=cache_creation_tokens,
         input_price=input_price,
         output_price=output_price,
+        cache_read_price=cache_read_price,
+        cache_creation_price=cache_creation_price,
     )
     cache_hit_ratio = 0.0
     if input_tokens + cache_read_tokens + cache_creation_tokens > 0:
