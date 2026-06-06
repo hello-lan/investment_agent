@@ -96,6 +96,7 @@ class EngineConfig:
     token_budget: int = 100_000
     loop_detection_threshold: int = 3
     context_trim_interval: int = 0
+    context_trim_token_threshold: int = 0  # input_tokens 超过此阈值时触发安全压缩（0=禁用）
     tool_trim_limits: dict = field(default_factory=dict)
     max_subagent_depth: int = 3
     offload_threshold: int = 800
@@ -131,6 +132,7 @@ class AgentRunConfig:
     token_budget: int = 100000
     loop_detection_threshold: int = 3
     context_trim_interval: int = 0
+    context_trim_token_threshold: int = 0
     runtime_trim_strategy: str = RuntimeTrimStrategy.COMPRESS
 
     # ── 上下文卸载参数 ──

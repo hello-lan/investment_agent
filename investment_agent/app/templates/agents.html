@@ -226,12 +226,17 @@
                 <option value="compress" selected>开启（压缩+卸载）</option>
                 <option value="off">关闭（不压缩）</option>
               </select>
-              <div class="hint">默认不压缩，所有历史消息完整保留；选择压缩后每 N 步剥离旧 reasoning、卸载旧 tool_result</div>
+              <div class="hint">默认关闭，对话历史完整保留以确保 DeepSeek 前缀缓存命中；仅当单次 input 超过安全阈值时才自动触发压缩</div>
             </div>
             <div class="form-row" id="compressIntervalRow">
               <label>压缩间隔步数</label>
               <div class="range-row"><input type="range" id="agentCompressInterval" min="1" max="20" step="1" oninput="document.getElementById('agentCompressIntervalVal').textContent=this.value"><span class="range-val" id="agentCompressIntervalVal">5</span></div>
-              <div class="hint">每 N 步执行一次压缩，默认为 5</div>
+              <div class="hint">每 N 步执行一次压缩，仅当策略=开启时生效</div>
+            </div>
+            <div class="form-row">
+              <label>Token 安全阈值</label>
+              <input type="number" id="agentTrimTokenThreshold" min="0" max="200000" step="5000" placeholder="留空=使用全局默认 90000">
+              <div class="hint">单次 LLM 调用的 input_tokens 超过此值时自动触发压缩（安全阀）。设为 0 则完全禁用安全阀，建议值 70000-100000（DeepSeek 128K 上下文的 ~55%-78%）</div>
             </div>
             <div id="offloadOptions">
               <div class="form-row">

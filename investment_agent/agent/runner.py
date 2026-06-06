@@ -204,7 +204,11 @@ class AgentRunner:
         registry.bootstrap_default_tools()
 
         # 创建 offloader + trimmer
-        if config.runtime_trim_strategy == RuntimeTrimStrategy.COMPRESS:
+        needs_compressor = (
+            config.runtime_trim_strategy == RuntimeTrimStrategy.COMPRESS
+            or config.context_trim_token_threshold > 0  # 安全阀需要压缩能力
+        )
+        if needs_compressor:
             offload_dir = os.path.join(PROJECT_ROOT, "data", ".offload", session_id)
             offloader = ContextOffloader(
                 offload_dir,
@@ -226,6 +230,7 @@ class AgentRunner:
             token_budget=config.token_budget,
             loop_detection_threshold=config.loop_detection_threshold,
             context_trim_interval=config.context_trim_interval,
+            context_trim_token_threshold=config.context_trim_token_threshold,
             tool_trim_limits=config.tool_trim_limits,
             max_subagent_depth=config.max_subagent_depth,
             offload_threshold=config.offload_threshold,

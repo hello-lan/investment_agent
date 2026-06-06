@@ -65,6 +65,7 @@ class AgentEngine:
         self.token_budget = config.token_budget
         self.loop_threshold = config.loop_detection_threshold
         self.context_trim_interval = config.context_trim_interval
+        self.context_trim_token_threshold = config.context_trim_token_threshold
         self.tool_trim_limits = config.tool_trim_limits
 
         # 上下文卸载参数（子Agent创建时需要读取）
@@ -76,6 +77,7 @@ class AgentEngine:
         self.total_output_tokens = 0
         self.total_cache_read_tokens = 0
         self.total_cache_creation_tokens = 0
+        self._last_input_tokens = 0       # 上一次 LLM 调用的 input_tokens（非累计，用于阈值判断）
         self._llm_call_count = 0       # LLM 调用次数统计
         self._tool_call_count = 0      # 工具调用次数统计
         self._start_ts = 0.0           # 会话开始时间戳
@@ -92,6 +94,7 @@ class AgentEngine:
         self._trimmer = ContextTrimmer(
             compressor=runtime_compressor,
             interval=config.context_trim_interval,
+            token_threshold=config.context_trim_token_threshold,
         )
         self.task_planner: TaskPlanner | None = None  # 延迟初始化（需要 provider）
 
@@ -167,7 +170,9 @@ class AgentEngine:
             yield {"type": EventType.STEP_START, "step": step}
 
             # ── 上下文裁剪 ──
-            messages, trim_event = await self._trimmer.maybe_trim(messages, step)
+            messages, trim_event = await self._trimmer.maybe_trim(
+                messages, step, self._last_input_tokens,
+            )
             if trim_event:
                 yield trim_event
 
@@ -312,6 +317,7 @@ class AgentEngine:
         self.total_output_tokens += response.output_tokens
         self.total_cache_read_tokens += response.cache_read_tokens
         self.total_cache_creation_tokens += response.cache_creation_tokens
+        self._last_input_tokens = response.input_tokens
         self._llm_call_count += 1
 
         yield {

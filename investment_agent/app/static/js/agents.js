@@ -275,6 +275,7 @@ function fillEngineFields(cfg) {
   document.getElementById('agentOffloadThreshold').value = cfg.offload_threshold ?? '';
   document.getElementById('agentOffloadStrategy').value = cfg.offload_summary_strategy || 'truncate';
   document.getElementById('agentOffloadSummaryChars').value = cfg.offload_summary_chars ?? '';
+  document.getElementById('agentTrimTokenThreshold').value = cfg.context_trim_token_threshold ?? '';
   fillOffloadModelDropdown();
   const offloadModelId = cfg.offload_summary_model_id || '';
   document.getElementById('agentOffloadModel').value = offloadModelId;
@@ -286,8 +287,9 @@ function toggleCompressInterval() {
   const compressRow = document.getElementById('compressIntervalRow');
   const offloadOpts = document.getElementById('offloadOptions');
   if (strategy === 'off') {
+    // 安全阀模式：隐藏间隔（不触发），保留卸载选项（阈值触发时需要）
     compressRow.classList.add('hidden');
-    if (offloadOpts) offloadOpts.classList.add('hidden');
+    if (offloadOpts) offloadOpts.classList.remove('hidden');
   } else {
     compressRow.classList.remove('hidden');
     if (offloadOpts) offloadOpts.classList.remove('hidden');
@@ -385,6 +387,7 @@ async function saveAgent(){
   const offloadStrategy = document.getElementById('agentOffloadStrategy').value;
   const offloadSummaryChars = toNullableInt(document.getElementById('agentOffloadSummaryChars').value);
   const offloadSummaryModelId = document.getElementById('agentOffloadModel').value || null;
+  const trimTokenThreshold = toNullableInt(document.getElementById('agentTrimTokenThreshold').value);
 
   const engineConfig = {
     max_steps: engineMaxSteps,
@@ -393,6 +396,7 @@ async function saveAgent(){
     loop_detection_threshold: engineLoopThreshold,
     runtime_trim_strategy: compressStrategy,
     context_trim_interval: compressInterval,
+    context_trim_token_threshold: trimTokenThreshold,
     max_subagent_depth: maxSubagentDepth,
     offload_threshold: offloadThreshold,
     offload_summary_strategy: offloadStrategy,

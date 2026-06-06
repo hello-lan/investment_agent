@@ -27,6 +27,9 @@ class ModelProvider(ABC):
     output_price: float | None = None
     currency: str = "USD"
 
+    # 是否支持显式 cache_control: { type: "ephemeral" } 标记
+    supports_cache_control: bool = False
+
     def convert_messages(self, messages: list[dict]) -> list[dict]:
         """格式转换：Anthropic 原生格式无需转换，OpenAI 需要转换。
 
@@ -52,6 +55,7 @@ class ModelProvider(ABC):
 
 class ClaudeProvider(ModelProvider):
     provider_type = ProviderType.ANTHROPIC
+    supports_cache_control = True
 
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
         import anthropic
@@ -126,6 +130,7 @@ class ClaudeProvider(ModelProvider):
 
 class OpenAICompatProvider(ModelProvider):
     provider_type = ProviderType.OPENAI
+    supports_cache_control = False  # 由 config_factory 根据 DB 配置动态设置
 
     def __init__(self, api_key: str, model: str, base_url: str = "https://api.openai.com/v1"):
         from openai import AsyncOpenAI
@@ -139,8 +144,21 @@ class OpenAICompatProvider(ModelProvider):
     async def chat(self, messages, system="", tools=None, max_tokens=4096, temperature=0.7) -> LLMResponse:
         all_messages = []
         if system:
-            all_messages.append({"role": "system", "content": system})
+            # 若 system 是 Anthropic content block 列表（如 cache strategy 处理过），提取纯文本
+            if isinstance(system, list):
+                system = self._flatten_system_blocks(system)
+            sys_msg: dict[str, Any] = {"role": "system", "content": system}
+            if self.supports_cache_control:
+                sys_msg["cache_control"] = {"type": "ephemeral"}
+            all_messages.append(sys_msg)
         all_messages.extend(messages)
+
+        # 在 system 之后的第一条消息上标记缓存断点，确保前缀稳定可复用
+        if self.supports_cache_control and all_messages:
+            for msg in all_messages:
+                if msg.get("role") != "system" and "cache_control" not in msg:
+                    msg["cache_control"] = {"type": "ephemeral"}
+                    break
 
         kwargs: dict[str, Any] = {
             "model": self.model,
@@ -149,7 +167,19 @@ class OpenAICompatProvider(ModelProvider):
             "temperature": temperature,
         }
         if tools:
-            kwargs["tools"] = AnthropicToOpenAIToolConverter.convert(tools)
+            converted_tools = AnthropicToOpenAIToolConverter.convert(tools)
+            if self.supports_cache_control and converted_tools:
+                converted_tools[-1]["cache_control"] = {"type": "ephemeral"}
+            kwargs["tools"] = converted_tools
 
         resp = await self.client.chat.completions.create(**kwargs)
         return OpenAIResponseParser.parse(resp, self.model)
+
+    @staticmethod
+    def _flatten_system_blocks(blocks: list) -> str:
+        """从 Anthropic 风格的 content block 列表中提取纯文本。"""
+        parts: list[str] = []
+        for b in blocks:
+            if isinstance(b, dict) and b.get("type") == "text":
+                parts.append(str(b.get("text", "")))
+        return "\n".join(parts)

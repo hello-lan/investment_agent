@@ -38,6 +38,11 @@ async def get_provider(model_id: str | None = None) -> ModelProvider:
     provider.input_price = cfg["input_price"] if cfg["input_price"] is not None else None
     provider.output_price = cfg["output_price"] if cfg["output_price"] is not None else None
     provider.currency = cfg["currency"] or "USD"
+
+    # 缓存控制：仅当模型配置明确启用 + provider 类型支持时才开启
+    if cfg.get("enable_cache", True):
+        provider.supports_cache_control = True
+
     return provider
 
 
@@ -52,6 +57,8 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
         "token_budget": agent_cfg.get("token_budget") or global_cfg.get("token_budget", 100000),
         "loop_detection_threshold": agent_cfg.get("loop_detection_threshold") or global_cfg.get("loop_detection_threshold", 3),
         "context_trim_interval": agent_cfg.get("context_trim_interval") or global_cfg.get("context_trim_interval", 0),
+        "context_trim_token_threshold": agent_cfg.get("context_trim_token_threshold")
+                                        or global_cfg.get("context_trim_token_threshold", 0),
         "runtime_trim_strategy": agent_cfg.get("runtime_trim_strategy") or global_cfg.get("runtime_trim_strategy", RuntimeTrimStrategy.COMPRESS),
         "tool_trim_limits": agent_cfg.get("tool_trim_limits") or global_cfg.get("tool_trim_limits", {}),
         "max_subagent_depth": agent_cfg.get("max_subagent_depth") or global_cfg.get("max_subagent_depth", 3),
@@ -181,6 +188,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         token_budget=engine_params["token_budget"],
         loop_detection_threshold=engine_params["loop_detection_threshold"],
         context_trim_interval=engine_params["context_trim_interval"],
+        context_trim_token_threshold=engine_params["context_trim_token_threshold"],
         runtime_trim_strategy=engine_params["runtime_trim_strategy"],
         tools=fields["tools"],
         skills=fields["skills"],
