@@ -8,14 +8,8 @@
   var currentActive = null;
   var fileCount = 0;
 
-  function countFiles(nodes) {
-    var c = 0;
-    nodes.forEach(function (n) {
-      if (n.type === "file") c++;
-      if (n.children) c += countFiles(n.children);
-    });
-    return c;
-  }
+  // 已加载过的目录路径集合，避免重复请求
+  var loadedPaths = {};
 
   function formatSize(bytes) {
     if (!bytes) return "";
@@ -35,7 +29,7 @@
     return "\u{1F4C3}";
   }
 
-  function renderNode(node, level) {
+  function createRow(node, level) {
     var div = document.createElement("div");
     div.className = "tree-item";
 
@@ -62,19 +56,52 @@
     row.appendChild(name);
     row.appendChild(size);
 
-    if (node.type === "dir") {
-      arrow.textContent = "▶";
-      row.addEventListener("click", function (e) {
-        e.stopPropagation();
-        var open = childrenEl.classList.toggle("open");
-        arrow.classList.toggle("open", open);
-      });
-    }
-
     div.appendChild(row);
 
-    var childrenEl = document.createElement("div");
-    childrenEl.className = "tree-children";
+    if (node.type === "dir") {
+      arrow.textContent = "▶";
+
+      var childrenEl = document.createElement("div");
+      childrenEl.className = "tree-children";
+      div.appendChild(childrenEl);
+
+      // 加载指示器
+      var loadingEl = document.createElement("div");
+      loadingEl.className = "loading";
+      loadingEl.textContent = "加载中...";
+      loadingEl.style.display = "none";
+      loadingEl.style.paddingLeft = (12 + (level + 1) * 16) + "px";
+      childrenEl.appendChild(loadingEl);
+
+      row.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var isOpen = childrenEl.classList.contains("open");
+
+        if (isOpen) {
+          // 折叠
+          childrenEl.classList.remove("open");
+          arrow.classList.remove("open");
+          loadingEl.style.display = "none";
+        } else {
+          // 展开
+          if (loadedPaths[node.path]) {
+            // 已加载过，直接展开
+            childrenEl.classList.add("open");
+            arrow.classList.add("open");
+          } else if (node.hasChildren) {
+            // 首次展开，异步加载
+            arrow.classList.add("open"); // 箭头先转
+            loadingEl.style.display = "block";
+            loadChildren(node.path, childrenEl, loadingEl, level + 1);
+          } else {
+            // 空目录，也标记已处理
+            loadedPaths[node.path] = true;
+            childrenEl.classList.add("open");
+            arrow.classList.add("open");
+          }
+        }
+      });
+    }
 
     if (node.type === "file") {
       size.textContent = formatSize(node.size);
@@ -87,14 +114,38 @@
       });
     }
 
-    if (node.children && node.children.length) {
-      node.children.forEach(function (child) {
-        childrenEl.appendChild(renderNode(child, level + 1));
-      });
-      div.appendChild(childrenEl);
-    }
-
     return div;
+  }
+
+  function loadChildren(dirPath, childrenEl, loadingEl, level) {
+    fetch("/api/files/children?path=" + encodeURIComponent(dirPath))
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (nodes) {
+        loadedPaths[dirPath] = true;
+        loadingEl.style.display = "none";
+
+        // 统计文件数
+        nodes.forEach(function (n) {
+          if (n.type === "file") fileCount++;
+          fileCountEl.textContent = fileCount + " 个文件";
+        });
+
+        // 渲染子节点
+        nodes.forEach(function (node) {
+          childrenEl.appendChild(createRow(node, level));
+        });
+
+        childrenEl.classList.add("open");
+      })
+      .catch(function (err) {
+        loadingEl.style.display = "none";
+        loadingEl.textContent = "加载失败: " + err.message;
+        loadingEl.style.color = "#c55";
+        loadingEl.style.display = "block";
+      });
   }
 
   function loadFile(node) {
@@ -157,8 +208,13 @@
       treeEl.innerHTML = '<div class="empty-state">暂无文件</div>';
       return;
     }
+    // 初始文件计数
+    nodes.forEach(function (n) {
+      if (n.type === "file") fileCount++;
+    });
+    fileCountEl.textContent = fileCount + " 个文件";
     nodes.forEach(function (node) {
-      treeEl.appendChild(renderNode(node, 0));
+      treeEl.appendChild(createRow(node, 0));
     });
   }
 
@@ -184,12 +240,10 @@
     }
   });
 
-  // Init
-  fetch("/api/files/tree")
+  // Init — 只请求根目录
+  fetch("/api/files/children")
     .then(function (res) { return res.json(); })
     .then(function (data) {
-      fileCount = countFiles(data);
-      fileCountEl.textContent = fileCount + " 个文件";
       renderTree(data);
     })
     .catch(function (err) {

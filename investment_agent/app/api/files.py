@@ -19,6 +19,7 @@ def _safe_path(relative: str) -> Path:
 
 
 def _scan_dir(directory: Path) -> list[dict]:
+    """递归扫描目录（保留兼容旧接口）"""
     entries = []
     try:
         names = sorted(directory.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
@@ -47,9 +48,59 @@ def _scan_dir(directory: Path) -> list[dict]:
     return entries
 
 
+def _list_dir(directory: Path) -> list[dict]:
+    """只列出一层目录，子目录标记 hasChildren 供前端懒加载"""
+    entries = []
+    try:
+        names = sorted(directory.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+    except OSError:
+        return entries
+
+    for p in names:
+        if p.name in EXCLUDE:
+            continue
+        if p.is_dir():
+            # 检查子目录是否有至少一个非排除项
+            try:
+                has_children = any(
+                    c.name not in EXCLUDE
+                    for c in p.iterdir()
+                )
+            except OSError:
+                has_children = False
+            entries.append({
+                "name": p.name,
+                "path": str(p.relative_to(DATA_DIR)),
+                "type": "dir",
+                "hasChildren": has_children,
+            })
+        else:
+            entries.append({
+                "name": p.name,
+                "path": str(p.relative_to(DATA_DIR)),
+                "type": "file",
+                "size": p.stat().st_size,
+                "ext": p.suffix.lower(),
+            })
+    return entries
+
+
 @router.get("/tree")
 async def file_tree():
+    """递归返回整棵目录树（保留兼容，新前端建议用 /children）"""
     return _scan_dir(DATA_DIR)
+
+
+@router.get("/children")
+async def list_children(path: str = Query("", description="Relative path from data/ directory, empty for root")):
+    """只返回指定目录的直接子节点，子目录附带 hasChildren 标记"""
+    if path:
+        dir_path = _safe_path(path)
+    else:
+        dir_path = DATA_DIR
+    if not dir_path.exists() or not dir_path.is_dir():
+        raise HTTPException(status_code=404, detail="Directory not found")
+    return _list_dir(dir_path)
 
 
 @router.get("/view")
