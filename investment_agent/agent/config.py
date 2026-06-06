@@ -70,7 +70,9 @@ SLOW_THINK_PROMPT = (
     "1. 当前进度是否符合目标？\n"
     "2. 策略是否需要调整？\n"
     "3. 是否存在风险或偏离？\n"
-    "请用1-3句话回答，不要调用工具。"
+    "请用1-3句话回答，不要调用工具。\n"
+    "禁止在反思中输出任何工具调用格式（如 <invoke>、<parameter>、DelegateTask 等标签），"
+    "只做策略评估，不要建议具体命令或操作。"
 )
 
 TRUNCATION_CONTINUE_PROMPT = "你的上一次回复因达到token上限被截断，请继续完成未完成的部分。"
@@ -93,7 +95,6 @@ class EngineConfig:
     slow_think_interval: int = 3
     token_budget: int = 100_000
     loop_detection_threshold: int = 3
-    run_command_limit: int = 15
     context_trim_interval: int = 0
     tool_trim_limits: dict = field(default_factory=dict)
     max_subagent_depth: int = 3
@@ -129,7 +130,6 @@ class AgentRunConfig:
     slow_think_interval: int = 3
     token_budget: int = 100000
     loop_detection_threshold: int = 3
-    run_command_limit: int = 15
     context_trim_interval: int = 0
     runtime_trim_strategy: str = RuntimeTrimStrategy.COMPRESS
 

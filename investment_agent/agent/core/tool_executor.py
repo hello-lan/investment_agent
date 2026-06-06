@@ -29,12 +29,11 @@ DELEGATE_MIN_REMAINING = 50_000    # 委派模式最低剩余 token
 # ── 死循环检测 ────────────────────────────────────────────────────────
 
 class LoopDetector:
-    """增强死循环检测：参数感知 + 振荡检测 + run_command 限流。
+    """增强死循环检测：参数感知 + 振荡检测。
 
     检测规则：
     1. 相同工具 + 相同关键参数连续调用超过阈值 → 死循环
     2. 连续滑动窗口内呈现 A→B→A→B 振荡模式 → 策略混乱
-    3. run_command 总有次数上限（不再无限豁免）
     """
 
     # 各工具的关键参数（用于区分"不同参数的同名调用"）
@@ -50,15 +49,13 @@ class LoopDetector:
         "DelegateTask": ["task"],
     }
 
-    def __init__(self, threshold: int, whitelist: set[str], run_command_limit: int = 15):
+    def __init__(self, threshold: int, whitelist: set[str]):
         self._threshold = threshold
         self._whitelist = whitelist
-        self._run_command_limit = run_command_limit
         self._recent: list[str] = []
         self._recent_params: list[str] = []  # 参数哈希，用于精确匹配
         self._detected_tool: str = ""
-        self._detected_reason: str = ""  # "repeat" | "oscillation" | "run_command_limit"
-        self._run_command_count = 0
+        self._detected_reason: str = ""  # "repeat" | "oscillation"
 
     @staticmethod
     def _hash_key_params(tool_name: str, input: dict) -> str:
@@ -78,14 +75,6 @@ class LoopDetector:
             self._recent.append(tc.name)
             param_hash = self._hash_key_params(tc.name, tc.input)
             self._recent_params.append(f"{tc.name}:{param_hash}")
-
-            # run_command 限流
-            if tc.name == "run_command":
-                self._run_command_count += 1
-                if self._run_command_count > self._run_command_limit:
-                    self._detected_tool = "run_command"
-                    self._detected_reason = "run_command_limit"
-                    return True
 
         # 保持滑动窗口（oscillation 检测需要两倍阈值保证覆盖两个周期）
         max_keep = self._threshold * 3
@@ -118,15 +107,6 @@ class LoopDetector:
 
     def error_event(self) -> dict:
         """返回死循环错误事件。"""
-        if self._detected_reason == "run_command_limit":
-            return {
-                "type": "error",
-                "message": (
-                    f"run_command 调用次数超限({self._run_command_limit}次)，"
-                    f"已调用 {self._run_command_count} 次"
-                ),
-                "recent_tool_calls": list(self._recent),
-            }
         if self._detected_reason == "oscillation":
             return {
                 "type": "error",

@@ -29,7 +29,7 @@ class AgentEngine:
     # ── 常量 ──
     SKILL_BODY_MAX_CHARS = 3_000      # 技能说明截断长度
     PLANNING_MAX_TOKENS = 512         # 任务指令生成 max_tokens
-    SLOW_THINK_MAX_TOKENS = 512       # 慢思考 max_tokens
+    SLOW_THINK_MAX_TOKENS = 200       # 慢思考 max_tokens（够用即可，过大易生成工具调用格式）
     SYSTEM_PROMPT_EXCERPT_CHARS = 200 # 慢思考 system prompt 截取长度
     REASONING_MAX_CHARS = 300         # 推理内容保留长度
     LOOP_WHITELIST = {"run_command", "DelegateTask"}  # 不受死循环检测限制的工具
@@ -64,7 +64,6 @@ class AgentEngine:
         self.slow_think_interval = config.slow_think_interval
         self.token_budget = config.token_budget
         self.loop_threshold = config.loop_detection_threshold
-        self.run_command_limit = config.run_command_limit
         self.context_trim_interval = config.context_trim_interval
         self.tool_trim_limits = config.tool_trim_limits
 
@@ -150,7 +149,7 @@ class AgentEngine:
         self._ensure_task_planner()
         self._start_ts = __import__('time').monotonic()
         loop_detector = LoopDetector(
-            self.loop_threshold, self.LOOP_WHITELIST, self.run_command_limit
+            self.loop_threshold, self.LOOP_WHITELIST
         )
         step = 0
 

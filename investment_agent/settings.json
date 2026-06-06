@@ -4,7 +4,6 @@
     "slow_think_interval": 5,
     "token_budget": 100000,
     "loop_detection_threshold": 3,
-    "run_command_limit": 15,
     "skill_body_ttl": 600,
     "context_trim_interval": 5,
     "runtime_trim_strategy": "compress",

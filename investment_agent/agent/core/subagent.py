@@ -208,14 +208,11 @@ def create_child_engine(
 
     # 子Agent 执行繁重IO任务，保底 max_steps=60（父Agent的50可能不足以拆分大文件）
     child_max_steps = max(parent.max_steps, 60)
-    # 子Agent run_command 上限：继承父Agent配置，但保底 25 次（数据密集型分析需要较多命令调用）
-    child_run_command_limit = max(parent.run_command_limit, 25)
     child_cfg = EngineConfig(
         max_steps=child_max_steps,
         slow_think_interval=0,
         token_budget=remaining_budget,
         loop_detection_threshold=parent.loop_threshold,
-        run_command_limit=child_run_command_limit,
         context_trim_interval=(
             parent.context_trim_interval if parent.context_trim_interval > 0 else 5
         ),
