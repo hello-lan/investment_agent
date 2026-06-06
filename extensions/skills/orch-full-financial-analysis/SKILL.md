@@ -18,6 +18,7 @@ depends_on:
 3. **步骤预算**：每个步骤最多消耗父Agent 5步（用于委派创建和结果检查）。超过后立即进入下一步骤。
 4. **降级优先**：某步骤委派连续失败2次后，跳过该步骤，使用已有的存量数据继续。
 5. **委派失败处理**：如果某次委派返回错误（如工具调用超限、执行异常），**绝对禁止父Agent亲自调用 run_command 接管执行**。正确的处理方式是：分析失败原因 → 调整委派指令（缩小范围、降低复杂度）→ 重新委派。如果同一任务重新委派2次仍失败，按规则4降级跳过。
+6. **目录规范强制执行**：委派指令中的输出路径是**绝对约束**，子Agent必须使用指定的路径，不得自行创建新目录或更改命名。每个步骤委派完成后必须校验输出是否符合预期目录结构。
 
 串行执行以下 4 个步骤，每步完成后再进入下一步。任一步骤失败时停止并报告用户。
 
@@ -27,6 +28,15 @@ depends_on:
 - **股票名称或代码**（必填）
 - **报告年份范围**（默认：近 3 年完整年报）
 - **报告类型**（默认：年报，非摘要）
+
+## 委派指令编写原则
+
+委派指令必须**精简、关键信息前置**，避免被截断：
+
+1. **第一行写死输出路径**（完整绝对路径），后续行引用时可省略
+2. **路径、参数、文件名放前面**，说明性文字放后面或省略
+3. **用列表格式**而非段落，每行一个文件
+4. **避免冗余描述**（如"已有文件跳过"已包含在规则6中，各原子技能内部已实现，无需在委派指令中重复）
 
 ---
 
@@ -55,13 +65,23 @@ depends_on:
 
 **必须委派**。用 `DelegateTask(skill_names=["pdf-to-markdown"], task="...")` 委派。
 
-- **一次委派处理所有待转换的 PDF 文件**。委派指令中列出所有需要转换的 PDF 路径及对应的输出路径
+- **一次委派处理所有待转换的 PDF 文件**
 - 已有 `.md` 文件的年份跳过，只列出缺失的
-- 子Agent 会逐个执行转换，每个文件完成后检查输出再继续下一个
+
+**委派指令模板（精简）**：
+```
+输出目录: {PROJECT_ROOT}/data/reports/{code}/2_markdown/
+逐一转换以下PDF为Markdown（快速模式）:
+- {PROJECT_ROOT}/data/reports/{code}/1_pdf/{code}/{code}_{year1}年年度报告_{year1}.pdf
+- {PROJECT_ROOT}/data/reports/{code}/1_pdf/{code}/{code}_{year2}年年度报告_{year2}.pdf
+- ...
+```
+> 路径占位符替换规则：`{code}`=股票代码（如002258），`{year1}`=起始年，`{PROJECT_ROOT}`=项目根目录
 
 **输入**：步骤 1 输出的 PDF 路径列表
-**输出**：`data/reports/{股票代码}/2_markdown/{年份}/` 目录下的 `.md` 文件路径列表
+**输出**：`data/reports/{股票代码}/2_markdown/` 目录下的 `.md` 文件
 **步数预算**：父Agent最多消耗3步
+**委派后校验**：执行 `ls data/reports/{code}/2_markdown/*.md` 确认数量与年份匹配，缺失则用单文件委派补充
 
 ---
 
@@ -69,13 +89,23 @@ depends_on:
 
 **必须委派**。用 `DelegateTask(skill_names=["split-financial-report"], task="...")` 委派。
 
-- **一次委派处理所有待切割的 `.md` 文件**。委派指令中列出所有需要切割的文件路径及对应的输出目录
-- 已有切割结果的年份跳过，只列出缺失的
-- 子Agent 会逐个执行切割，每个文件完成后检查输出再继续下一个
+- **一次委派处理所有待切割的 `.md` 文件**
+- 输出目录必须使用 `3_split/{code}_{year}/` 格式（脚本根据年份自动创建子目录）
+
+**委派指令模板（精简）**：
+```
+输出根目录: {PROJECT_ROOT}/data/reports/{code}/3_split/
+逐一切割以下Markdown文件（auto模式，启用 --financial-sub）:
+- {PROJECT_ROOT}/data/reports/{code}/2_markdown/{code}_{year1}年年度报告_{year1}.md
+- {PROJECT_ROOT}/data/reports/{code}/2_markdown/{code}_{year2}年年度报告_{year2}.md
+- ...
+⚠️ 必须使用指定的输出根目录，禁止自行为输出目录改名（如3_chapters等）
+```
 
 **输入**：步骤 2 输出的 `.md` 文件路径列表
-**输出**：`data/reports/{股票代码}/3_split/{年份}/` 目录下的切割文件列表
+**输出**：`data/reports/{股票代码}/3_split/{股票代码}_{年份}/` 目录下的切割文件
 **步数预算**：父Agent最多消耗3步
+**委派后校验**：执行 `ls -d data/reports/{code}/3_split/{code}_*` 确认每个年份都有对应目录，缺失年份则单独补充委派
 
 ---
 
@@ -83,12 +113,17 @@ depends_on:
 
 **必须委派**。用 `DelegateTask(skill_names=["a-share-financial-forensic"], task="...")` 委派。
 
-**委派策略**：一次委派覆盖所有年份。`a-share-financial-forensic` 技能内部已支持多年模式（collect_data.py 自动发现所有年份），不要按年份拆分为多次委派——那样会导致子Agent各自为战、无法跨年对比。
+**委派策略**：一次委派覆盖所有年份。`a-share-financial-forensic` 技能内部已支持多年模式（collect_data.py 自动发现所有年份），不要按年份拆分为多次委派。
 
-委派指令必须包含：
-- 股票代码
-- `{split_dir}` 路径（指向 `data/reports/{code}/3_split/`）
-- 要求覆盖的年份范围（如已有切割目录则全部覆盖）
+**委派指令模板（精简）**：
+```
+股票代码: {code}
+股票名称: {name}
+split_dir: {PROJECT_ROOT}/data/reports/{code}/3_split/
+覆盖年份: {year1}-{yearN}
+输出报告: {PROJECT_ROOT}/data/reports/{code}/4_output/{code}_{year1}-{yearN}_财务排雷分析报告.md
+```
+> split_dir 下的年份子目录格式为 `{code}_{year}/`，collect_data.py 脚本按此格式自动发现
 
 **输入**：步骤 3 输出的 `data/reports/{code}/3_split/` 目录路径
 **输出**：完整分析报告，保存于 `data/reports/{code}/4_output/{code}_{year_from}-{year_to}_财务排雷分析报告.md`
@@ -120,11 +155,13 @@ depends_on:
 
 ```
 用户输入（股票名称/代码）
-  → 步骤1: PDF 文件（data/reports/{code}/1_pdf/{year}/*.pdf）
-    → 步骤2: Markdown 文件（data/reports/{code}/2_markdown/{year}/*.md）
-      → 步骤3: 切割文件（data/reports/{code}/3_split/{year}/*.md）
+  → 步骤1: PDF 文件（data/reports/{code}/1_pdf/{code}/*.pdf）
+    → 步骤2: Markdown 文件（data/reports/{code}/2_markdown/{code}_{year}年年度报告_{year}.md）
+      → 步骤3: 切割文件（data/reports/{code}/3_split/{code}_{year}/ch*.md）
         → 步骤4: 排雷报告 (data/reports/{code}/4_output/{code}_{year_from}-{year_to}_财务排雷分析报告.md)
 ```
+
+> **目录格式约定**（不可变）：步骤3 切割输出使用 `3_split/{code}_{year}/`，步骤4 forensic 脚本依赖此格式自动发现年份目录。
 
 
 ## 增量策略
