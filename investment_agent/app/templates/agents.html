@@ -233,6 +233,11 @@
               <div class="range-row"><input type="range" id="agentMaxSubagentDepth" min="0" max="5" step="1" oninput="document.getElementById('agentMaxSubagentDepthVal').textContent=this.value"><span class="range-val" id="agentMaxSubagentDepthVal">3</span></div>
               <div class="hint">子Agent可再委派的最大层数，0=不允许委派，默认 3</div>
             </div>
+            <div class="form-row">
+              <label>任务指令 max_tokens</label>
+              <input type="number" id="agentPlanningMaxTokens" min="256" max="4096" step="256" placeholder="留空=默认 1024">
+              <div class="hint">委派子Agent时生成任务指令的 max_tokens 上限。复杂任务（多文件、多年份）建议 1024-2048</div>
+            </div>
           </div>
         </div>
       </div>

@@ -227,6 +227,7 @@ class AgentRunner:
             offload_threshold=config.offload_threshold,
             offload_summary_strategy=config.offload_summary_strategy,
             offload_summary_chars=config.offload_summary_chars,
+            planning_max_tokens=config.planning_max_tokens,
         )
         engine = AgentEngine(
             session_id=session_id,

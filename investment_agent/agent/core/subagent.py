@@ -169,7 +169,7 @@ def create_child_engine(
         配置好工具和技能的子 AgentEngine 实例
     """
     import os
-    from ..config import EngineConfig, OFFLOAD_AWARE_PROMPT
+    from ..config import EngineConfig, OFFLOAD_AWARE_PROMPT, PLANNING_MAX_TOKENS_DEFAULT
     from ..context.context_offloader import ContextOffloader
     from ..context.runtime_compressor import CompressRuntimeCompressor
     from ..tools.skill_tool import SkillTool
@@ -217,6 +217,7 @@ def create_child_engine(
         offload_threshold=parent.offload_threshold,
         offload_summary_strategy=parent.offload_summary_strategy,
         offload_summary_chars=parent.offload_summary_chars,
+        planning_max_tokens=PLANNING_MAX_TOKENS_DEFAULT,  # 子Agent不委派，使用默认值即可
     )
 
     child = AgentEngine(

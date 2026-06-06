@@ -17,6 +17,7 @@ from .context_trimmer import ContextTrimmer
 from ..config import (
     EngineConfig,
     TRUNCATION_CONTINUE_PROMPT,
+    PLANNING_MAX_TOKENS_DEFAULT,
 )
 from ..context.runtime_compressor import RuntimeCompressor
 
@@ -28,7 +29,6 @@ class AgentEngine:
 
     # ── 常量 ──
     SKILL_BODY_MAX_CHARS = 3_000      # 技能说明截断长度
-    PLANNING_MAX_TOKENS = 512         # 任务指令生成 max_tokens
     SLOW_THINK_MAX_TOKENS = 200       # 慢思考 max_tokens（够用即可，过大易生成工具调用格式）
     SYSTEM_PROMPT_EXCERPT_CHARS = 200 # 慢思考 system prompt 截取长度
     REASONING_MAX_CHARS = 300         # 推理内容保留长度
@@ -70,6 +70,9 @@ class AgentEngine:
         self.offload_threshold = config.offload_threshold
         self.offload_summary_strategy = config.offload_summary_strategy
         self.offload_summary_chars = config.offload_summary_chars
+
+        # 任务指令生成参数
+        self.planning_max_tokens = getattr(config, 'planning_max_tokens', PLANNING_MAX_TOKENS_DEFAULT)
 
         self.total_input_tokens = 0
         self.total_output_tokens = 0
@@ -133,7 +136,7 @@ class AgentEngine:
                 provider=self.provider,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
-                planning_max_tokens=self.PLANNING_MAX_TOKENS,
+                planning_max_tokens=self.planning_max_tokens,
                 skill_body_max_chars=self.SKILL_BODY_MAX_CHARS,
             )
         return self.task_planner

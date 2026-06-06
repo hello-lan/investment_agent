@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ..config import TASK_PLANNER_SYSTEM, TASK_PLANNER_PROMPT
+from ..config import TASK_PLANNER_SYSTEM, TASK_PLANNER_PROMPT, PLANNING_MAX_TOKENS_DEFAULT
 
 if TYPE_CHECKING:
     from .provider import ModelProvider
@@ -45,7 +45,7 @@ class TaskPlanner:
         provider: "ModelProvider",
         temperature: float | None = None,
         max_tokens: int | None = None,
-        planning_max_tokens: int = 512,
+        planning_max_tokens: int = PLANNING_MAX_TOKENS_DEFAULT,
         skill_body_max_chars: int = 3000,
     ):
         self.provider = provider

@@ -7,6 +7,9 @@ from typing import Any
 
 from .constants import OffloadSummaryStrategy
 
+# ── 默认值常量（全局单一来源，避免多文件硬编码）──────────────────────────
+PLANNING_MAX_TOKENS_DEFAULT = 1024  # 委派任务指令生成 max_tokens 默认值
+
 
 DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
 你可以调用工具获取股票行情、财务报表、估值指标等数据，帮助用户进行基本面分析。
@@ -100,6 +103,7 @@ class EngineConfig:
     offload_threshold: int = 800
     offload_summary_strategy: str = OffloadSummaryStrategy.TRUNCATE
     offload_summary_chars: int = 200
+    planning_max_tokens: int = PLANNING_MAX_TOKENS_DEFAULT  # 任务指令生成 max_tokens（委派给子Agent时的指令长度上限）
 
 
 @dataclass
@@ -130,6 +134,7 @@ class AgentRunConfig:
     token_budget: int = 100000
     loop_detection_threshold: int = 3
     context_trim_token_threshold: int = 0
+    planning_max_tokens: int = PLANNING_MAX_TOKENS_DEFAULT  # 任务指令生成 max_tokens（委派给子Agent时的指令长度上限）
 
     # ── 上下文卸载参数 ──
     offload_threshold: int = 800

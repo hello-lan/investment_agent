@@ -197,6 +197,7 @@ function fillEngineFields(cfg) {
     document.getElementById('agentLoopVal').textContent = '3';
     maxSubagentDepth.value = 3;
     document.getElementById('agentMaxSubagentDepthVal').textContent = '3';
+    document.getElementById('agentPlanningMaxTokens').value = '';
     document.getElementById('agentOffloadThreshold').value = '';
     document.getElementById('agentOffloadStrategy').value = 'truncate';
     document.getElementById('agentOffloadSummaryChars').value = '';
@@ -212,6 +213,7 @@ function fillEngineFields(cfg) {
   document.getElementById('agentLoopVal').textContent = cfg.loop_detection_threshold ?? 3;
   maxSubagentDepth.value = cfg.max_subagent_depth ?? 3;
   document.getElementById('agentMaxSubagentDepthVal').textContent = cfg.max_subagent_depth ?? 3;
+  document.getElementById('agentPlanningMaxTokens').value = cfg.planning_max_tokens ?? '';
   document.getElementById('agentOffloadThreshold').value = cfg.offload_threshold ?? '';
   document.getElementById('agentOffloadStrategy').value = cfg.offload_summary_strategy || 'truncate';
   document.getElementById('agentOffloadSummaryChars').value = cfg.offload_summary_chars ?? '';
@@ -280,6 +282,7 @@ async function saveAgent(){
   const engineTokenBudget = toNullableInt(document.getElementById('agentTokenBudget').value);
   const engineLoopThreshold = parseInt(document.getElementById('agentLoopThreshold').value) || 3;
   const maxSubagentDepth = parseInt(document.getElementById('agentMaxSubagentDepth').value) || 3;
+  const planningMaxTokens = toNullableInt(document.getElementById('agentPlanningMaxTokens').value);
 
   const offloadThreshold = toNullableInt(document.getElementById('agentOffloadThreshold').value);
   const offloadStrategy = document.getElementById('agentOffloadStrategy').value;
@@ -293,6 +296,7 @@ async function saveAgent(){
     loop_detection_threshold: engineLoopThreshold,
     context_trim_token_threshold: trimTokenThreshold,
     max_subagent_depth: maxSubagentDepth,
+    planning_max_tokens: planningMaxTokens,
     offload_threshold: offloadThreshold,
     offload_summary_strategy: offloadStrategy,
     offload_summary_chars: offloadSummaryChars,
