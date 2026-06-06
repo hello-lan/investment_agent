@@ -207,19 +207,6 @@ class TaskManager:
             state.session_id, state.accumulated_text,
         )
 
-        # 保存摘要（如果有上下文管理结果）
-        result = state.runner.context_result
-        if result and result.did_summarize and result.new_summary:
-            try:
-                await state.runner.storage.save_summary(
-                    session_id=state.session_id,
-                    summary=result.new_summary,
-                    through_message_id=msg_id,
-                    token_count=result.summary_tokens,
-                )
-            except Exception:
-                logger.debug("Failed to save summary for task %s", state.task_id, exc_info=True)
-
     async def _broadcast(self, state: _TaskState, event: dict) -> None:
         """将事件加入缓冲并推送给所有订阅者。"""
         async with self._lock:

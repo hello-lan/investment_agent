@@ -46,11 +46,6 @@ _DISCOURSE_MARKERS = (
     "overall", "therefore", "thus", "findings",
 )
 
-# ── LLM 摘要系统提示 ─────────────────────────────────────────────────
-_SUMMARIZE_SYSTEM = (
-    "用 1-2 句话概括以下工具输出内容的核心信息，保留关键数字和结论。"
-    "中文输出，不要添加解释。"
-)
 
 
 class ContextOffloader:
@@ -74,7 +69,6 @@ class ContextOffloader:
         self._summary_chars = summary_chars
         self._provider = provider
         self._counter = 0
-        self._llm_tokens_used = 0
         os.makedirs(offload_dir, exist_ok=True)
 
     def should_offload(self, content: str) -> bool:
@@ -107,9 +101,7 @@ class ContextOffloader:
 
     async def _generate_summary(self, content: str) -> str:
         """根据策略生成摘要。"""
-        if self._summary_strategy == OffloadSummaryStrategy.LLM and self._provider:
-            return await self._summarize_llm(content)
-        elif self._summary_strategy == OffloadSummaryStrategy.LOCAL:
+        if self._summary_strategy == OffloadSummaryStrategy.LOCAL:
             return self._summarize_local(content)
         else:
             return self._summarize_truncate(content)
@@ -205,23 +197,6 @@ class ContextOffloader:
         en_words = re.findall(r'[a-zA-Z]{3,}', text)
         words = [w.lower() for w in zh_words + en_words]
         return [w for w in words if w not in _STOPWORDS]
-
-    # ── 策略 3：LLM 语义摘要 ──────────────────────────────────────────
-
-    async def _summarize_llm(self, content: str) -> str:
-        """调用 LLM 生成语义摘要，失败 fallback 到 truncate。"""
-        try:
-            resp = await self._provider.chat(
-                messages=[{"role": "user", "content": content[:4000]}],
-                system=_SUMMARIZE_SYSTEM,
-                max_tokens=150,
-                temperature=0.2,
-            )
-            self._llm_tokens_used += resp.input_tokens + resp.output_tokens
-            return resp.content.strip()[:self._summary_chars]
-        except Exception:
-            _log.warning("LLM summary failed, falling back to truncate", exc_info=True)
-            return self._summarize_truncate(content)
 
     # ── 清理 ──────────────────────────────────────────────────────────
 

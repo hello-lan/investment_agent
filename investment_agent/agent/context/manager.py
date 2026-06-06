@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from .compressor import create_summary_message, summarize_messages
 from .token_utils import (
     count_message_tokens,
     count_system_tokens,
@@ -36,9 +35,6 @@ class ContextResult:
     total_tokens: int
     model_max_tokens: int
     warnings: list[str] = field(default_factory=list)
-    did_summarize: bool = False
-    new_summary: str | None = None
-    summary_tokens: int = 0
 
 
 class ContextManager:
@@ -51,7 +47,6 @@ class ContextManager:
     def __init__(self, config: dict | None = None, provider_type: str = ProviderType.ANTHROPIC,
                  model_name: str | None = None):
         cfg = config or {}
-        self.enabled = cfg.get("enabled", True)
         self.provider_type = provider_type
         self.model_name = model_name or "unknown"
         self.model_max = self._resolve_model_max(cfg.get("model_max_tokens"))
@@ -61,46 +56,17 @@ class ContextManager:
         self.tools_max = int(budget.get("tools_max_tokens", DEFAULT_TOOLS_MAX))
         self.messages_max = budget.get("messages_max_tokens")
 
-        self.recent_keep = max(0, int(cfg.get("recent_keep", DEFAULT_RECENT_KEEP)))
         self.safety_margin = float(cfg.get("safety_margin", DEFAULT_SAFETY_MARGIN))
         self.max_chars_per_msg = int(cfg.get("max_chars_per_msg", DEFAULT_MAX_CHARS_PER_MSG))
-
-        # summarization & caching — Phase 3/4 启用
-        summ = cfg.get("summarization", {})
-        self.summarization_enabled = summ.get("enabled", False)
-        self.summarization_max_tokens = int(summ.get("max_summary_tokens", 2000))
-        self.summarization_trigger = int(summ.get("trigger_after_messages", 25))
-
-        caching = cfg.get("caching", {})
-        self.caching_enabled = caching.get("enabled", False)
 
     # ── Main API ────────────────────────────────────────────────────
 
     async def prepare(
         self, system_prompt: str, tools: list[dict],
-        messages: list[dict], *, provider=None,
-        existing_summary: str | None = None,
+        messages: list[dict],
     ) -> ContextResult:
-        """处理上下文预算，返回可直接供 engine.run() 使用的 ContextResult。
-
-        provider 为可选的 LLM 提供者，仅当 summarization.enabled 时需要。
-        existing_summary 为已有摘要，用于增量合并（Phase 5）。
-        """
+        """处理上下文预算，返回可直接供 engine.run() 使用的 ContextResult。"""
         warnings: list[str] = []
-        did_summarize = False
-        new_summary: str | None = None
-        summary_tokens = 0
-
-        if not self.enabled:
-            sys_tok = count_system_tokens(system_prompt)
-            tools_tok = count_tool_tokens(tools)
-            msg_tok = sum(count_message_tokens(m, self.provider_type) for m in messages)
-            return ContextResult(
-                system_prompt=system_prompt, tools=tools, messages=messages,
-                system_tokens=sys_tok, tools_tokens=tools_tok,
-                messages_tokens=msg_tok, total_tokens=sys_tok + tools_tok + msg_tok,
-                model_max_tokens=self.model_max, warnings=warnings,
-            )
 
         # 1. system prompt budget
         sys_prompt, sys_tokens, sys_warn = self._fit_system(system_prompt)
@@ -118,45 +84,15 @@ class ContextManager:
         if self.messages_max is not None:
             msg_budget = min(msg_budget, int(self.messages_max))
 
-        # 4. split old / recent
-        split = max(0, len(messages) - self.recent_keep)
-        old_messages = messages[:split]
-        recent_messages = messages[split:]
-
-        # 5. summarization or truncation for old messages
-        summary_msg = None
-        if (
-            self.summarization_enabled
-            and provider is not None
-            and len(messages) > self.summarization_trigger
-            and old_messages
-        ):
-            # Phase 3: LLM 摘要（含 Phase 5 增量合并）
-            summary_text = await summarize_messages(
-                provider, old_messages,
-                max_summary_tokens=self.summarization_max_tokens,
-                existing_summary=existing_summary,
-            )
-            if summary_text:
-                summary_msg = create_summary_message(summary_text)
-                summary_tokens = count_message_tokens(summary_msg, self.provider_type)
-                did_summarize = True
-                new_summary = summary_text
-
-        # 6. build final message list
-        if summary_msg:
-            recent_budget = msg_budget - summary_tokens
-            recent_fit, _, _ = self._fit_messages(recent_messages, max(0, recent_budget))
-            final_messages = [summary_msg] + recent_fit
-        else:
-            final_messages, _, msg_warn = self._fit_messages(messages, msg_budget)
-            if msg_warn:
-                warnings.append(msg_warn)
+        # 4. fit messages (truncate old, keep recent)
+        final_messages, _, msg_warn = self._fit_messages(messages, msg_budget)
+        if msg_warn:
+            warnings.append(msg_warn)
 
         msg_tokens = sum(count_message_tokens(m, self.provider_type) for m in final_messages)
         total = sys_tokens + tools_tokens + msg_tokens
 
-        # 7. pre-flight check
+        # 5. pre-flight check
         if total > self.model_max:
             logger.warning("Context overflow %d/%d — emergency trim", total, self.model_max)
             final_messages = self._emergency_trim(final_messages, total - self.model_max)
@@ -164,8 +100,8 @@ class ContextManager:
             total = sys_tokens + tools_tokens + msg_tokens
             warnings.append("emergency_trim")
 
-        # 8. cache structure (Phase 4)
-        if self.caching_enabled and self.provider_type == ProviderType.ANTHROPIC:
+        # 6. cache structure
+        if self.provider_type == ProviderType.ANTHROPIC:
             strategy = get_cache_strategy(self.provider_type)
             sys_prompt, final_messages, cached = strategy.apply_to_messages(
                 sys_prompt, final_messages
@@ -179,8 +115,6 @@ class ContextManager:
             system_tokens=sys_tokens, tools_tokens=tools_tokens,
             messages_tokens=msg_tokens, total_tokens=total,
             model_max_tokens=self.model_max, warnings=warnings,
-            did_summarize=did_summarize, new_summary=new_summary,
-            summary_tokens=summary_tokens,
         )
 
     # ── Budget fitting ──────────────────────────────────────────────

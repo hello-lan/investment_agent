@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .constants import OffloadSummaryStrategy, RuntimeTrimStrategy
+from .constants import OffloadSummaryStrategy
 
 
 DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
@@ -95,9 +95,7 @@ class EngineConfig:
     slow_think_interval: int = 3
     token_budget: int = 100_000
     loop_detection_threshold: int = 3
-    context_trim_interval: int = 0
     context_trim_token_threshold: int = 0  # input_tokens 超过此阈值时触发安全压缩（0=禁用）
-    tool_trim_limits: dict = field(default_factory=dict)
     max_subagent_depth: int = 3
     offload_threshold: int = 800
     offload_summary_strategy: str = OffloadSummaryStrategy.TRUNCATE
@@ -131,24 +129,18 @@ class AgentRunConfig:
     slow_think_interval: int = 3
     token_budget: int = 100000
     loop_detection_threshold: int = 3
-    context_trim_interval: int = 0
     context_trim_token_threshold: int = 0
-    runtime_trim_strategy: str = RuntimeTrimStrategy.COMPRESS
 
     # ── 上下文卸载参数 ──
     offload_threshold: int = 800
     offload_summary_strategy: str = OffloadSummaryStrategy.TRUNCATE
     offload_summary_chars: int = 200
-    offload_summary_model_id: str | None = None
 
     # ── Agent 级工具选择（空列表=全部工具，向后兼容）──
     tools: list[str] = field(default_factory=list)
 
     # ── Agent 级技能选择（空列表=不启用任何技能）──
     skills: list[str] = field(default_factory=list)
-
-    # ── 工具裁剪参数 ──
-    tool_trim_limits: dict = field(default_factory=dict)
 
     # ── 上下文参数 ──
     context: dict = field(default_factory=dict)
@@ -160,9 +152,3 @@ class AgentRunConfig:
     input_price: float | None = None
     output_price: float | None = None
     currency: str = "USD"
-
-    # ── 压缩模型（独立的廉价 Provider，用于上下文摘要）──
-    compression_provider: Any = None
-
-    # ── 卸载摘要模型（独立的廉价 Provider，用于 tool_result 摘要）──
-    offload_summary_provider: Any = None

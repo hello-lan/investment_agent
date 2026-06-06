@@ -201,18 +201,9 @@ def create_child_engine(
         provider=parent.provider,
     )
     child_compressor = CompressRuntimeCompressor(
-        tool_trim_limits=parent.tool_trim_limits,
         keep_recent=3,
         offloader=offloader,
     )
-
-    # 子Agent 压缩触发策略：优先使用 token 阈值安全阀，阈值=0 时回退到间隔模式
-    if parent.context_trim_token_threshold > 0:
-        child_trim_interval = 0   # 关闭间隔触发，完全依赖阈值
-    else:
-        child_trim_interval = (   # 回退：无阈值时保底 interval=5（子Agent处理大文件需要）
-            parent.context_trim_interval if parent.context_trim_interval > 0 else 5
-        )
 
     # 子Agent 执行繁重IO任务，保底 max_steps=60（父Agent的50可能不足以拆分大文件）
     child_max_steps = max(parent.max_steps, 60)
@@ -221,7 +212,6 @@ def create_child_engine(
         slow_think_interval=0,
         token_budget=remaining_budget,
         loop_detection_threshold=parent.loop_threshold,
-        context_trim_interval=child_trim_interval,
         context_trim_token_threshold=parent.context_trim_token_threshold,
         max_subagent_depth=parent.max_subagent_depth,
         offload_threshold=parent.offload_threshold,

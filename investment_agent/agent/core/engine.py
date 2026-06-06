@@ -64,9 +64,7 @@ class AgentEngine:
         self.slow_think_interval = config.slow_think_interval
         self.token_budget = config.token_budget
         self.loop_threshold = config.loop_detection_threshold
-        self.context_trim_interval = config.context_trim_interval
         self.context_trim_token_threshold = config.context_trim_token_threshold
-        self.tool_trim_limits = config.tool_trim_limits
 
         # 上下文卸载参数（子Agent创建时需要读取）
         self.offload_threshold = config.offload_threshold
@@ -93,7 +91,6 @@ class AgentEngine:
         self._safety = SafetyChecker()
         self._trimmer = ContextTrimmer(
             compressor=runtime_compressor,
-            interval=config.context_trim_interval,
             token_threshold=config.context_trim_token_threshold,
         )
         self.task_planner: TaskPlanner | None = None  # 延迟初始化（需要 provider）

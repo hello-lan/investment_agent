@@ -168,65 +168,16 @@ function normalizeEngineConfig(raw) {
   return raw;
 }
 
-function fillOffloadModelDropdown() {
-  const select = document.getElementById('agentOffloadModel');
-  if (!select) return;
-  select.innerHTML = '<option value="">使用主模型</option>' +
-    availableModels.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
-}
-
-function toggleOffloadModel() {
-  const strategy = document.getElementById('agentOffloadStrategy').value;
-  const modelRow = document.getElementById('offloadModelRow');
-  if (strategy === 'llm') {
-    modelRow.style.display = '';
-  } else {
-    modelRow.style.display = 'none';
-  }
-}
-
 function fillContextFields(cfg) {
-  const elCtxEnabled = document.getElementById('agentCtxEnabled');
-  const elCtxRecentKeep = document.getElementById('agentCtxRecentKeep');
   const elCtxSysBudget = document.getElementById('agentCtxSystemBudget');
-  const elSumEnabled = document.getElementById('agentSumEnabled');
-  const elSumTrigger = document.getElementById('agentSumTrigger');
-  const elCacheEnabled = document.getElementById('agentCacheEnabled');
 
   if (!cfg) {
-    elCtxEnabled.value = 'inherit';
-    elCtxRecentKeep.value = '';
     elCtxSysBudget.value = '';
-    elSumEnabled.value = 'inherit';
-    elSumTrigger.value = '';
-    elCacheEnabled.value = 'inherit';
     return;
   }
 
-  // enabled
-  if (cfg.enabled === true) elCtxEnabled.value = 'true';
-  else if (cfg.enabled === false) elCtxEnabled.value = 'false';
-  else elCtxEnabled.value = 'inherit';
-
-  // recent_keep
-  elCtxRecentKeep.value = cfg.recent_keep ?? '';
-
-  // budget.system_max_tokens
   const budget = cfg.budget || {};
   elCtxSysBudget.value = budget.system_max_tokens ?? '';
-
-  // summarization
-  const summ = cfg.summarization || {};
-  if (summ.enabled === true) elSumEnabled.value = 'true';
-  else if (summ.enabled === false) elSumEnabled.value = 'false';
-  else elSumEnabled.value = 'inherit';
-  elSumTrigger.value = summ.trigger_after_messages ?? '';
-
-  // caching
-  const cache = cfg.caching || {};
-  if (cache.enabled === true) elCacheEnabled.value = 'true';
-  else if (cache.enabled === false) elCacheEnabled.value = 'false';
-  else elCacheEnabled.value = 'inherit';
 }
 
 function fillEngineFields(cfg) {
@@ -234,8 +185,6 @@ function fillEngineFields(cfg) {
   const slowThink = document.getElementById('agentSlowThink');
   const tokenBudget = document.getElementById('agentTokenBudget');
   const loopThreshold = document.getElementById('agentLoopThreshold');
-  const compressStrategy = document.getElementById('agentCompressStrategy');
-  const compressInterval = document.getElementById('agentCompressInterval');
   const maxSubagentDepth = document.getElementById('agentMaxSubagentDepth');
 
   if (!cfg) {
@@ -246,10 +195,6 @@ function fillEngineFields(cfg) {
     tokenBudget.value = '';
     loopThreshold.value = 3;
     document.getElementById('agentLoopVal').textContent = '3';
-    compressStrategy.value = 'compress';
-    compressInterval.value = 5;
-    document.getElementById('agentCompressIntervalVal').textContent = '5';
-    toggleCompressInterval();
     maxSubagentDepth.value = 3;
     document.getElementById('agentMaxSubagentDepthVal').textContent = '3';
     document.getElementById('agentOffloadThreshold').value = '';
@@ -265,35 +210,12 @@ function fillEngineFields(cfg) {
   tokenBudget.value = cfg.token_budget ?? '';
   loopThreshold.value = cfg.loop_detection_threshold ?? 3;
   document.getElementById('agentLoopVal').textContent = cfg.loop_detection_threshold ?? 3;
-  const strategy = cfg.runtime_trim_strategy || 'compress';
-  compressStrategy.value = strategy;
-  compressInterval.value = cfg.context_trim_interval || 5;
-  document.getElementById('agentCompressIntervalVal').textContent = cfg.context_trim_interval || 5;
-  toggleCompressInterval();
   maxSubagentDepth.value = cfg.max_subagent_depth ?? 3;
   document.getElementById('agentMaxSubagentDepthVal').textContent = cfg.max_subagent_depth ?? 3;
   document.getElementById('agentOffloadThreshold').value = cfg.offload_threshold ?? '';
   document.getElementById('agentOffloadStrategy').value = cfg.offload_summary_strategy || 'truncate';
   document.getElementById('agentOffloadSummaryChars').value = cfg.offload_summary_chars ?? '';
   document.getElementById('agentTrimTokenThreshold').value = cfg.context_trim_token_threshold ?? '';
-  fillOffloadModelDropdown();
-  const offloadModelId = cfg.offload_summary_model_id || '';
-  document.getElementById('agentOffloadModel').value = offloadModelId;
-  toggleOffloadModel();
-}
-
-function toggleCompressInterval() {
-  const strategy = document.getElementById('agentCompressStrategy').value;
-  const compressRow = document.getElementById('compressIntervalRow');
-  const offloadOpts = document.getElementById('offloadOptions');
-  if (strategy === 'off') {
-    // 安全阀模式：隐藏间隔（不触发），保留卸载选项（阈值触发时需要）
-    compressRow.classList.add('hidden');
-    if (offloadOpts) offloadOpts.classList.remove('hidden');
-  } else {
-    compressRow.classList.remove('hidden');
-    if (offloadOpts) offloadOpts.classList.remove('hidden');
-  }
 }
 
 function openModal(agent){
@@ -346,47 +268,22 @@ async function saveAgent(){
   const name = document.getElementById('agentName').value.trim();
   if(!name){alert('请输入 Agent 名称'); return;}
 
-  // 上下文配置（enabled / recent_keep / budget / summarization / caching）
-  const ctxEnabled = document.getElementById('agentCtxEnabled').value;
-  const ctxRecentKeep = toNullableInt(document.getElementById('agentCtxRecentKeep').value);
   const ctxSysBudget = toNullableInt(document.getElementById('agentCtxSystemBudget').value);
-  const sumEnabled = document.getElementById('agentSumEnabled').value;
-  const sumTrigger = toNullableInt(document.getElementById('agentSumTrigger').value);
-  const cacheEnabled = document.getElementById('agentCacheEnabled').value;
 
   let compressConfig = null;
-  if (
-    ctxEnabled !== 'inherit' || ctxRecentKeep !== null || ctxSysBudget !== null ||
-    sumEnabled !== 'inherit' || sumTrigger !== null || cacheEnabled !== 'inherit'
-  ) {
-    compressConfig = {};
-    if (ctxEnabled !== 'inherit') compressConfig.enabled = ctxEnabled === 'true';
-    if (ctxRecentKeep !== null) compressConfig.recent_keep = ctxRecentKeep;
-    if (ctxSysBudget !== null) {
-      compressConfig.budget = { system_max_tokens: ctxSysBudget };
-    }
-    if (sumEnabled !== 'inherit' || sumTrigger !== null) {
-      compressConfig.summarization = {};
-      if (sumEnabled !== 'inherit') compressConfig.summarization.enabled = sumEnabled === 'true';
-      if (sumTrigger !== null) compressConfig.summarization.trigger_after_messages = sumTrigger;
-    }
-    if (cacheEnabled !== 'inherit') {
-      compressConfig.caching = { enabled: cacheEnabled === 'true' };
-    }
+  if (ctxSysBudget !== null) {
+    compressConfig = { budget: { system_max_tokens: ctxSysBudget } };
   }
 
   const engineMaxSteps = parseInt(document.getElementById('agentMaxSteps').value) || 30;
   const engineSlowThink = parseInt(document.getElementById('agentSlowThink').value) || 3;
   const engineTokenBudget = toNullableInt(document.getElementById('agentTokenBudget').value);
   const engineLoopThreshold = parseInt(document.getElementById('agentLoopThreshold').value) || 3;
-  const compressStrategy = document.getElementById('agentCompressStrategy').value;
-  const compressInterval = parseInt(document.getElementById('agentCompressInterval').value) || 5;
   const maxSubagentDepth = parseInt(document.getElementById('agentMaxSubagentDepth').value) || 3;
 
   const offloadThreshold = toNullableInt(document.getElementById('agentOffloadThreshold').value);
   const offloadStrategy = document.getElementById('agentOffloadStrategy').value;
   const offloadSummaryChars = toNullableInt(document.getElementById('agentOffloadSummaryChars').value);
-  const offloadSummaryModelId = document.getElementById('agentOffloadModel').value || null;
   const trimTokenThreshold = toNullableInt(document.getElementById('agentTrimTokenThreshold').value);
 
   const engineConfig = {
@@ -394,14 +291,11 @@ async function saveAgent(){
     slow_think_interval: engineSlowThink,
     token_budget: engineTokenBudget,
     loop_detection_threshold: engineLoopThreshold,
-    runtime_trim_strategy: compressStrategy,
-    context_trim_interval: compressInterval,
     context_trim_token_threshold: trimTokenThreshold,
     max_subagent_depth: maxSubagentDepth,
     offload_threshold: offloadThreshold,
     offload_summary_strategy: offloadStrategy,
     offload_summary_chars: offloadSummaryChars,
-    offload_summary_model_id: offloadSummaryModelId,
   };
 
   const body = {

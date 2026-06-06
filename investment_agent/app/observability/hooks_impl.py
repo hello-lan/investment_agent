@@ -69,10 +69,6 @@ class ObservabilityHooks:
             "model_max": context_result.model_max_tokens,
             "warnings": context_result.warnings,
         }
-        if context_result.did_summarize:
-            detail["did_summarize"] = True
-            detail["summary_tokens"] = context_result.summary_tokens
-            detail["new_summary"] = context_result.new_summary
 
         await log_trace(
             self.session_id, self.task_id, None, "context_budget",

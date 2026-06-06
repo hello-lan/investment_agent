@@ -5,44 +5,20 @@
     "token_budget": 100000,
     "loop_detection_threshold": 3,
     "skill_body_ttl": 600,
-    "context_trim_interval": 5,
     "context_trim_token_threshold": 90000,
-    "runtime_trim_strategy": "off",
     "max_subagent_depth": 3,
     "offload_threshold": 800,
     "offload_summary_strategy": "truncate",
-    "offload_summary_chars": 200,
-    "tool_trim_limits": {
-      "get_income_statement": 6000,
-      "get_balance_sheet": 6000,
-      "get_cash_flow": 5000,
-      "get_valuation": 4000,
-      "get_financial_indicators": 4000,
-      "get_stock_info": 2000,
-      "get_stock_price": 3000,
-      "Skill": 4000,
-      "run_command": 1000
-    }
+    "offload_summary_chars": 200
   },
   "context": {
-    "enabled": true,
     "model_max_tokens": null,
-    "recent_keep": 15,
     "safety_margin": 0.10,
     "max_chars_per_msg": 2000,
     "budget": {
       "system_max_tokens": 40000,
       "tools_max_tokens": 20000,
       "messages_max_tokens": null
-    },
-    "summarization": {
-      "enabled": false,
-      "max_summary_tokens": 2000,
-      "trigger_after_messages": 25,
-      "model_id": null
-    },
-    "caching": {
-      "enabled": true
     }
   },
   "skills": {

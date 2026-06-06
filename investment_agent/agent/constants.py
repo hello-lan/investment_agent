@@ -32,21 +32,12 @@ class StopReason(StrEnum):
     LENGTH = "length"
 
 
-# ── 运行时上下文裁剪策略 ──────────────────────────────────────────────
-
-class RuntimeTrimStrategy(StrEnum):
-    """运行时上下文压缩策略。"""
-    COMPRESS = "compress"
-    OFF = "off"
-
-
 # ── 上下文卸载摘要策略 ────────────────────────────────────────────────
 
 class OffloadSummaryStrategy(StrEnum):
     """tool_result 卸载时的摘要生成策略。"""
     TRUNCATE = "truncate"
     LOCAL = "local"
-    LLM = "llm"
 
 
 # ── 消息角色 ──────────────────────────────────────────────────────────

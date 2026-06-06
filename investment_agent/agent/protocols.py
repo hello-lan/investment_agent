@@ -50,8 +50,6 @@ class ContextManagerProtocol(Protocol):
         system_prompt: str,
         tools: list[dict],
         messages: list[dict],
-        provider: Any,
-        existing_summary: str | None = None,
     ) -> Any:
         """处理上下文预算，返回 ContextResult。
 
@@ -65,9 +63,6 @@ class ContextManagerProtocol(Protocol):
         - total_tokens: int
         - model_max_tokens: int
         - warnings: list[str]
-        - did_summarize: bool
-        - new_summary: str | None
-        - summary_tokens: int
         """
         ...
 
@@ -99,17 +94,6 @@ class Storage(Protocol):
 
     async def load_messages(self, session_id: str) -> list[dict]:
         """加载会话的所有历史消息（user + assistant）。"""
-        ...
-
-    async def load_summary(self, session_id: str) -> str | None:
-        """加载已有摘要。"""
-        ...
-
-    async def save_summary(
-        self, session_id: str, summary: str,
-        through_message_id: str, token_count: int,
-    ) -> None:
-        """保存/更新摘要。"""
         ...
 
     async def get_agent_config(self, agent_id: str) -> dict | None:

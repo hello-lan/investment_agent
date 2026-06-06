@@ -143,16 +143,6 @@ async def init_db() -> None:
                 created_at TEXT
             );
 
-            -- 会话上下文摘要（增量持久化）
-            CREATE TABLE IF NOT EXISTS session_summaries (
-                id                     TEXT PRIMARY KEY,
-                session_id             TEXT NOT NULL UNIQUE,
-                summary_content        TEXT NOT NULL DEFAULT '',
-                summarized_through_id  TEXT,
-                summary_token_count    INTEGER DEFAULT 0,
-                created_at             TEXT,
-                updated_at             TEXT
-            );
         """)
         await db.commit()
 

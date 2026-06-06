@@ -11,8 +11,6 @@ from typing import TYPE_CHECKING
 
 from .token_utils import truncate_text
 
-from ..constants import RuntimeTrimStrategy
-
 if TYPE_CHECKING:
     from .context_offloader import ContextOffloader
 
@@ -39,11 +37,9 @@ class CompressRuntimeCompressor(RuntimeCompressor):
 
     def __init__(
         self,
-        tool_trim_limits: dict | None = None,
         keep_recent: int = 5,
         offloader: "ContextOffloader | None" = None,
     ):
-        self._tool_trim_limits = tool_trim_limits or {}
         self._keep_recent = keep_recent
         self._offloader = offloader
 
@@ -106,23 +102,3 @@ class NoOpRuntimeCompressor(RuntimeCompressor):
 
     async def compress(self, messages: list[dict], current_step: int) -> list[dict]:
         return messages
-
-
-def get_runtime_compressor(
-    strategy: str,
-    tool_trim_limits: dict | None = None,
-    offloader: "ContextOffloader | None" = None,
-) -> RuntimeCompressor:
-    """根据策略名创建 RuntimeCompressor 实例。
-
-    Args:
-        strategy: "compress" | "off"
-        tool_trim_limits: 工具结果截断限制（保留兼容，当前未使用）
-        offloader: 上下文卸载器（仅 compress 策略使用）
-    """
-    if strategy == RuntimeTrimStrategy.OFF:
-        return NoOpRuntimeCompressor()
-    return CompressRuntimeCompressor(
-        tool_trim_limits=tool_trim_limits,
-        offloader=offloader,
-    )

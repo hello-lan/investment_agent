@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 
 from ..agent.config import AgentRunConfig, DEFAULT_SYSTEM_PROMPT
-from ..agent.constants import OffloadSummaryStrategy, ProviderType, RuntimeTrimStrategy
+from ..agent.constants import OffloadSummaryStrategy, ProviderType
 from ..agent.core.provider import ClaudeProvider, ModelProvider, OpenAICompatProvider
 from ..agent.skills.cache import get_cache
 from ..config import get_settings
@@ -56,11 +56,8 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
         "slow_think_interval": agent_cfg.get("slow_think_interval") or global_cfg.get("slow_think_interval", 3),
         "token_budget": agent_cfg.get("token_budget") or global_cfg.get("token_budget", 100000),
         "loop_detection_threshold": agent_cfg.get("loop_detection_threshold") or global_cfg.get("loop_detection_threshold", 3),
-        "context_trim_interval": agent_cfg.get("context_trim_interval") or global_cfg.get("context_trim_interval", 0),
         "context_trim_token_threshold": agent_cfg.get("context_trim_token_threshold")
                                         or global_cfg.get("context_trim_token_threshold", 0),
-        "runtime_trim_strategy": agent_cfg.get("runtime_trim_strategy") or global_cfg.get("runtime_trim_strategy", RuntimeTrimStrategy.COMPRESS),
-        "tool_trim_limits": agent_cfg.get("tool_trim_limits") or global_cfg.get("tool_trim_limits", {}),
         "max_subagent_depth": agent_cfg.get("max_subagent_depth") or global_cfg.get("max_subagent_depth", 3),
         "offload_threshold": agent_cfg.get("offload_threshold")
                              or global_cfg.get("offload_threshold", 800),
@@ -68,8 +65,6 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
                                     or global_cfg.get("offload_summary_strategy", OffloadSummaryStrategy.TRUNCATE),
         "offload_summary_chars": agent_cfg.get("offload_summary_chars")
                                  or global_cfg.get("offload_summary_chars", 200),
-        "offload_summary_model_id": agent_cfg.get("offload_summary_model_id")
-                                    or global_cfg.get("offload_summary_model_id"),
     }
 
 
@@ -149,29 +144,11 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
     # —— Provider ——
     provider = await get_provider(fields["model_id"])
 
-    # —— 压缩模型：支持使用更便宜的模型做上下文摘要 ——
-    compression_provider = None
+    # —— Context config ——
     context_cfg = _resolve_context_config(fields["compress_config"])
-    compression_model_id = (
-        context_cfg.get("model_id")  # agent 级 compress_config.model_id
-        or context_cfg.get("summarization", {}).get("model_id")  # 全局 settings summarization.model_id
-    )
-    if compression_model_id:
-        try:
-            compression_provider = await get_provider(compression_model_id)
-        except Exception:
-            pass  # 降级：使用主模型
 
     # —— Engine params ——
     engine_params = _resolve_engine_params(fields["engine_config"])
-
-    # —— 运行时卸载摘要模型：支持使用独立的廉价模型生成摘要 ——
-    offload_summary_provider = None
-    if engine_params["offload_summary_strategy"] == OffloadSummaryStrategy.LLM and engine_params.get("offload_summary_model_id"):
-        try:
-            offload_summary_provider = await get_provider(engine_params["offload_summary_model_id"])
-        except Exception:
-            pass  # 降级：使用主模型
 
     # —— Context config ——
 
@@ -187,21 +164,15 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         slow_think_interval=engine_params["slow_think_interval"],
         token_budget=engine_params["token_budget"],
         loop_detection_threshold=engine_params["loop_detection_threshold"],
-        context_trim_interval=engine_params["context_trim_interval"],
         context_trim_token_threshold=engine_params["context_trim_token_threshold"],
-        runtime_trim_strategy=engine_params["runtime_trim_strategy"],
         tools=fields["tools"],
         skills=fields["skills"],
-        tool_trim_limits=engine_params["tool_trim_limits"],
         context=context_cfg,
         max_subagent_depth=engine_params["max_subagent_depth"],
         offload_threshold=engine_params["offload_threshold"],
         offload_summary_strategy=engine_params["offload_summary_strategy"],
         offload_summary_chars=engine_params["offload_summary_chars"],
-        offload_summary_model_id=engine_params.get("offload_summary_model_id"),
         input_price=provider.input_price,
         output_price=provider.output_price,
         currency=provider.currency,
-        compression_provider=compression_provider,
-        offload_summary_provider=offload_summary_provider,
     )

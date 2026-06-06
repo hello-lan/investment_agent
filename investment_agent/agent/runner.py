@@ -10,7 +10,7 @@ import shutil
 from typing import ClassVar
 
 from .config import AgentRunConfig, EngineConfig, OFFLOAD_AWARE_PROMPT
-from .constants import RuntimeTrimStrategy, ProviderType
+from .constants import ProviderType
 from .context.context_offloader import ContextOffloader
 from .context.manager import ContextManager, ContextResult
 from .context.runtime_compressor import CompressRuntimeCompressor, NoOpRuntimeCompressor
@@ -131,14 +131,11 @@ class AgentRunner:
             provider_type=getattr(engine.provider, "provider_type", ProviderType.ANTHROPIC),
             model_name=getattr(engine.provider, "model", "unknown"),
         )
-        existing_summary = await self._storage.load_summary(engine.session_id)
 
         result = await context_mgr.prepare(
             system_prompt=engine.system_prompt,
             tools=engine.tools,
             messages=messages,
-            provider=getattr(self._config, "compression_provider", None) or engine.provider,
-            existing_summary=existing_summary,
         )
         self._context_result = result
 
@@ -204,10 +201,7 @@ class AgentRunner:
         registry.bootstrap_default_tools()
 
         # 创建 offloader + trimmer
-        needs_compressor = (
-            config.runtime_trim_strategy == RuntimeTrimStrategy.COMPRESS
-            or config.context_trim_token_threshold > 0  # 安全阀需要压缩能力
-        )
+        needs_compressor = config.context_trim_token_threshold > 0
         if needs_compressor:
             offload_dir = os.path.join(PROJECT_ROOT, "data", ".offload", session_id)
             offloader = ContextOffloader(
@@ -215,10 +209,9 @@ class AgentRunner:
                 threshold=config.offload_threshold,
                 summary_strategy=config.offload_summary_strategy,
                 summary_chars=config.offload_summary_chars,
-                provider=config.offload_summary_provider or config.provider,
+                provider=config.provider,
             )
             runtime_compressor = CompressRuntimeCompressor(
-                tool_trim_limits=config.tool_trim_limits,
                 offloader=offloader,
             )
         else:
@@ -229,9 +222,7 @@ class AgentRunner:
             slow_think_interval=config.slow_think_interval,
             token_budget=config.token_budget,
             loop_detection_threshold=config.loop_detection_threshold,
-            context_trim_interval=config.context_trim_interval,
             context_trim_token_threshold=config.context_trim_token_threshold,
-            tool_trim_limits=config.tool_trim_limits,
             max_subagent_depth=config.max_subagent_depth,
             offload_threshold=config.offload_threshold,
             offload_summary_strategy=config.offload_summary_strategy,
