@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ stock_name or '个股看板' }} — 投研 Agent{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/css/stock_dashboard.css">
+<!-- ECharts CDN -->
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+{% endblock %}
+{% block content %}
+
+<div class="dashboard-page">
+  <!-- 搜索栏 -->
+  <div class="dash-searchbar">
+    <div class="dash-search-input-wrap">
+      <input type="text" id="stockSearch" class="dash-search-input"
+             placeholder="输入股票代码或名称，如 600519、茅台..."
+             autocomplete="off">
+      <div id="searchDropdown" class="dash-search-dropdown"></div>
+    </div>
+    <button id="searchBtn" class="dash-search-btn">查询</button>
+    <span id="syncBadge" class="dash-sync-badge" style="display:none;"></span>
+  </div>
+
+  <!-- 股票基本信息条 -->
+  <div id="stockInfoBar" class="dash-info-bar" style="display:none;">
+    <div class="dash-info-item">
+      <span class="dash-info-label">名称</span>
+      <span id="infoName" class="dash-info-value">-</span>
+    </div>
+    <div class="dash-info-item">
+      <span class="dash-info-label">代码</span>
+      <span id="infoCode" class="dash-info-value">-</span>
+    </div>
+    <div class="dash-info-item">
+      <span class="dash-info-label">行业</span>
+      <span id="infoIndustry" class="dash-info-value">-</span>
+    </div>
+    <div class="dash-info-item">
+      <span class="dash-info-label">总市值</span>
+      <span id="infoMarketCap" class="dash-info-value">-</span>
+    </div>
+    <div class="dash-info-item">
+      <span class="dash-info-label">最新ROE</span>
+      <span id="infoROE" class="dash-info-value">-</span>
+    </div>
+    <div class="dash-info-item">
+      <span class="dash-info-label">毛利率</span>
+      <span id="infoGrossMargin" class="dash-info-value">-</span>
+    </div>
+    <div class="dash-info-item">
+      <span class="dash-info-label">更新时间</span>
+      <span id="infoUpdated" class="dash-info-value">-</span>
+    </div>
+  </div>
+
+  <!-- 主内容区 -->
+  <div id="dashMain" class="dash-main" style="display:none;">
+    <!-- 固定侧边导航 -->
+    <nav id="sideNav" class="dash-sidenav">
+      <a href="#section-profitability" class="dash-nav-item active">盈利能力</a>
+      <a href="#section-roe" class="dash-nav-item">ROE 拆解</a>
+      <a href="#section-fiveforces" class="dash-nav-item">五力分析</a>
+      <a href="#section-cashflow" class="dash-nav-item">自由现金流</a>
+      <a href="#section-growth" class="dash-nav-item">成长性</a>
+      <a href="#section-incomepct" class="dash-nav-item">收益性</a>
+      <a href="#section-operation" class="dash-nav-item">营运能力</a>
+      <a href="#section-finhealth" class="dash-nav-item">财务风险</a>
+      <a href="#section-warnings" class="dash-nav-item">排雷</a>
+    </nav>
+
+    <!-- 内容区域 -->
+    <div class="dash-content" id="dashContent">
+      <!-- 各模块由 JS 动态渲染 -->
+      <div class="dash-loading">加载中...</div>
+    </div>
+  </div>
+
+  <!-- 空状态 -->
+  <div id="dashEmpty" class="dash-empty">
+    <div class="dash-empty-icon">📊</div>
+    <p>输入股票代码，查看综合指标看板</p>
+    <p class="dash-empty-hint">支持上海、深圳A股 / 6位代码或拼音简称</p>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/stock_dashboard.js"></script>
+{% endblock %}
