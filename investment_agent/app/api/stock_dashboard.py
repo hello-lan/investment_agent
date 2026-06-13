@@ -186,7 +186,8 @@ async def _fetch_annual_rows(db, code: str, years: int):
         cursor = await db.execute(
             """
             SELECT i.*,
-                   COALESCE(inc.parent_netprofit, inc.netprofit) AS inc_net_profit,
+                   inc.netprofit AS total_net_profit,
+                   inc.parent_netprofit AS parent_net_profit,
                    inc.deduct_parent_netprofit,
                    inc.operate_income, inc.operate_cost,
                    inc.sale_expense, inc.manage_expense, inc.research_expense, inc.finance_expense,
@@ -220,7 +221,7 @@ async def _fetch_annual_rows(db, code: str, years: int):
     elif has_balance:
         cursor = await db.execute(
             """
-            SELECT i.*, NULL AS inc_net_profit, NULL AS deduct_parent_netprofit,
+            SELECT i.*, NULL AS total_net_profit, NULL AS parent_net_profit, NULL AS deduct_parent_netprofit,
                    NULL AS operate_income, NULL AS operate_cost,
                    NULL AS sale_expense, NULL AS manage_expense, NULL AS research_expense, NULL AS finance_expense,
                    0 AS fairvalue_change_income, 0 AS invest_income, 0 AS operate_profit_raw,
@@ -298,7 +299,7 @@ async def _build_dashboard(code: str, years: int) -> dict:
         }
         quality = {
             "deduct_ratio": [], "operating_ratio": [], "cfnp": [],
-            "fcf_sign": [], "minority_gap": [],
+            "net_profit_ratio": [],
         }
 
         for r in rows:
@@ -342,12 +343,10 @@ async def _build_dashboard(code: str, years: int) -> dict:
                 round(op_profit / _div100m(np), 2) if op_profit and np and _div100m(np) else None
             )
             quality["cfnp"].append(r.get("cfnp"))
-            quality["fcf_sign"].append(
-                "正" if fcf is not None and fcf > 0 else ("负" if fcf is not None else None)
-            )
-            inc_np = r.get("inc_net_profit")
-            quality["minority_gap"].append(
-                "≈" if inc_np is None or np is None or abs(inc_np - np) / max(abs(np), 1) < 0.05 else "≠"
+            total_np = r.get("total_net_profit")
+            parent_np = r.get("parent_net_profit")
+            quality["net_profit_ratio"].append(
+                round(total_np / parent_np, 2) if total_np is not None and parent_np else None
             )
 
         sections["step1"] = {
@@ -430,13 +429,29 @@ async def _build_dashboard(code: str, years: int) -> dict:
                 noa_return = round(op_profit_latest / _div100m(noa) * 100, 2) if _div100m(noa) else None
 
             balance_rows = []
+            reconstruct_rows = []
             for r in rows:
                 if not r.get("total_assets"):
                     continue
                 r_ta = r["total_assets"]
+                r_tl = r.get("total_liabilities") or 0
                 r_int = _interest_bearing_debt(r)
                 r_ap = r.get("accounts_payable") or 0
                 r_pre = (r.get("advance_receivables") or 0) + (r.get("contract_liab") or 0)
+                fin_assets_r = _financial_assets(r)
+                noa_r = (r_ta - fin_assets_r) - (r_tl - r_int)
+                nfa_r = fin_assets_r - r_int
+                np_r = r.get("net_profit")
+                fin_p = (r.get("fairvalue_change_income") or 0) + (r.get("invest_income") or 0)
+                op_profit_r = None
+                if np_r is not None:
+                    op_profit_r = _div100m(np_r - fin_p)
+                elif r.get("operate_profit_raw"):
+                    op_profit_r = _div100m(r["operate_profit_raw"])
+                noa_yi = _div100m(noa_r)
+                noa_ret = (
+                    round(op_profit_r / noa_yi * 100, 2) if op_profit_r and noa_yi else None
+                )
                 balance_rows.append({
                     "year": _year_label(r["report_date"]),
                     "currency_funds": _div100m(r.get("monetaryfunds")),
@@ -453,6 +468,13 @@ async def _build_dashboard(code: str, years: int) -> dict:
                     "total_liab": _div100m(r.get("total_liabilities")),
                     "debt_ratio": r.get("debt_ratio"),
                     "parent_equity": _div100m(r.get("total_parent_equity")),
+                })
+                reconstruct_rows.append({
+                    "year": _year_label(r["report_date"]),
+                    "net_equity": _div100m(r_ta - r_tl),
+                    "noa": noa_yi,
+                    "nfa": _div100m(nfa_r),
+                    "noa_return": noa_ret,
                 })
 
             sections["step5"] = {
@@ -472,6 +494,7 @@ async def _build_dashboard(code: str, years: int) -> dict:
                     "noa_return": noa_return,
                 },
                 "table": balance_rows,
+                "reconstruct_table": reconstruct_rows,
             }
 
         # ── 第六步：投入产出 ──

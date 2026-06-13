@@ -1,0 +1,1417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>企业分析看板草图</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --surface2: #243044;
+      --border: #2d3a4f;
+      --text: #e8edf4;
+      --muted: #8b9cb3;
+      --accent: #3b82f6;
+      --accent2: #10b981;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --purple: #a78bfa;
+      --radius: 10px;
+      --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 24px;
+      min-height: 100vh;
+    }
+    .sketch-badge {
+      display: inline-block;
+      background: var(--warn);
+      color: #111;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+    }
+    h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+    .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+    .layout { display: grid; grid-template-columns: 220px 1fr; gap: 20px; max-width: 1400px; margin: 0 auto; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+    /* 侧边导航 */
+    .sidenav {
+      background: var(--surface);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      position: sticky;
+      top: 16px;
+    }
+    .sidenav h3 { font-size: 12px; color: var(--muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .sidenav a {
+      display: block;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      margin-bottom: 2px;
+    }
+    .sidenav a:hover, .sidenav a.active { background: var(--surface2); color: var(--text); }
+    .sidenav .step-num { color: var(--accent); font-weight: 600; margin-right: 6px; }
+
+    /* 主内容 */
+    .main { display: flex; flex-direction: column; gap: 20px; }
+
+    /* 顶部快照条 */
+    .snapshot-bar {
+      background: linear-gradient(135deg, #1e3a5f 0%, var(--surface) 100%);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .snapshot-bar .stock-name { font-size: 20px; font-weight: 600; }
+    .snapshot-bar .stock-meta { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .kpi {
+      background: rgba(0,0,0,.25);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .kpi .label { font-size: 11px; color: var(--muted); }
+    .kpi .value { font-size: 18px; font-weight: 600; margin-top: 4px; }
+    .kpi .value.good { color: var(--accent2); }
+    .kpi .value.warn { color: var(--warn); }
+
+    /* 模块卡片 */
+    .section {
+      background: var(--surface);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      overflow: visible;
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      background: var(--surface2);
+      border-bottom: 1px dashed var(--border);
+    }
+    .section-header h2 { font-size: 15px; font-weight: 600; }
+    .section-header .tag {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(59,130,246,.2);
+      color: var(--accent);
+    }
+    .section-body { padding: 16px 18px; overflow: visible; }
+
+    /* 指标网格 */
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+      overflow: visible;
+    }
+    .metric-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      overflow: visible;
+    }
+    .metric-card .m-name { font-size: 12px; color: var(--muted); }
+    .metric-card .m-name-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .metric-card .m-val { font-size: 16px; font-weight: 600; margin: 4px 0; }
+    .metric-card .m-hint { font-size: 11px; color: var(--muted); }
+    .metric-card .m-threshold { font-size: 11px; color: var(--accent2); margin-top: 4px; }
+    .m-composition {
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .m-composition .comp-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .m-composition .comp-pct { color: var(--text); font-weight: 500; }
+    .m-composition .comp-bar {
+      display: flex;
+      height: 4px;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 6px;
+      background: var(--surface2);
+    }
+    .m-composition .comp-bar span:first-child { background: var(--accent); }
+    .m-composition .comp-bar span:last-child { background: var(--purple); }
+    .help-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 1px solid var(--muted);
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
+      cursor: help;
+      position: relative;
+      flex-shrink: 0;
+      user-select: none;
+    }
+    .help-icon:hover,
+    .help-icon:focus-visible {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .help-icon .help-tooltip {
+      visibility: hidden;
+      opacity: 0;
+      position: absolute;
+      z-index: 1000;
+      top: calc(100% + 8px);
+      bottom: auto;
+      left: 50%;
+      transform: translateX(-50%);
+      width: max-content;
+      max-width: 260px;
+      padding: 8px 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--text);
+      line-height: 1.55;
+      text-align: left;
+      white-space: normal;
+      pointer-events: none;
+      transition: opacity 0.15s ease;
+    }
+    .help-icon .help-tooltip.help-tooltip-lg {
+      width: 320px;
+      max-width: 320px;
+      padding: 10px 12px;
+    }
+    .help-icon .help-tooltip::after {
+      content: '';
+      position: absolute;
+      bottom: 100%;
+      top: auto;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-bottom-color: var(--border);
+    }
+    .help-icon:hover .help-tooltip,
+    .help-icon:focus-visible .help-tooltip {
+      visibility: visible;
+      opacity: 1;
+    }
+    .help-tooltip .tt-title {
+      color: var(--muted);
+      font-size: 10px;
+      margin-bottom: 4px;
+    }
+    .help-tooltip .tt-formula {
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+    .help-tooltip .tt-val {
+      color: var(--accent2);
+      font-weight: 600;
+    }
+    .help-tooltip .tt-block {
+      margin-top: 8px;
+    }
+    .help-tooltip .tt-block:first-of-type {
+      margin-top: 6px;
+    }
+    .help-tooltip .tt-label {
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 10px;
+      margin-bottom: 2px;
+    }
+    .help-tooltip .tt-detail {
+      color: var(--muted);
+      font-size: 10px;
+      padding-left: 8px;
+    }
+
+    /* 图表容器 */
+    .chart-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      height: 280px;
+      margin-top: 12px;
+      min-height: 220px;
+    }
+    .chart-row .chart-box { margin-top: 0; }
+    .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+    @media (max-width: 700px) { .chart-row { grid-template-columns: 1fr; } }
+
+    .donut-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .chart-box-sm {
+      height: 220px;
+      min-height: 180px;
+      margin-top: 0;
+    }
+    @media (max-width: 900px) { .donut-grid { grid-template-columns: repeat(2, 1fr); } }
+    .donut-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .donut-legend span { display: flex; align-items: center; gap: 6px; }
+    .donut-legend i {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+    }
+
+    /* 表格占位 */
+    .table-sketch {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-top: 12px;
+    }
+    .table-sketch th, .table-sketch td {
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      text-align: left;
+    }
+    .table-sketch th { background: var(--bg); color: var(--muted); font-weight: 500; }
+    .table-sketch td { color: var(--text); }
+    .table-sketch .num { font-family: monospace; }
+    .table-sketch td.est { color: var(--purple); }
+    .table-sketch td.h1 { color: var(--accent); }
+    .table-sketch td.warn-cell { color: var(--warn); }
+    .table-sketch td.good-cell { color: var(--accent2); }
+    .table-sketch th.col-est { color: var(--purple); }
+    .table-sketch th.col-h1 { color: var(--accent); }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin-top: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .table-wrap .table-sketch { margin-top: 0; }
+    .table-sketch .row-label { font-weight: 500; white-space: nowrap; position: relative; overflow: visible; }
+    .table-sketch .row-label-inner {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .table-sketch .help-icon .help-tooltip {
+      top: 50%;
+      left: calc(100% + 10px);
+      bottom: auto;
+      transform: translateY(-50%);
+    }
+    .table-sketch .help-icon .help-tooltip::after {
+      top: 50%;
+      left: auto;
+      right: 100%;
+      bottom: auto;
+      transform: translateY(-50%);
+      border: 5px solid transparent;
+      border-right-color: var(--border);
+      border-bottom-color: transparent;
+    }
+    .table-sketch td.indent-1 { padding-left: 22px; color: var(--muted); }
+    .table-sketch tr.bs-section td {
+      font-weight: 600;
+      background: rgba(0, 0, 0, 0.2);
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.03em;
+    }
+    .table-sketch tr.bs-total td { font-weight: 600; }
+    .table-sketch tr.bs-total .row-label { color: var(--text); }
+
+    /* ROE 杜邦表（对齐 stock_dashboard .dash-table 结构） */
+    .dash-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .dash-table th, .dash-table td {
+      padding: 8px 12px;
+      text-align: right;
+      border-bottom: 1px solid var(--border);
+    }
+    .dash-table th {
+      background: var(--bg);
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .dash-table th:first-child, .dash-table td:first-child {
+      text-align: left;
+      position: sticky;
+      left: 0;
+      background: var(--bg);
+    }
+    .dash-table td:first-child { background: var(--surface); }
+    .dash-table tbody tr:hover td { background: var(--surface2); }
+    .dash-table tbody tr:hover td:first-child { background: var(--surface2); }
+    .dash-table .num { font-variant-numeric: tabular-nums; font-family: monospace; }
+    .dash-table .warn { color: var(--warn); font-weight: 500; }
+    .dash-table .good { color: var(--accent2); font-weight: 600; }
+    .roe-dupont-caption {
+      font-size: 11px;
+      color: var(--muted);
+      margin: 0 0 8px;
+    }
+    .roe-dupont-caption .badge-inline {
+      display: inline-block;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: rgba(59, 130, 246, 0.2);
+      color: var(--accent);
+      margin-left: 8px;
+    }
+    .sub-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin: 16px 0 8px;
+      color: var(--text);
+    }
+    .sub-title:first-of-type { margin-top: 0; }
+    .anno-note {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+    .anno-note .mark-est { color: var(--purple); }
+    .anno-note .mark-h1 { color: var(--accent); }
+    .anno-note .mark-warn { color: var(--warn); }
+
+    /* 八问 */
+    .eight-q { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+    .q-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .q-card .q-num { color: var(--purple); font-weight: 700; font-size: 12px; }
+    .q-card .q-text { font-size: 13px; margin: 4px 0; }
+    .q-card .q-note { font-size: 11px; color: var(--muted); }
+
+    /* 框架摘要 */
+    .framework-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+    .framework-box strong { color: var(--text); }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+
+    .legend {
+      margin-top: 24px;
+      padding: 16px;
+      background: var(--surface);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .legend h3 { color: var(--text); font-size: 13px; margin-bottom: 8px; }
+    .legend ul { padding-left: 18px; }
+    .legend li { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+
+<div class="layout">
+  <nav class="sidenav">
+    <h3>分析导航</h3>
+    <a href="#snapshot" class="active"><span class="step-num">◎</span>快照总览</a>
+    <a href="#step1"><span class="step-num">①</span>营收与盈利质量</a>
+    <a href="#step2"><span class="step-num">②</span>成本费用构成</a>
+    <a href="#step3"><span class="step-num">③</span>成长性</a>
+    <a href="#step4"><span class="step-num">④</span>业务构成</a>
+    <a href="#step5"><span class="step-num">⑤</span>资产负债</a>
+    <a href="#step6"><span class="step-num">⑥</span>投入产出</a>
+    <a href="#step7"><span class="step-num">⑦</span>收益率</a>
+    <a href="#eight"><span class="step-num">⑧</span>商业八问</a>
+  </nav>
+
+  <div class="main">
+    <div>
+      <span class="sketch-badge">UI 草图 · 非真实数据</span>
+      <h1>企业分析看板</h1>
+      <p class="subtitle">七步法看报表 + 商业八问 · 对标现有 stock_dashboard 优化方向</p>
+    </div>
+
+    <!-- 快照 -->
+    <section id="snapshot" class="snapshot-bar">
+      <div class="stock-name">科沃斯 603486.SH</div>
+      <div class="stock-meta">清洁电器 · To C · 自主制造垂直一体化 · 数据截至 2021 年报</div>
+      <div class="kpi-row">
+        <div class="kpi"><div class="label">营业收入</div><div class="value">130.86 亿</div></div>
+        <div class="kpi"><div class="label">归母净利润</div><div class="value">20.10 亿</div></div>
+        <div class="kpi"><div class="label">净利率</div><div class="value">15.36%</div></div>
+        <div class="kpi"><div class="label">毛利率</div><div class="value">51.41%</div></div>
+        <div class="kpi"><div class="label">ROE</div><div class="value">49.06%</div></div>
+        <div class="kpi"><div class="label">经营现金流/净利润</div><div class="value">≈1.0</div></div>
+        <div class="kpi"><div class="label">自由现金流</div><div class="value">正向</div></div>
+      </div>
+    </section>
+
+    <!-- 第一步 -->
+    <section id="step1" class="section">
+      <div class="section-header">
+        <h2>① 营收与盈利质量</h2>
+        <span class="tag">七步法 · 第一步 · 多年度趋势</span>
+      </div>
+      <div class="section-body">
+        <div class="framework-box">
+          <strong>观察要点：</strong>规模（收入/利润）→ <strong>多年发展过程</strong>（起落原因）→ 盈利质量四关系（逐年对比）<br>
+          <strong>数据口径：</strong>2017–2021 · 年报 · 合并报表 · 单位亿元
+        </div>
+
+        <div class="sub-title">营收基本数据（单位：亿元）</div>
+        <div class="table-wrap">
+          <table class="table-sketch">
+            <thead>
+              <tr>
+                <th>指标</th>
+                <th>2017</th>
+                <th>2018</th>
+                <th>2019</th>
+                <th>2020</th>
+                <th>2021</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td class="row-label">营业收入</td><td class="num">45.12</td><td class="num">59.64</td><td class="num">53.12</td><td class="num">72.34</td><td class="num">130.86</td></tr>
+              <tr><td class="row-label">收入同比增速</td><td class="num">39.0%</td><td class="num">32.2%</td><td class="num">-6.7%</td><td class="num">36.2%</td><td class="num">80.9%</td></tr>
+              <tr><td class="row-label">归母净利润</td><td class="num">0.91</td><td class="num">4.85</td><td class="num">1.21</td><td class="num">6.41</td><td class="num">20.10</td></tr>
+              <tr>
+                <td class="row-label"><span class="row-label-inner">经营利润<span class="help-icon" tabindex="0" aria-label="经营利润计算口径">?<span class="help-tooltip help-tooltip-lg"><div class="tt-title">计算口径</div><div class="tt-formula">经营利润 = 归母净利润 − 金融利润</div><div class="tt-detail">反映日常主营业务创造的利润</div></span></span></span></td>
+                <td class="num">0.86</td><td class="num">4.62</td><td class="num">1.15</td><td class="num">6.12</td><td class="num">18.81</td>
+              </tr>
+              <tr>
+                <td class="row-label"><span class="row-label-inner">金融利润<span class="help-icon" tabindex="0" aria-label="金融利润计算口径">?<span class="help-tooltip help-tooltip-lg"><div class="tt-title">计算口径</div><div class="tt-formula">金融利润 = 公允价值变动 + 投资收益（可简化）</div></span></span></span></td>
+                <td class="num">0.05</td><td class="num">0.23</td><td class="num">0.06</td><td class="num">0.29</td><td class="num">1.29</td>
+              </tr>
+              <tr><td class="row-label">净利润同比增速</td><td class="num">78.4%</td><td class="num">433%</td><td class="num">-75.1%</td><td class="num">429.8%</td><td class="num">213.6%</td></tr>
+              <tr><td class="row-label">净利率</td><td class="num">2.0%</td><td class="num">8.1%</td><td class="num">2.3%</td><td class="num">8.9%</td><td class="num">15.4%</td></tr>
+              <tr><td class="row-label">扣非净利润</td><td class="num">0.55</td><td class="num">3.95</td><td class="num">1.45</td><td class="num">5.80</td><td class="num">19.62</td></tr>
+              <tr><td class="row-label">经营净现金流</td><td class="num">3.08</td><td class="num">0.15</td><td class="num">2.62</td><td class="num">11.32</td><td class="num">20.26</td></tr>
+              <tr><td class="row-label">自由现金流 FCF</td><td class="num">+1.5</td><td class="num">-2.1</td><td class="num">-1.8</td><td class="num">+5.6</td><td class="num">+12.4</td></tr>
+              <tr><td class="row-label">毛利（收入−成本）</td><td class="num">14.2</td><td class="num">22.5</td><td class="num">24.8</td><td class="num">36.8</td><td class="num">67.4</td></tr>
+              <tr><td class="row-label">毛利率</td><td class="num">31.5%</td><td class="num">37.7%</td><td class="num">46.6%</td><td class="num">50.8%</td><td class="num">51.4%</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="sub-title">盈利质量四关系</div>
+        <div class="table-wrap">
+          <table class="table-sketch">
+            <thead>
+              <tr>
+                <th>关系 / 指标</th>
+                <th>2017</th>
+                <th>2018</th>
+                <th>2019</th>
+                <th>2020</th>
+                <th>2021</th>
+                <th>判断要点</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td class="row-label">① 扣非净利润 / 归母净利润</td><td class="num">0.60</td><td class="num">0.81</td><td class="num">1.20</td><td class="num">0.91</td><td class="num">0.98</td><td>差距小 → 主业盈利；持续大 → 改扣非口径</td></tr>
+              <tr><td class="row-label">② 经营利润 / 归母净利润</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td>金融利润占比低 → 业务驱动</td></tr>
+              <tr><td class="row-label">③ 经营现金流 / 归母净利润</td><td class="num">3.4</td><td class="num">0.03</td><td class="num">2.16</td><td class="num">1.77</td><td class="num">1.01</td><td>同向、无量级差；利润增、现金流慢 → 警觉</td></tr>
+              <tr><td class="row-label">④ 自由现金流 FCF</td><td class="num">正</td><td class="num">负</td><td class="num">负</td><td class="num">正</td><td class="num">正</td><td>持续负 → 不能现金自洽；关注 WC 增量</td></tr>
+              <tr><td class="row-label">净利润 vs 归母净利润</td><td class="num">≈</td><td class="num">≈</td><td class="num">≈</td><td class="num">≈</td><td class="num">≈</td><td>归母≫净利 → 警惕少数股东扛亏</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="framework-box" style="margin-top:12px">
+          <strong>Dashboard 实现建议：</strong>支持切换时间范围；异常年份自动高亮并链到公告解读；增速行可切换 YoY / CAGR
+        </div>
+      </div>
+    </section>
+
+    <!-- 第二步 -->
+    <section id="step2" class="section">
+      <div class="section-header">
+        <h2>② 成本费用构成</h2>
+        <span class="tag">七步法 · 第二步</span>
+      </div>
+      <div class="section-body">
+        <div class="framework-box">
+          <strong>逻辑：</strong>毛利率反映竞争壁垒与客户转换成本；毛利率 − 净利率差额 → 期间费用与其他损益；费用结构揭示商业模式（研发驱动 vs 市场驱动）
+        </div>
+        <div class="metric-grid">
+          <div class="metric-card">
+            <div class="m-name">毛利率 − 净利率</div>
+            <div class="m-val">36.05%</div>
+            <div class="m-hint">≈ 期间费用率；差额大 → 查其他损益</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">研发费用率</div>
+            <div class="m-val">4.20%</div>
+            <div class="m-threshold">技术型企业关键；注意资本化还原</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">销售费用率</div>
+            <div class="m-val">24.74%</div>
+            <div class="m-hint">To C 品牌关键；高增期是否依赖销售投入</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">管理费用率</div>
+            <div class="m-val">—</div>
+            <div class="m-hint">收入扩张时应呈下降趋势（规模效应）</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">财务费用率</div>
+            <div class="m-val">—</div>
+            <div class="m-hint">有息负债企业重点关注</div>
+          </div>
+        </div>
+        <div class="sub-title">毛利率与净利率（近 5 年）</div>
+        <div id="chart-step2-margin" class="chart-box"></div>
+        <div id="chart-step2-expense" class="chart-box"></div>
+      </div>
+    </section>
+
+    <!-- 第三步 -->
+    <section id="step3" class="section">
+      <div class="section-header">
+        <h2>③ 成长性</h2>
+        <span class="tag">七步法 · 第三步 · 对应现有「成长性」模块</span>
+      </div>
+      <div class="section-body">
+        <div class="framework-box">
+          <strong>适用：</strong>成长型企业重点看增速；关注 3/5 年复合增长率；林奇分类（缓慢/稳定/快速/周期/困境/隐蔽资产）
+        </div>
+        <div class="metric-grid">
+          <div class="metric-card">
+            <div class="m-name">收入同比增速</div>
+            <div class="m-val">80.90%</div>
+            <div class="m-hint">关注增速拐点与可持续性</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">归母净利润同比增速</div>
+            <div class="m-val">213.57%</div>
+            <div class="m-hint">利润增速应与收入增速大致匹配</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">3 年复合增速（收入）</div>
+            <div class="m-val">≈30%</div>
+            <div class="m-hint">平滑单年波动</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">3 年复合增速（利润）</div>
+            <div class="m-val">—</div>
+            <div class="m-hint">与收入 CAGR 对比看盈利弹性</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">5 年复合增速（收入）</div>
+            <div class="m-val">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">5 年复合增速（利润）</div>
+            <div class="m-val">—</div>
+          </div>
+        </div>
+        <div id="chart-step3-growth" class="chart-box"></div>
+      </div>
+    </section>
+
+    <!-- 第四步 -->
+    <section id="step4" class="section">
+      <div class="section-header">
+        <h2>④ 业务构成</h2>
+        <span class="tag">七步法 · 第四步 · 增长驱动力</span>
+      </div>
+      <div class="section-body">
+        <div class="framework-box">
+          <strong>目标：</strong>拆分收入/毛利来源（产品/区域/渠道）；识别增长曲线与业务接力；量价拆解（理想态）
+        </div>
+        <div class="metric-grid">
+          <div class="metric-card">
+            <div class="m-name">最大营收占比</div>
+            <div class="m-val">服务机器人 52.4%</div>
+            <div class="m-hint">识别主力业务与集中度</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">最大毛利占比</div>
+            <div class="m-val">服务机器人 55.0%</div>
+            <div class="m-hint">利润来源是否与收入来源一致</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">最大毛利率</div>
+            <div class="m-val">智能电器 54.9%</div>
+            <div class="m-hint">分业务盈利能力强弱对比</div>
+          </div>
+        </div>
+        <div class="sub-title">各业务营收占比（近 5 年）</div>
+        <div class="donut-legend">
+          <span><i style="background:#3b82f6"></i>服务机器人</span>
+          <span><i style="background:#10b981"></i>智能电器</span>
+          <span><i style="background:#64748b"></i>OEM/ODM</span>
+        </div>
+        <div class="donut-grid">
+          <div id="chart-step4-2017" class="chart-box chart-box-sm"></div>
+          <div id="chart-step4-2018" class="chart-box chart-box-sm"></div>
+          <div id="chart-step4-2019" class="chart-box chart-box-sm"></div>
+          <div id="chart-step4-2020" class="chart-box chart-box-sm"></div>
+          <div id="chart-step4-2021" class="chart-box chart-box-sm"></div>
+        </div>
+        <div class="sub-title">各业务毛利占比（近 5 年）</div>
+        <div class="donut-legend">
+          <span><i style="background:#3b82f6"></i>服务机器人</span>
+          <span><i style="background:#10b981"></i>智能电器</span>
+          <span><i style="background:#64748b"></i>OEM/ODM</span>
+        </div>
+        <div class="donut-grid">
+          <div id="chart-step4-gp-2017" class="chart-box chart-box-sm"></div>
+          <div id="chart-step4-gp-2018" class="chart-box chart-box-sm"></div>
+          <div id="chart-step4-gp-2019" class="chart-box chart-box-sm"></div>
+          <div id="chart-step4-gp-2020" class="chart-box chart-box-sm"></div>
+          <div id="chart-step4-gp-2021" class="chart-box chart-box-sm"></div>
+        </div>
+        <div class="sub-title">各业务毛利率（近 5 年）</div>
+        <div id="chart-step4-margin-trend" class="chart-box"></div>
+      </div>
+    </section>
+
+    <!-- 第五步 -->
+    <section id="step5" class="section">
+      <div class="section-header">
+        <h2>⑤ 资产负债</h2>
+        <span class="tag">七步法 · 第五步 · 对应「财务风险」</span>
+      </div>
+      <div class="section-body">
+        <div class="framework-box">
+          <strong>观察要点：</strong>总资产结构 → 有息/无息债务 → 资产负债率 → 净经营资产 vs 净金融资产拆分
+        </div>
+        <div class="metric-grid">
+          <div class="metric-card">
+            <div class="m-name">总资产</div>
+            <div class="m-val">107.20 亿</div>
+            <div class="m-composition">
+              <div class="comp-row">
+                <span>流动资产 90.66 亿</span>
+                <span class="comp-pct">84.6%</span>
+              </div>
+              <div class="comp-row">
+                <span>非流动资产 16.54 亿</span>
+                <span class="comp-pct">15.4%</span>
+              </div>
+              <div class="comp-bar" title="流动 / 非流动占比">
+                <span style="width:84.6%"></span>
+                <span style="width:15.4%"></span>
+              </div>
+            </div>
+            <div class="m-hint">流动 / 非流动结构；关注存货、应收占比</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">资产负债率</div>
+            <div class="m-val">52.37%</div>
+            <div class="m-threshold">&gt;70% 需重点关注</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name-row">
+              <span class="m-name" style="margin:0">有息负债 / 无息负债</span>
+              <span class="help-icon" tabindex="0" aria-label="有息/无息负债计算口径">?
+                <span class="help-tooltip">
+                  <div class="tt-title">计算口径</div>
+                  <div class="tt-formula">有息负债 = 短期借款 + 长期借款 + 应付债券 + 租赁负债等</div>
+                  <div class="tt-formula" style="margin-top:6px">无息负债（狭义）= 应付账款 + 预收账款 + 合同负债</div>
+                </span>
+              </span>
+            </div>
+            <div class="m-composition">
+              <div class="comp-row">
+                <span>有息负债 2.53 亿</span>
+                <span class="comp-pct">4.5%</span>
+              </div>
+              <div class="comp-row">
+                <span>无息负债 53.61 亿</span>
+                <span class="comp-pct">95.5%</span>
+              </div>
+              <div class="comp-bar" title="有息 / 无息占比">
+                <span style="width:4.5%"></span>
+                <span style="width:95.5%"></span>
+              </div>
+            </div>
+            <div class="m-hint">有息占比高 → 财务风险；无息多 → 上下游地位强</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name-row">
+              <span class="m-name" style="margin:0">净经营资产 NOA</span>
+              <span class="help-icon" tabindex="0" aria-label="净经营资产计算口径">?
+                <span class="help-tooltip help-tooltip-lg">
+                  <div class="tt-title">计算口径</div>
+                  <div class="tt-formula">净经营资产 = 经营资产 − 经营负债</div>
+                </span>
+              </span>
+            </div>
+            <div class="m-val">15.52 亿</div>
+            <div class="m-hint">为正 → 日常经营净投入；为负 → 他人垫付经营</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name-row">
+              <span class="m-name" style="margin:0">净金融资产</span>
+              <span class="help-icon" tabindex="0" aria-label="净金融资产计算口径">?
+                <span class="help-tooltip help-tooltip-lg">
+                  <div class="tt-title">计算口径</div>
+                  <div class="tt-formula">净金融资产 = 金融资产 − 金融负债</div>
+                </span>
+              </span>
+            </div>
+            <div class="m-val">+35.54 亿</div>
+            <div class="m-hint">为正 → 净持有金融资产；为负 → 净金融负债</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name-row">
+              <span class="m-name" style="margin:0">净经营资产收益率</span>
+              <span class="help-icon" tabindex="0" aria-label="净经营资产收益率计算口径">?
+                <span class="help-tooltip">
+                  <div class="tt-title">计算口径</div>
+                  <div class="tt-formula">净经营资产收益率 = 经营利润 / 净经营资产</div>
+                </span>
+              </span>
+            </div>
+            <div class="m-val">121.23%</div>
+            <div class="m-threshold">越高越好</div>
+          </div>
+        </div>
+
+        <div class="sub-title">资产负债表（单位：亿元 · 年末数）</div>
+        <div class="table-wrap">
+          <table class="table-sketch">
+            <thead>
+              <tr><th>项目</th><th>2017</th><th>2018</th><th>2019</th><th>2020</th><th>2021</th></tr>
+            </thead>
+            <tbody>
+              <tr class="bs-section"><td colspan="6">资产</td></tr>
+              <tr><td class="row-label indent-1">货币资金</td><td class="num">8.20</td><td class="num">10.50</td><td class="num">12.35</td><td class="num">22.80</td><td class="num">38.50</td></tr>
+              <tr><td class="row-label indent-1">存货</td><td class="num">9.80</td><td class="num">11.50</td><td class="num">14.20</td><td class="num">24.60</td><td class="num">40.20</td></tr>
+              <tr><td class="row-label indent-1">其他流动资产</td><td class="num">6.50</td><td class="num">7.20</td><td class="num">8.45</td><td class="num">11.20</td><td class="num">11.96</td></tr>
+              <tr class="bs-total"><td class="row-label indent-1">流动资产</td><td class="num">24.50</td><td class="num">29.20</td><td class="num">35.00</td><td class="num">58.60</td><td class="num">90.66</td></tr>
+              <tr><td class="row-label indent-1">非流动资产</td><td class="num">10.50</td><td class="num">11.60</td><td class="num">12.80</td><td class="num">14.20</td><td class="num">16.54</td></tr>
+              <tr class="bs-total"><td class="row-label">资产合计</td><td class="num">35.00</td><td class="num">40.80</td><td class="num">47.80</td><td class="num">72.80</td><td class="num">107.20</td></tr>
+              <tr class="bs-section"><td colspan="6">负债</td></tr>
+              <tr><td class="row-label indent-1">有息负债</td><td class="num">1.50</td><td class="num">1.65</td><td class="num">1.85</td><td class="num">2.10</td><td class="num">2.53</td></tr>
+              <tr><td class="row-label indent-1">应付账款</td><td class="num">12.50</td><td class="num">15.20</td><td class="num">18.60</td><td class="num">26.40</td><td class="num">32.10</td></tr>
+              <tr><td class="row-label indent-1">预收账款</td><td class="num">1.50</td><td class="num">1.80</td><td class="num">2.15</td><td class="num">3.80</td><td class="num">5.20</td></tr>
+              <tr><td class="row-label indent-1">合同负债</td><td class="num">2.20</td><td class="num">2.80</td><td class="num">3.40</td><td class="num">6.50</td><td class="num">16.31</td></tr>
+              <tr class="bs-total"><td class="row-label indent-1">无息负债（狭义）</td><td class="num">16.20</td><td class="num">19.80</td><td class="num">24.15</td><td class="num">36.70</td><td class="num">53.61</td></tr>
+              <tr class="bs-total"><td class="row-label">负债合计</td><td class="num">17.70</td><td class="num">21.45</td><td class="num">26.00</td><td class="num">38.80</td><td class="num">56.14</td></tr>
+              <tr class="bs-section"><td colspan="6">比率与权益</td></tr>
+              <tr><td class="row-label">资产负债率</td><td class="num">50.6%</td><td class="num">52.6%</td><td class="num">54.4%</td><td class="num">53.3%</td><td class="num">52.4%</td></tr>
+              <tr class="bs-total"><td class="row-label">归母净资产</td><td class="num">17.30</td><td class="num">19.35</td><td class="num">21.80</td><td class="num">34.00</td><td class="num">51.06</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 第六步 -->
+    <section id="step6" class="section">
+      <div class="section-header">
+        <h2>⑥ 投入产出（WC · 固定资产 · 人力）</h2>
+        <span class="tag">七步法 · 第六步 · 对应「营运能力」「五力」</span>
+      </div>
+      <div class="section-body">
+        <div class="framework-box">
+          <strong>三维投入：</strong>营运资本 WC、固定资产/长期资产、人力。核心效率指标：<strong>1 元收入需要的 WC / 固定资产 / 人力产出</strong>，需历史趋势对比
+        </div>
+
+        <h3 style="font-size:13px;color:var(--muted);margin:12px 0 8px;">营运资本 WC</h3>
+        <div class="sub-title" style="margin-top:0">一元收入需要 WC</div>
+        <div id="chart-step6-wc-revenue" class="chart-box" style="margin-top:0"></div>
+        <p class="anno-note">
+          <strong style="color:var(--text)">纵坐标计算口径：</strong><br>
+          WC（狭义）= 应收账款和票据 + 预付账款 + 存货 + 合同资产 − 应付账款和票据 − 预收账款 − 合同负债；不含应付工资、应付税费等。<br>
+          <strong style="color:var(--accent)">1 元收入需要的 WC = WC ÷ 销售收入</strong>；WC 为期末时点数、收入为期间数，可期间化（期初 + 期末）÷ 2。<br>
+          指标越低或越负 → 上下游地位越强；用于 DCF 再投资估算与竞争地位识别。
+        </p>
+
+                <div class="sub-title">WC 分析</div>
+        <div class="table-wrap">
+          <table class="table-sketch">
+            <thead><tr><th>类目</th><th>2017</th><th>2018</th><th>2019</th><th>2020</th><th>2021</th></tr></thead>
+            <tbody>
+              <tr><td class="row-label">一元收入需要 WC（元）</td><td class="num">0.08</td><td class="num">0.15</td><td class="num">0.10</td><td class="num">0.11</td><td class="num">0.12</td></tr>
+              <tr><td class="row-label">WC / 亿元</td><td class="num">3.61</td><td class="num">8.95</td><td class="num">5.31</td><td class="num">7.96</td><td class="num">15.70</td></tr>
+              <tr><td class="row-label indent-1">应收 / 亿元</td><td class="num">4.20</td><td class="num">6.00</td><td class="num">5.20</td><td class="num">7.40</td><td class="num">12.50</td></tr>
+              <tr><td class="row-label indent-1">预付 / 亿元</td><td class="num">1.30</td><td class="num">1.60</td><td class="num">1.20</td><td class="num">1.75</td><td class="num">2.80</td></tr>
+              <tr><td class="row-label indent-1">存货 / 亿元</td><td class="num">7.81</td><td class="num">13.55</td><td class="num">11.50</td><td class="num">18.50</td><td class="num">40.20</td></tr>
+              <tr><td class="row-label indent-1">应付 / 亿元</td><td class="num">7.50</td><td class="num">8.80</td><td class="num">8.50</td><td class="num">12.40</td><td class="num">32.10</td></tr>
+              <tr><td class="row-label indent-1">预收 / 亿元</td><td class="num">0.90</td><td class="num">1.40</td><td class="num">1.20</td><td class="num">2.15</td><td class="num">5.20</td></tr>
+              <tr><td class="row-label indent-1">合同负债 / 亿元</td><td class="num">1.30</td><td class="num">2.00</td><td class="num">2.89</td><td class="num">4.14</td><td class="num">16.31</td></tr>
+              <tr><td class="row-label">应收占收入 / %</td><td class="num">9.31</td><td class="num">10.06</td><td class="num">9.79</td><td class="num">10.23</td><td class="num">9.55</td></tr>
+              <tr><td class="row-label">预付占收入 / %</td><td class="num">2.88</td><td class="num">2.68</td><td class="num">2.26</td><td class="num">2.42</td><td class="num">2.14</td></tr>
+              <tr><td class="row-label">存货占收入 / %</td><td class="num">17.31</td><td class="num">22.72</td><td class="num">21.65</td><td class="num">25.57</td><td class="num">30.72</td></tr>
+              <tr><td class="row-label">应付占收入 / %</td><td class="num">16.62</td><td class="num">14.75</td><td class="num">16.00</td><td class="num">17.14</td><td class="num">24.53</td></tr>
+              <tr><td class="row-label">预收占收入 / %</td><td class="num">2.00</td><td class="num">2.35</td><td class="num">2.26</td><td class="num">2.97</td><td class="num">3.97</td></tr>
+              <tr><td class="row-label">合同负债占收入 / %</td><td class="num">2.88</td><td class="num">3.35</td><td class="num">5.44</td><td class="num">5.72</td><td class="num">12.46</td></tr>
+              <tr><td class="row-label">新增 WC / 亿元</td><td class="num">1.34</td><td class="num">5.34</td><td class="num">-3.64</td><td class="num">2.65</td><td class="num">7.74</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 style="font-size:13px;color:var(--muted);margin:16px 0 8px;">固定资产 & 长期资产</h3>
+        <div class="sub-title" style="margin-top:0">一元收入需要的固定资产 & 长期资产</div>
+        <div id="chart-step6-fa-revenue" class="chart-box" style="margin-top:0"></div>
+        <p class="anno-note">
+          <strong style="color:var(--text)">纵坐标计算口径：</strong><br>
+          <strong style="color:var(--accent)">固定资产</strong> = 固定资产 + 在建工程 + 工程物资 + 固定资产清理。<br>
+          <strong style="color:var(--accent)">长期经营资产</strong> = 固定资产 + 其他长期经营资产（无形资产、开发支出、使用权资产、商誉、长期待摊等）。<br>
+          <strong style="color:var(--accent)">1 元收入需要的固定资产 = 固定资产 ÷ 销售收入</strong>；<strong style="color:var(--accent)">1 元收入需要的长期资产 = 长期经营资产 ÷ 销售收入</strong>。<br>
+          <strong style="color:var(--accent)">折旧占收入 = 折旧 ÷ 销售收入</strong>。
+        </p>
+
+                <div class="sub-title">固定资产分析</div>
+        <div class="table-wrap">
+          <table class="table-sketch">
+            <thead><tr><th>类目</th><th>2017</th><th>2018</th><th>2019</th><th>2020</th><th>2021</th></tr></thead>
+            <tbody>
+              <tr><td class="row-label">一元收入需要的固定资产 / 元</td><td class="num">0.10</td><td class="num">0.09</td><td class="num">0.08</td><td class="num">0.08</td><td class="num">0.07</td></tr>
+              <tr><td class="row-label">一元收入需要的长期资产 / 元</td><td class="num">0.11</td><td class="num">0.10</td><td class="num">0.09</td><td class="num">0.09</td><td class="num">0.08</td></tr>
+              <tr><td class="row-label">固定资产 / 亿元</td><td class="num">4.51</td><td class="num">5.37</td><td class="num">4.25</td><td class="num">5.43</td><td class="num">9.15</td></tr>
+              <tr><td class="row-label">长期经营资产 / 亿元</td><td class="num">4.96</td><td class="num">5.96</td><td class="num">4.78</td><td class="num">6.15</td><td class="num">10.50</td></tr>
+              <tr><td class="row-label">折旧 / 亿元</td><td class="num">0.55</td><td class="num">0.72</td><td class="num">0.68</td><td class="num">0.88</td><td class="num">0.95</td></tr>
+              <tr><td class="row-label">折旧占收入 / %</td><td class="num">1.22</td><td class="num">1.21</td><td class="num">1.28</td><td class="num">1.22</td><td class="num">0.73</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 style="font-size:13px;color:var(--muted);margin:16px 0 8px;">人力投入</h3>
+
+                <div class="sub-title" style="margin-top:0">人员结构</div>
+        <div class="table-wrap">
+          <table class="table-sketch">
+            <thead><tr><th>类目</th><th>2017</th><th>2018</th><th>2019</th><th>2020</th><th>2021</th></tr></thead>
+            <tbody>
+              <tr><td class="row-label">人数</td><td class="num">3,500</td><td class="num">2,990</td><td class="num">3,600</td><td class="num">4,100</td><td class="num">6,200</td></tr>
+              <tr><td class="row-label indent-1">生产人员 / 人</td><td class="num">1,680</td><td class="num">1,316</td><td class="num">1,476</td><td class="num">1,558</td><td class="num">2,356</td></tr>
+              <tr><td class="row-label indent-1">销售人员 / 人</td><td class="num">665</td><td class="num">598</td><td class="num">756</td><td class="num">902</td><td class="num">1,364</td></tr>
+              <tr><td class="row-label indent-1">研发人员 / 人</td><td class="num">420</td><td class="num">419</td><td class="num">540</td><td class="num">656</td><td class="num">992</td></tr>
+              <tr><td class="row-label">生产人员占比 / %</td><td class="num">48.0</td><td class="num">44.0</td><td class="num">41.0</td><td class="num">38.0</td><td class="num">38.0</td></tr>
+              <tr><td class="row-label">销售人员占比 / %</td><td class="num">19.0</td><td class="num">20.0</td><td class="num">21.0</td><td class="num">22.0</td><td class="num">22.0</td></tr>
+              <tr><td class="row-label">研发人员占比 / %</td><td class="num">12.0</td><td class="num">14.0</td><td class="num">15.0</td><td class="num">16.0</td><td class="num">16.0</td></tr>
+            </tbody>
+          </table>
+        </div>
+                <div class="sub-title">人均数据</div>
+        <div class="table-wrap">
+          <table class="table-sketch">
+            <thead><tr><th>类目</th><th>2017</th><th>2018</th><th>2019</th><th>2020</th><th>2021</th></tr></thead>
+            <tbody>
+              <tr><td class="row-label">人均收入 / 万元</td><td class="num">128.91</td><td class="num">199.51</td><td class="num">147.56</td><td class="num">176.44</td><td class="num">211.06</td></tr>
+              <tr><td class="row-label">人均归母净利润 / 万元</td><td class="num">2.60</td><td class="num">16.22</td><td class="num">3.36</td><td class="num">15.63</td><td class="num">32.42</td></tr>
+              <tr><td class="row-label">人均扣非净利润 / 万元</td><td class="num">1.57</td><td class="num">7.34</td><td class="num">4.03</td><td class="num">14.15</td><td class="num">31.65</td></tr>
+              <tr><td class="row-label">人均薪酬 / 万元</td><td class="num">9.20</td><td class="num">9.80</td><td class="num">10.50</td><td class="num">11.20</td><td class="num">12.50</td></tr>
+              <tr><td class="row-label">人均固定资产 / 万元</td><td class="num">12.89</td><td class="num">17.96</td><td class="num">11.81</td><td class="num">13.24</td><td class="num">14.76</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 第七步 -->
+    <section id="step7" class="section">
+      <div class="section-header">
+        <h2>⑦ 收益率（ROE 拆解）</h2>
+        <span class="tag">七步法 · 第七步 · 对应「盈利能力」「ROE拆解」「收益性」</span>
+      </div>
+      <div class="section-body">
+        <div class="framework-box">
+          <strong>杜邦：</strong>ROE = 销售净利率 × 总资产周转率 × 权益乘数。辅以 ROA、ROIC、净经营资产收益率。ROE &gt; 20% 较优秀；单年异常看历史
+        </div>
+        <div class="metric-grid">
+          <div class="metric-card">
+            <div class="m-name">ROE（摊薄/加权）</div>
+            <div class="m-val">49.06%</div>
+            <div class="m-threshold">&gt;20% 较优秀 · 注意单年异常</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">ROA</div>
+            <div class="m-val">—</div>
+            <div class="m-hint">去杠杆后总资产获利能力</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">ROIC</div>
+            <div class="m-val">—</div>
+            <div class="m-hint">无杠杆盈利；偏离 ROE 大 → 查原因</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">销售净利率（杜邦）</div>
+            <div class="m-val">15.39%</div>
+            <div class="m-hint">杜邦拆解核心因子之一</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">总资产周转率</div>
+            <div class="m-val">1.55 次</div>
+            <div class="m-hint">资产运用效率</div>
+          </div>
+          <div class="metric-card">
+            <div class="m-name">权益乘数</div>
+            <div class="m-val">2.10</div>
+            <div class="m-hint">杠杆水平；过高放大风险</div>
+          </div>
+        </div>
+
+        <div id="chart-step7-roe" class="chart-box"></div>
+
+        <div class="sub-title">ROE 与杜邦分析</div>
+        <p class="roe-dupont-caption">
+          杜邦三因子逐年对比
+          <span class="badge-inline">ROE = 净利润率 × 总资产周转率 × 权益乘数</span>
+        </p>
+                <div class="table-wrap">
+          <table class="dash-table">
+            <thead>
+              <tr><th>指标</th><th>2017</th><th>2018</th><th>2019</th><th>2020</th><th>2021</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>净利润率(%)</td><td class="num">2.00</td><td class="num">8.10</td><td class="num">2.30</td><td class="num">8.90</td><td class="num">15.39</td></tr>
+              <tr><td>总资产周转率</td><td class="num">1.1500</td><td class="num">1.2500</td><td class="num">1.2000</td><td class="num">1.4000</td><td class="num">1.5500</td></tr>
+              <tr><td>权益乘数</td><td class="num">4.2600</td><td class="num">2.2200</td><td class="num">1.8800</td><td class="num">1.4900</td><td class="num">2.1000</td></tr>
+              <tr><td>ROE(%)</td><td class="num"><strong>9.80%</strong></td><td class="num"><strong>22.50%</strong></td><td class="num"><strong>5.20%</strong></td><td class="num"><strong>18.60%</strong></td><td class="num"><strong>49.06%</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 八问 -->
+    <section id="eight" class="section">
+      <div class="section-header">
+        <h2>商业八问（非财务定性）</h2>
+        <span class="tag">材料研读清单 · 对应梁宇峰四维（空间/格局/业绩/护城河）</span>
+      </div>
+      <div class="section-body">
+        <div class="eight-q">
+          <div class="q-card">
+            <div class="q-num">Q1</div>
+            <div class="q-text">靠什么赚钱？</div>
+            <div class="q-note">商业模式、核心驱动力（产品/市场/资本）</div>
+          </div>
+          <div class="q-card">
+            <div class="q-num">Q2</div>
+            <div class="q-text">顺风还是逆风？</div>
+            <div class="q-note">政策、宏观、行业周期</div>
+          </div>
+          <div class="q-card">
+            <div class="q-num">Q3</div>
+            <div class="q-text">空间有多大？</div>
+            <div class="q-note">渗透率、TAM、国内/海外</div>
+          </div>
+          <div class="q-card">
+            <div class="q-num">Q4</div>
+            <div class="q-text">竞争格局好不好？</div>
+            <div class="q-note">集中度、价格战风险、新进入者</div>
+          </div>
+          <div class="q-card">
+            <div class="q-num">Q5</div>
+            <div class="q-text">有什么优势？</div>
+            <div class="q-note">成本/技术/品牌/渠道护城河</div>
+          </div>
+          <div class="q-card">
+            <div class="q-num">Q6</div>
+            <div class="q-text">管理层行不行？</div>
+            <div class="q-note">治理、战略执行、传承</div>
+          </div>
+          <div class="q-card">
+            <div class="q-num">Q7</div>
+            <div class="q-text">风险在哪里？</div>
+            <div class="q-note">技术颠覆、增速放缓、会计风险</div>
+          </div>
+          <div class="q-card">
+            <div class="q-num">Q8</div>
+            <div class="q-text">未来会怎样？</div>
+            <div class="q-note">综合预判 + 两分钟独白</div>
+          </div>
+        </div>
+        <div class="framework-box" style="margin-top:12px;">
+          <strong>材料来源：</strong>券商深度报告（三看：基本情况/投资逻辑/财务预测；两不看：目标价/评级）· 公司公告 · 网络文章 · 财务与非财务双循环
+        </div>
+      </div>
+    </section>
+
+
+    <div class="legend">
+      <h3>与现有 stock_dashboard 映射关系</h3>
+      <ul>
+        <li><strong>已有模块：</strong>盈利能力、ROE拆解、五力分析、自由现金流、成长性、收益性、营运能力、财务风险</li>
+        <li><strong>草图新增：</strong>①盈利质量四关系 ②费用结构 ③业务构成拆分 ④净经营资产/净金融资产 ⑤投入产出三维度 ⑥商业八问定性区</li>
+        <li><strong>分析流程：</strong>数据抽取 → 分析 → 发现问题 → 回查数据（循环）→ 读材料（八问）</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const YEARS_5 = ['2017', '2018', '2019', '2020', '2021'];
+
+  const MOCK = {
+    grossMargin5: [31.5, 37.7, 46.6, 50.8, 51.4],
+    netMargin5: [2.0, 8.1, 2.3, 8.9, 15.4],
+    rndRate: [2.6, 3.0, 3.5, 3.8, 4.2],
+    salesRate: [20.5, 22.1, 25.3, 27.8, 24.7],
+    adminRate: [7.5, 7.0, 6.5, 6.0, 5.2],
+    finRate: [0.1, 0.1, 0.2, 0.1, 0.0],
+    revGrowth: [39.0, 32.2, -6.7, 36.2, 80.9],
+    profitGrowth: [78.4, 433, -75.1, 429.8, 213.6],
+    businessRev5: {
+      robot: [18.5, 28.0, 30.5, 45.2, 68.5],
+      appliance: [6.8, 12.5, 15.2, 22.8, 48.2],
+      oem: [9.5, 8.2, 6.8, 4.5, 9.9],
+    },
+    businessGrossProfit5: {
+      robot: [8.33, 13.16, 14.64, 22.15, 34.11],
+      appliance: [3.26, 6.25, 7.90, 12.08, 26.48],
+      oem: [1.43, 1.23, 1.02, 0.68, 1.49],
+    },
+    businessMargin5: {
+      robot: [45.0, 47.0, 48.0, 49.0, 49.8],
+      appliance: [48.0, 50.0, 52.0, 53.0, 54.9],
+      oem: [15.0, 15.0, 15.0, 15.0, 15.0],
+    },
+    roe: [9.8, 22.5, 5.2, 18.6, 49.1],
+    roa: [5.2, 12.8, 3.1, 10.5, 28.2],
+    roic: [7.5, 18.2, 4.8, 14.2, 38.5],
+    wcPerRevenue: [0.08, 0.15, 0.10, 0.11, 0.12],
+    faPerRevenue: [0.10, 0.09, 0.08, 0.075, 0.07],
+    ltPerRevenue: [0.11, 0.10, 0.09, 0.085, 0.081],
+  };
+
+  const C = {
+    text: '#8b9cb3',
+    axis: '#2d3a4f',
+    blue: '#3b82f6',
+    green: '#10b981',
+    warn: '#f59e0b',
+    purple: '#a78bfa',
+    red: '#ef4444',
+    cyan: '#22d3ee',
+  };
+
+  function baseGrid() {
+    return {
+      left: 48, right: 48, top: 44, bottom: 32,
+      containLabel: true,
+    };
+  }
+
+  function baseTooltip() {
+    return {
+      trigger: 'axis',
+      backgroundColor: '#1a2332',
+      borderColor: '#2d3a4f',
+      textStyle: { color: '#e8edf4', fontSize: 12 },
+    };
+  }
+
+  function axisStyle() {
+    return {
+      axisLine: { lineStyle: { color: C.axis } },
+      axisLabel: { color: C.text, fontSize: 11 },
+      splitLine: { lineStyle: { color: C.axis, type: 'dashed' } },
+    };
+  }
+
+  function initChart(id, option) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    const chart = echarts.init(el, null, { renderer: 'canvas' });
+    chart.setOption(option);
+    return chart;
+  }
+
+  const charts = [];
+
+  // 毛利率 & 净利率（近5年）
+  charts.push(initChart('chart-step2-margin', {
+    title: { text: '毛利率 · 净利率', left: 12, top: 8, textStyle: { color: C.text, fontSize: 13, fontWeight: 500 } },
+    tooltip: baseTooltip(),
+    legend: { top: 8, right: 12, textStyle: { color: C.text, fontSize: 11 } },
+    grid: baseGrid(),
+    xAxis: { type: 'category', data: YEARS_5, ...axisStyle() },
+    yAxis: { type: 'value', name: '%', nameTextStyle: { color: C.text }, ...axisStyle() },
+    series: [
+      {
+        name: '毛利率', type: 'line', smooth: true, data: MOCK.grossMargin5,
+        lineStyle: { color: C.purple, width: 2 }, itemStyle: { color: C.purple }, symbolSize: 7,
+      },
+      {
+        name: '净利率', type: 'line', smooth: true, data: MOCK.netMargin5,
+        lineStyle: { color: C.green, width: 2 }, itemStyle: { color: C.green }, symbolSize: 7,
+      },
+    ],
+  }));
+
+  // 期间费用率堆叠
+  charts.push(initChart('chart-step2-expense', {
+    title: { text: '期间费用率构成', left: 12, top: 8, textStyle: { color: C.text, fontSize: 13, fontWeight: 500 } },
+    tooltip: { trigger: 'axis', ...baseTooltip(), axisPointer: { type: 'shadow' } },
+    legend: { top: 8, right: 12, textStyle: { color: C.text, fontSize: 11 } },
+    grid: baseGrid(),
+    xAxis: { type: 'category', data: YEARS_5, ...axisStyle() },
+    yAxis: { type: 'value', name: '%', max: 45, nameTextStyle: { color: C.text }, ...axisStyle() },
+    series: [
+      { name: '研发费用率', type: 'bar', stack: 'fee', data: MOCK.rndRate, itemStyle: { color: C.purple } },
+      { name: '销售费用率', type: 'bar', stack: 'fee', data: MOCK.salesRate, itemStyle: { color: C.blue } },
+      { name: '管理费用率', type: 'bar', stack: 'fee', data: MOCK.adminRate, itemStyle: { color: C.cyan } },
+      { name: '财务费用率', type: 'bar', stack: 'fee', data: MOCK.finRate, itemStyle: { color: C.text } },
+    ],
+  }));
+
+  // 成长性增速
+  const growthYears = ['2017', '2018', '2019', '2020', '2021'];
+  charts.push(initChart('chart-step3-growth', {
+    title: { text: '收入 / 利润同比增速', left: 12, top: 8, textStyle: { color: C.text, fontSize: 13, fontWeight: 500 } },
+    tooltip: baseTooltip(),
+    legend: { top: 8, right: 12, textStyle: { color: C.text, fontSize: 11 } },
+    grid: baseGrid(),
+    xAxis: { type: 'category', data: growthYears, ...axisStyle() },
+    yAxis: { type: 'value', name: '%', nameTextStyle: { color: C.text }, ...axisStyle() },
+    series: [
+      {
+        name: '收入增速', type: 'bar',
+        data: MOCK.revGrowth.map(v => ({
+          value: v,
+          itemStyle: { color: v < 0 ? C.warn : C.blue, borderRadius: v < 0 ? [0, 0, 3, 3] : [3, 3, 0, 0] },
+        })),
+        barMaxWidth: 32,
+      },
+      {
+        name: '利润增速', type: 'bar',
+        data: MOCK.profitGrowth.map(v => ({
+          value: v > 200 ? 200 : v,
+          itemStyle: { color: v < 0 ? C.red : C.green, borderRadius: v < 0 ? [0, 0, 3, 3] : [3, 3, 0, 0] },
+        })),
+        barMaxWidth: 32,
+      },
+    ],
+  }));
+
+  // 业务构成 — 近5年环形占比图（营收 & 毛利）
+  const bizColors = { robot: C.blue, appliance: C.green, oem: '#64748b' };
+
+  function initBizDonut(id, year, robot, appliance, oem, valueUnit) {
+    charts.push(initChart(id, {
+      title: {
+        text: year,
+        left: 'center',
+        top: 4,
+        textStyle: { color: C.text, fontSize: 13, fontWeight: 600 },
+      },
+      tooltip: {
+        trigger: 'item',
+        backgroundColor: '#1a2332',
+        borderColor: '#2d3a4f',
+        textStyle: { color: '#e8edf4', fontSize: 12 },
+        formatter: `{b}: {c} ${valueUnit} ({d}%)`,
+      },
+      series: [{
+        type: 'pie',
+        radius: ['40%', '62%'],
+        center: ['50%', '58%'],
+        avoidLabelOverlap: true,
+        label: {
+          show: true,
+          color: C.text,
+          fontSize: 10,
+          formatter: '{d}%',
+        },
+        labelLine: { length: 6, length2: 8, lineStyle: { color: C.axis } },
+        data: [
+          { name: '服务机器人', value: robot, itemStyle: { color: bizColors.robot } },
+          { name: '智能电器', value: appliance, itemStyle: { color: bizColors.appliance } },
+          { name: 'OEM/ODM', value: oem, itemStyle: { color: bizColors.oem } },
+        ],
+      }],
+    }));
+  }
+
+  YEARS_5.forEach((year, i) => {
+    initBizDonut(
+      `chart-step4-${year}`, year,
+      MOCK.businessRev5.robot[i],
+      MOCK.businessRev5.appliance[i],
+      MOCK.businessRev5.oem[i],
+      '亿',
+    );
+    initBizDonut(
+      `chart-step4-gp-${year}`, year,
+      MOCK.businessGrossProfit5.robot[i],
+      MOCK.businessGrossProfit5.appliance[i],
+      MOCK.businessGrossProfit5.oem[i],
+      '亿',
+    );
+  });
+
+  // 各业务毛利率趋势
+  charts.push(initChart('chart-step4-margin-trend', {
+    title: { text: '分业务毛利率趋势', left: 12, top: 8, textStyle: { color: C.text, fontSize: 13, fontWeight: 500 } },
+    tooltip: baseTooltip(),
+    legend: { top: 8, right: 12, textStyle: { color: C.text, fontSize: 11 } },
+    grid: baseGrid(),
+    xAxis: { type: 'category', data: YEARS_5, ...axisStyle() },
+    yAxis: { type: 'value', name: '%', min: 0, max: 60, nameTextStyle: { color: C.text }, ...axisStyle() },
+    series: [
+      {
+        name: '服务机器人', type: 'line', smooth: true, data: MOCK.businessMargin5.robot,
+        lineStyle: { color: bizColors.robot, width: 2 }, itemStyle: { color: bizColors.robot }, symbolSize: 7,
+      },
+      {
+        name: '智能电器', type: 'line', smooth: true, data: MOCK.businessMargin5.appliance,
+        lineStyle: { color: bizColors.appliance, width: 2 }, itemStyle: { color: bizColors.appliance }, symbolSize: 7,
+      },
+      {
+        name: 'OEM/ODM', type: 'line', smooth: true, data: MOCK.businessMargin5.oem,
+        lineStyle: { color: bizColors.oem, width: 2 }, itemStyle: { color: bizColors.oem }, symbolSize: 7,
+      },
+    ],
+  }));
+
+  // 1元收入需要的 WC（历史趋势）
+  charts.push(initChart('chart-step6-wc-revenue', {
+    title: { text: '1 元收入需要的 WC', left: 12, top: 8, textStyle: { color: C.text, fontSize: 13, fontWeight: 500 } },
+    tooltip: {
+      ...baseTooltip(),
+      formatter: (params) => {
+        const p = params[0];
+        return `${p.name}年<br/>1 元收入需要的 WC：<strong>${p.value}</strong> 元`;
+      },
+    },
+    grid: baseGrid(),
+    xAxis: { type: 'category', data: YEARS_5, ...axisStyle() },
+    yAxis: {
+      type: 'value',
+      name: '元',
+      min: 0,
+      nameTextStyle: { color: C.text },
+      ...axisStyle(),
+    },
+    series: [{
+      name: '1 元收入需要的 WC',
+      type: 'line',
+      smooth: true,
+      data: MOCK.wcPerRevenue,
+      lineStyle: { color: C.warn, width: 2 },
+      itemStyle: { color: C.warn },
+      symbolSize: 8,
+      areaStyle: { color: 'rgba(245,158,11,0.10)' },
+
+    }],
+  }));
+
+  // 1元收入需要的固定资产 & 长期资产（历史趋势）
+  charts.push(initChart('chart-step6-fa-revenue', {
+    title: { text: '1 元收入需要的固定资产 & 长期资产', left: 12, top: 8, textStyle: { color: C.text, fontSize: 13, fontWeight: 500 } },
+    tooltip: baseTooltip(),
+    legend: { top: 8, right: 12, textStyle: { color: C.text, fontSize: 11 } },
+    grid: baseGrid(),
+    xAxis: { type: 'category', data: YEARS_5, ...axisStyle() },
+    yAxis: {
+      type: 'value',
+      name: '元',
+      min: 0,
+      nameTextStyle: { color: C.text },
+      ...axisStyle(),
+    },
+    series: [
+      {
+        name: '1 元收入需要的固定资产',
+        type: 'line',
+        smooth: true,
+        data: MOCK.faPerRevenue,
+        lineStyle: { color: C.blue, width: 2 },
+        itemStyle: { color: C.blue },
+        symbolSize: 8,
+
+      },
+      {
+        name: '1 元收入需要的长期资产',
+        type: 'line',
+        smooth: true,
+        data: MOCK.ltPerRevenue,
+        lineStyle: { color: C.purple, width: 2 },
+        itemStyle: { color: C.purple },
+        symbolSize: 8,
+      },
+    ],
+  }));
+
+  // ROE / ROA / ROIC
+  charts.push(initChart('chart-step7-roe', {
+    title: { text: 'ROE · ROA · ROIC 趋势', left: 12, top: 8, textStyle: { color: C.text, fontSize: 13, fontWeight: 500 } },
+    tooltip: baseTooltip(),
+    legend: { top: 8, right: 12, textStyle: { color: C.text, fontSize: 11 } },
+    grid: baseGrid(),
+    xAxis: { type: 'category', data: YEARS_5, ...axisStyle() },
+    yAxis: { type: 'value', name: '%', nameTextStyle: { color: C.text }, ...axisStyle() },
+    series: [
+      { name: 'ROE', type: 'line', smooth: true, data: MOCK.roe,
+        lineStyle: { color: C.blue, width: 2 }, itemStyle: { color: C.blue } },
+      { name: 'ROA', type: 'line', smooth: true, data: MOCK.roa,
+        lineStyle: { color: C.green, width: 2 }, itemStyle: { color: C.green } },
+      { name: 'ROIC', type: 'line', smooth: true, data: MOCK.roic,
+        lineStyle: { color: C.purple, width: 2 }, itemStyle: { color: C.purple } },
+    ],
+  }));
+
+
+
+  window.addEventListener('resize', () => charts.forEach(c => c && c.resize()));
+})();
+</script>
+
+</body>
+</html>

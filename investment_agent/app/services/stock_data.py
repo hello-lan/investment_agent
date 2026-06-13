@@ -401,7 +401,9 @@ async def sync_stock_data(code: str) -> None:
             inc = income_by_date.get(ind["report_date"])
             if inc and inc.get("operate_income"):
                 ind["total_revenue"] = inc["operate_income"]
-            if inc and inc.get("netprofit"):
+            if inc and inc.get("parent_netprofit"):
+                ind["net_profit"] = inc["parent_netprofit"]
+            elif inc and inc.get("netprofit"):
                 ind["net_profit"] = inc["netprofit"]
             # THS fallback（如果东财数据缺失）
             if not ind.get("total_revenue") or not ind.get("net_profit"):
@@ -495,9 +497,9 @@ async def sync_stock_data(code: str) -> None:
                     total_revenue = (SELECT operate_income FROM stock_income
                         WHERE stock_income.code = stock_indicators.code
                         AND stock_income.report_date = stock_indicators.report_date),
-                    net_profit = (SELECT netprofit FROM stock_income
+                    net_profit = (SELECT parent_netprofit FROM stock_income
                         WHERE stock_income.code = stock_indicators.code
-                        AND stock_income.report_date = stock_indicators.report_date)
+                        AND stock_income.report_date = stock_indicators.report_date),
                 WHERE code = ? AND total_revenue IS NULL""",
                 (code,),
             )
