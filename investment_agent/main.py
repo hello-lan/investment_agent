@@ -15,6 +15,7 @@ from .app.api.files import router as files_router
 from .app.api.observability import router as observability_router
 from .app.api.tools import router as tools_router
 from .app.api.stock_dashboard import router as stock_dashboard_router
+from .app.api.stock_dashboard_old import router as stock_dashboard_old_router
 from .agent.skills.loader import init_skills_dir
 from .agent.tools.run_command import set_project_root
 from .config import PROJECT_ROOT, get_settings
@@ -72,6 +73,7 @@ app.include_router(files_router)
 app.include_router(observability_router)
 app.include_router(tools_router)
 app.include_router(stock_dashboard_router)
+app.include_router(stock_dashboard_old_router)
 
 # —— 静态文件（前端 HTML/JS/CSS）——
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -106,6 +108,11 @@ async def files_page(request: Request):
 @app.get("/dashboard")
 async def dashboard_page(request: Request):
     return templates.TemplateResponse("stock_dashboard.html", {"request": request, "tabs": TABS, "active_tab": "看板"})
+
+
+@app.get("/dashboard-old")
+async def dashboard_old_page(request: Request):
+    return templates.TemplateResponse("stock_dashboard_old.html", {"request": request, "tabs": TABS, "active_tab": "看板"})
 
 
 @app.get("/observability")

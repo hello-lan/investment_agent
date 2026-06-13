@@ -3,28 +3,39 @@
   var searchBtn = document.getElementById("searchBtn");
   var searchDropdown = document.getElementById("searchDropdown");
   var syncBadge = document.getElementById("syncBadge");
-  var stockInfoBar = document.getElementById("stockInfoBar");
   var dashMain = document.getElementById("dashMain");
   var dashContent = document.getElementById("dashContent");
   var dashEmpty = document.getElementById("dashEmpty");
   var sideNav = document.getElementById("sideNav");
 
   var currentCode = null;
-  var currentData = null;
-  var charts = {};
+  var charts = [];
   var searchTimer = null;
   var pollTimer = null;
   var dropdownIndex = -1;
+
+  var C = {
+    text: "#8b9cb3", axis: "#2d3a4f", blue: "#3b82f6", green: "#10b981",
+    warn: "#f59e0b", purple: "#a78bfa", red: "#ef4444", cyan: "#22d3ee",
+  };
+
+  var EIGHT_QUESTIONS = [
+    { q: "靠什么赚钱？", note: "商业模式、核心驱动力（产品/市场/资本）" },
+    { q: "顺风还是逆风？", note: "政策、宏观、行业周期" },
+    { q: "空间有多大？", note: "渗透率、TAM、国内/海外" },
+    { q: "竞争格局好不好？", note: "集中度、价格战风险、新进入者" },
+    { q: "有什么优势？", note: "成本/技术/品牌/渠道护城河" },
+    { q: "管理层行不行？", note: "治理、战略执行、传承" },
+    { q: "风险在哪里？", note: "技术颠覆、增速放缓、会计风险" },
+    { q: "未来会怎样？", note: "综合预判 + 两分钟独白" },
+  ];
 
   // ── 搜索 ──
 
   searchInput.addEventListener("input", function () {
     dropdownIndex = -1;
     var q = searchInput.value.trim();
-    if (!q || q.length < 1) {
-      searchDropdown.classList.remove("show");
-      return;
-    }
+    if (!q) { searchDropdown.classList.remove("show"); return; }
     clearTimeout(searchTimer);
     searchTimer = setTimeout(function () { doSearch(q); }, 300);
   });
@@ -41,18 +52,14 @@
       updateDropdownActive(items);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (dropdownIndex >= 0 && items.length > 0) {
-        items[dropdownIndex].click();
-      } else {
-        doQuery();
-      }
+      if (dropdownIndex >= 0 && items.length) items[dropdownIndex].click();
+      else doQuery();
     } else if (e.key === "Escape") {
       searchDropdown.classList.remove("show");
     }
   });
 
   searchBtn.addEventListener("click", doQuery);
-
   document.addEventListener("click", function (e) {
     if (!searchDropdown.contains(e.target) && e.target !== searchInput) {
       searchDropdown.classList.remove("show");
@@ -71,14 +78,13 @@
       .then(function (data) {
         var results = data.results || [];
         searchDropdown.innerHTML = "";
-        if (results.length === 0) {
-          searchDropdown.innerHTML = '<div class="dash-search-item" style="color:#999;">未找到匹配股票</div>';
+        if (!results.length) {
+          searchDropdown.innerHTML = '<div class="dash-search-item" style="color:var(--muted)">未找到匹配股票</div>';
         } else {
           results.forEach(function (s) {
             var div = document.createElement("div");
             div.className = "dash-search-item";
-            div.innerHTML = '<span class="name">' + esc(s.name) + '</span>' +
-              '<span><span class="code">' + esc(s.code) + '</span>' +
+            div.innerHTML = '<span>' + esc(s.name) + '</span><span><span class="code">' + esc(s.code) + '</span>' +
               (s.industry ? '<span class="industry">' + esc(s.industry) + '</span>' : '') + '</span>';
             div.addEventListener("click", function () {
               searchInput.value = s.code;
@@ -100,16 +106,11 @@
     loadDashboard(q);
   }
 
-  // ── 加载看板 ──
-
   function loadDashboard(code) {
     dashEmpty.style.display = "none";
-    stockInfoBar.style.display = "none";
     dashMain.style.display = "flex";
     dashContent.innerHTML = '<div class="dash-loading">加载中...</div>';
     setSyncBadge("");
-
-    currentCode = code;
     fetchDashboard(code);
   }
 
@@ -117,22 +118,20 @@
     fetch("/api/stock-dashboard/" + code)
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (data.status === "syncing" || data.status === "updating") {
-          // 正在同步中
+        if (data.status === "syncing") {
           setSyncBadge("syncing", "数据同步中...");
-          dashContent.innerHTML = renderSkeleton();
-          if (data.sections) {
-            renderAll(data);
-          }
+          dashContent.innerHTML = '<div class="dash-loading">首次加载，正在获取数据...</div>';
           startPolling(code);
-        } else if (data.status === "ready") {
-          setSyncBadge("ready", "数据已就绪");
+        } else if (data.status === "updating" || data.status === "ready") {
+          setSyncBadge(data.status === "updating" ? "syncing" : "ready",
+            data.status === "updating" ? "数据更新中..." : "数据已就绪");
           renderAll(data);
-          stopPolling();
+          if (data.status === "updating") startPolling(code);
+          else stopPolling();
         }
       })
       .catch(function (err) {
-        dashContent.innerHTML = '<div class="dash-loading" style="color:#dc2626;">加载失败: ' + esc(String(err)) + '</div>';
+        dashContent.innerHTML = '<div class="dash-loading" style="color:var(--danger)">加载失败: ' + esc(String(err)) + '</div>';
         setSyncBadge("error", "加载失败");
       });
   }
@@ -146,12 +145,10 @@
           if (status.status === "ready") {
             setSyncBadge("ready", "数据已就绪");
             stopPolling();
-            fetchDashboard(code); // 重新加载完整数据
+            fetchDashboard(code);
           } else if (status.status === "error") {
-            setSyncBadge("error", "同步失败: " + (status.error || ""));
+            setSyncBadge("error", "同步失败");
             stopPolling();
-          } else if (status.status === "syncing") {
-            setSyncBadge("syncing", status.progress || "数据同步中...");
           }
         });
     }, 2000);
@@ -167,378 +164,540 @@
     syncBadge.className = "dash-sync-badge " + (cls || "");
   }
 
-  // ── 渲染所有模块 ──
+  // ── 渲染 ──
 
   function renderAll(data) {
-    if (!data.sections) return;
-    currentData = data;
+    disposeCharts();
+    var s = data.sections || {};
+    var stock = data.stock || {};
+    var snap = s.snapshot || {};
 
-    // 销毁旧图表
-    Object.values(charts).forEach(function (c) { c.dispose(); });
-    charts = {};
-
-    // 股票信息条
-    renderInfoBar(data.stock, data.sections.snapshot);
-
-    // 渲染模块
-    var html = "";
-    html += renderProfitability(data.sections.profitability);
-    html += renderROE(data.sections.roe_decomposition);
-    html += renderFiveForces(data.sections.five_forces);
-    html += renderFreeCashflow(data.sections.free_cashflow);
-    html += renderGrowth(data.sections.growth);
-    html += renderIncomePercentage(data.sections.income_percentage);
-    html += renderOperation(data.sections.operation);
-    html += renderFinancialHealth(data.sections.financial_health);
-    html += renderWarnings(data.sections.warnings);
+    var html = '';
+    html += '<div class="dash-page-title"><h1>企业分析看板</h1>' +
+      '<p class="subtitle">七步法看报表 + 商业八问</p></div>';
+    html += renderSnapshot(stock, snap);
+    html += renderStep1(s.step1);
+    html += renderStep2(s.step2);
+    html += renderStep3(s.step3);
+    html += renderStep4(s.step4);
+    html += renderStep5(s.step5);
+    html += renderStep6(s.step6);
+    html += renderStep7(s.step7);
+    html += renderEight();
 
     dashContent.innerHTML = html;
-    dashMain.style.display = "flex";
-
-    // 初始化图表
-    setTimeout(function () {
-      initProfitabilityChart(data.sections.profitability);
-      initGrowthCharts(data.sections.growth);
-    }, 100);
-
-    // 重置侧边导航
-    resetSideNav();
+    setTimeout(function () { initCharts(s); }, 80);
+    bindNav();
   }
 
-  function renderInfoBar(stock, snap) {
-    stockInfoBar.style.display = "flex";
-    document.getElementById("infoName").textContent = (stock && stock.name) || "-";
-    document.getElementById("infoCode").textContent = (stock && stock.code) || "-";
-    document.getElementById("infoIndustry").textContent = (stock && stock.industry) || "-";
-    document.getElementById("infoMarketCap").textContent = fmtMarketCap(stock && stock.market_cap);
-    document.getElementById("infoROE").textContent = snap ? fmtPct(snap.roe) : "-";
-    document.getElementById("infoGrossMargin").textContent = snap ? fmtPct(snap.gross_margin) : "-";
-    document.getElementById("infoUpdated").textContent = (stock && stock.updated_at)
-      ? stock.updated_at.slice(0, 16).replace("T", " ") : "-";
+  function renderSnapshot(stock, snap) {
+    var name = stock.name || currentCode || "-";
+    var meta = [stock.industry, snap.report_date ? "数据截至 " + snap.report_date : ""].filter(Boolean).join(" · ");
+    return '<section id="snapshot" class="snapshot-bar">' +
+      '<div class="stock-name">' + esc(name) + ' ' + esc(stock.code || "") + '</div>' +
+      '<div class="stock-meta">' + esc(meta || "—") + '</div>' +
+      '<div class="kpi-row">' +
+      kpi("营业收入", fmtYi(snap.revenue)) +
+      kpi("归母净利润", fmtYi(snap.net_profit)) +
+      kpi("净利率", fmtPct(snap.net_margin)) +
+      kpi("毛利率", fmtPct(snap.gross_margin)) +
+      kpi("ROE", fmtPct(snap.roe), snap.roe > 20 ? "good" : "") +
+      kpi("经营现金流/净利润", snap.cfnp != null ? fmtNum(snap.cfnp, 2) : "—") +
+      kpi("自由现金流", snap.fcf != null ? (snap.fcf_positive ? "正向" : fmtYi(snap.fcf)) : "—",
+        snap.fcf_positive ? "good" : "") +
+      '</div></section>';
   }
 
-  // ── 1. 盈利能力 ──
-  function renderProfitability(data) {
-    if (!data) return "";
-    return '<div class="dash-section" id="section-profitability">' +
-      '<div class="dash-section-header"><h2>盈利能力</h2></div>' +
-      '<div class="dash-section-body">' +
-      '<div id="chart-profitability" class="dash-chart" style="height:320px;"></div>' +
-      '<div class="dash-thresholds">参考阈值：净利润率 ≥ 15%，ROA ≥ 6%，ROE ≥ 10%</div>' +
-      '</div></div>';
+  function kpi(label, value, cls) {
+    return '<div class="kpi"><div class="label">' + esc(label) + '</div>' +
+      '<div class="value' + (cls ? " " + cls : "") + '">' + esc(value) + '</div></div>';
   }
 
-  function initProfitabilityChart(data) {
-    if (!data || !data.chart) return;
-    var el = document.getElementById("chart-profitability");
+  function renderStep1(d) {
+    if (!d) return section("step1", "① 营收与盈利质量", "七步法 · 第一步 · 多年度趋势", '<div class="dash-loading">暂无数据</div>');
+    var years = d.years || [];
+    var b = d.basic || {};
+    var q = d.quality || {};
+
+    var basicRows = [
+      ["营业收入", b.revenue, "yi"],
+      ["收入同比增速", b.revenue_yoy, "pct"],
+      ["归母净利润", b.net_profit, "yi"],
+      ["经营利润", b.operating_profit, "yi"],
+      ["金融利润", b.financial_profit, "yi"],
+      ["净利润同比增速", b.net_profit_yoy, "pct"],
+      ["净利率", b.net_margin, "pct"],
+      ["扣非净利润", b.net_profit_adjusted, "yi"],
+      ["经营净现金流", b.operating_cf, "yi"],
+      ["自由现金流 FCF", b.fcf, "yi"],
+      ["毛利（收入−成本）", b.gross_profit, "yi"],
+      ["毛利率", b.gross_margin, "pct"],
+    ];
+
+    var qualityRows = [
+      ["① 扣非净利润 / 归母净利润", q.deduct_ratio, "ratio"],
+      ["② 经营利润 / 归母净利润", q.operating_ratio, "ratio"],
+      ["③ 经营现金流 / 归母净利润", q.cfnp, "num"],
+      ["④ 自由现金流 FCF", q.fcf_sign, "text"],
+      ["净利润 vs 归母净利润", q.minority_gap, "text"],
+    ];
+    var qualityHints = ["", "", "同向、无量级差", "持续负需警觉", "归母≫净利需警惕"];
+
+    var body = '<div class="framework-box"><strong>观察要点：</strong>规模 → 多年发展过程 → 盈利质量四关系（逐年对比）<br>' +
+      '<strong>数据口径：</strong>年报 · 合并报表 · 单位亿元</div>' +
+      '<div class="sub-title">营收基本数据（单位：亿元）</div>' +
+      renderYearTable(years, basicRows) +
+      '<div class="sub-title">盈利质量四关系</div>' +
+      renderYearTable(years, qualityRows, qualityHints);
+
+    return section("step1", "① 营收与盈利质量", "七步法 · 第一步 · 多年度趋势", body);
+  }
+
+  function renderStep2(d) {
+    if (!d) return section("step2", "② 成本费用构成", "七步法 · 第二步", "");
+    var l = d.latest || {};
+    var body = '<div class="framework-box"><strong>逻辑：</strong>毛利率反映竞争壁垒；毛利率 − 净利率 → 期间费用与其他损益</div>' +
+      '<div class="metric-grid">' +
+      metricCard("毛利率 − 净利率", fmtPct(l.margin_gap), "≈ 期间费用率") +
+      metricCard("研发费用率", fmtPct(l.rd_rate), "", "技术型企业关键") +
+      metricCard("销售费用率", fmtPct(l.sales_rate), "To C 品牌关键") +
+      metricCard("管理费用率", fmtPct(l.admin_rate), "收入扩张时应呈下降趋势") +
+      metricCard("财务费用率", fmtPct(l.finance_rate), "有息负债企业重点关注") +
+      '</div>' +
+      '<div class="sub-title">毛利率与净利率</div><div id="chart-step2-margin" class="chart-box"></div>' +
+      '<div id="chart-step2-expense" class="chart-box"></div>';
+    return section("step2", "② 成本费用构成", "七步法 · 第二步", body);
+  }
+
+  function renderStep3(d) {
+    if (!d) return section("step3", "③ 成长性", "七步法 · 第三步", "");
+    var l = d.latest || {};
+    var body = '<div class="framework-box"><strong>适用：</strong>成长型企业重点看增速；关注 3/5 年复合增长率</div>' +
+      '<div class="metric-grid">' +
+      metricCard("收入同比增速", fmtPct(l.revenue_yoy), "关注增速拐点") +
+      metricCard("归母净利润同比增速", fmtPct(l.profit_yoy), "利润增速应与收入匹配") +
+      metricCard("3 年复合增速（收入）", l.revenue_cagr3 != null ? "≈" + fmtPct(l.revenue_cagr3) : "—", "平滑单年波动") +
+      metricCard("3 年复合增速（利润）", l.profit_cagr3 != null ? "≈" + fmtPct(l.profit_cagr3) : "—", "") +
+      metricCard("5 年复合增速（收入）", l.revenue_cagr5 != null ? fmtPct(l.revenue_cagr5) : "—", "") +
+      metricCard("5 年复合增速（利润）", l.profit_cagr5 != null ? fmtPct(l.profit_cagr5) : "—", "") +
+      '</div><div id="chart-step3-growth" class="chart-box"></div>';
+    return section("step3", "③ 成长性", "七步法 · 第三步", body);
+  }
+
+  function renderStep4(d) {
+    var body = '<div class="framework-box"><strong>目标：</strong>拆分收入/毛利来源；识别增长曲线与业务接力</div>';
+    if (!d || !d.available) {
+      body += '<div class="unavailable-box">' + esc((d && d.message) || "分业务数据暂不可用") + '</div>';
+    }
+    return section("step4", "④ 业务构成", "七步法 · 第四步 · 增长驱动力", body);
+  }
+
+  function renderStep5(d) {
+    if (!d) return section("step5", "⑤ 资产负债", "七步法 · 第五步", "");
+    var l = d.latest || {};
+    var body = '<div class="framework-box"><strong>观察要点：</strong>总资产结构 → 有息/无息债务 → 净经营资产 vs 净金融资产</div>' +
+      '<div class="metric-grid">' +
+      compCard("总资产", fmtYi(l.total_assets) + " 亿",
+        [["流动资产 " + fmtYi(l.current_assets) + " 亿", l.current_pct],
+         ["非流动资产 " + fmtYi(l.noncurrent_assets) + " 亿", l.noncurrent_pct]]) +
+      metricCard("资产负债率", fmtPct(l.debt_ratio), "", l.debt_ratio > 70 ? ">70% 需重点关注" : "") +
+      compCard("有息负债 / 无息负债", "",
+        [["有息负债 " + fmtYi(l.interest_debt) + " 亿", l.interest_pct],
+         ["无息负债 " + fmtYi(l.non_interest_debt) + " 亿", l.non_interest_pct]]) +
+      metricCard("净经营资产 NOA", (l.noa >= 0 ? "" : "") + fmtYi(l.noa) + " 亿", "为正 → 日常经营净投入") +
+      metricCard("净金融资产", (l.nfa >= 0 ? "+" : "") + fmtYi(l.nfa) + " 亿", "为正 → 净持有金融资产") +
+      metricCard("净经营资产收益率", fmtPct(l.noa_return), "", "越高越好") +
+      '</div>';
+
+    if (d.table && d.table.length) {
+      body += '<div class="sub-title">资产负债表（单位：亿元 · 年末数）</div><div class="table-wrap"><table class="data-table bs-balance">' +
+        '<thead><tr><th>项目</th>' + d.table.map(function (r) { return '<th>' + esc(r.year) + '</th>'; }).join("") + '</tr></thead><tbody>';
+      var bsRows = [
+        { section: true, label: "资产" },
+        { label: "货币资金", key: "currency_funds", level: "detail" },
+        { label: "存货", key: "inventory", level: "detail" },
+        { label: "其他流动资产", key: "other_current", level: "detail" },
+        { label: "流动资产", key: "current_assets", level: "category" },
+        { label: "非流动资产", key: "noncurrent_assets", level: "category" },
+        { label: "资产合计", key: "total_assets", level: "grand" },
+        { section: true, label: "负债" },
+        { label: "有息负债", key: "interest_debt", level: "category" },
+        { label: "应付账款", key: "accounts_payable", level: "detail" },
+        { label: "预收账款", key: "advance_receivables", level: "detail" },
+        { label: "合同负债", key: "contract_liab", level: "detail" },
+        { label: "无息负债（狭义）", key: "non_interest_debt", level: "category" },
+        { label: "负债合计", key: "total_liab", level: "grand" },
+        { section: true, label: "比率与权益" },
+        { label: "资产负债率", key: "debt_ratio", level: "metric", fmt: "pct" },
+        { label: "归母净资产", key: "parent_equity", level: "grand" },
+      ];
+      bsRows.forEach(function (row) {
+        if (row.section) {
+          body += '<tr class="bs-section"><td colspan="' + (d.table.length + 1) + '">' + esc(row.label) + '</td></tr>';
+          return;
+        }
+        var rowCls = "bs-" + row.level;
+        body += '<tr class="' + rowCls + '"><td class="row-label">' + esc(row.label) + '</td>';
+        d.table.forEach(function (col) {
+          var v = col[row.key];
+          body += '<td class="num">' + (row.fmt === "pct" ? fmtPct(v) : fmtCell(v)) + '</td>';
+        });
+        body += '</tr>';
+      });
+      body += '</tbody></table></div>';
+    }
+    return section("step5", "⑤ 资产负债", "七步法 · 第五步 · 财务风险", body);
+  }
+
+  function renderStep6(d) {
+    if (!d) return section("step6", "⑥ 投入产出", "七步法 · 第六步", "");
+    var body = '<div class="framework-box"><strong>三维投入：</strong>营运资本 WC、固定资产/长期资产、人力</div>' +
+      '<div class="sub-title">一元收入需要 WC</div><div id="chart-step6-wc" class="chart-box" style="margin-top:0"></div>' +
+      '<p class="anno-note">WC（狭义）= 应收 + 预付 + 存货 + 合同资产 − 应付 − 预收 − 合同负债</p>';
+
+    if (d.wc_table && d.wc_table.length) {
+      body += '<div class="sub-title">WC 分析</div>' + renderSimpleTable(d.wc_table, [
+        { label: "一元收入需要 WC（元）", key: "wc_per_revenue" },
+        { label: "WC / 亿元", key: "wc" },
+        { label: "应收 / 亿元", key: "ar", indent: true },
+        { label: "预付 / 亿元", key: "prepayment", indent: true },
+        { label: "存货 / 亿元", key: "inventory", indent: true },
+        { label: "应付 / 亿元", key: "accounts_payable", indent: true },
+        { label: "预收 / 亿元", key: "advance_receivables", indent: true },
+        { label: "合同负债 / 亿元", key: "contract_liab", indent: true },
+        { label: "应收占收入 / %", key: "ar_ratio", pct: true },
+        { label: "存货占收入 / %", key: "inventory_ratio", pct: true },
+        { label: "新增 WC / 亿元", key: "wc_delta" },
+      ]);
+    }
+
+    body += '<div class="sub-title" style="margin-top:16px">一元收入需要的固定资产 & 长期资产</div>' +
+      '<div id="chart-step6-fa" class="chart-box" style="margin-top:0"></div>';
+
+    if (d.fa_table && d.fa_table.length) {
+      body += '<div class="sub-title">固定资产分析</div>' + renderSimpleTable(d.fa_table, [
+        { label: "一元收入需要的固定资产 / 元", key: "fa_per_revenue" },
+        { label: "一元收入需要的长期资产 / 元", key: "lt_per_revenue" },
+        { label: "固定资产 / 亿元", key: "fixed_assets" },
+        { label: "长期经营资产 / 亿元", key: "long_operating_assets" },
+        { label: "折旧 / 亿元", key: "depreciation" },
+        { label: "折旧占收入 / %", key: "depr_ratio", pct: true },
+      ]);
+    }
+
+    if (d.human && !d.human.available) {
+      body += '<div class="sub-title" style="margin-top:16px">人力投入</div>' +
+        '<div class="unavailable-box">' + esc(d.human.message) + '</div>';
+    }
+    return section("step6", "⑥ 投入产出（WC · 固定资产 · 人力）", "七步法 · 第六步", body);
+  }
+
+  function renderStep7(d) {
+    if (!d) return section("step7", "⑦ 收益率（ROE 拆解）", "七步法 · 第七步", "");
+    var l = d.latest || {};
+    var body = '<div class="framework-box"><strong>杜邦：</strong>ROE = 销售净利率 × 总资产周转率 × 权益乘数</div>' +
+      '<div class="metric-grid">' +
+      metricCard("ROE（摊薄/加权）", fmtPct(l.roe), "", ">20% 较优秀") +
+      metricCard("ROA", fmtPct(l.roa), "去杠杆后总资产获利能力") +
+      metricCard("ROIC", fmtPct(l.roic), "无杠杆盈利") +
+      metricCard("销售净利率（杜邦）", fmtPct(l.net_profit_rate), "") +
+      metricCard("总资产周转率", l.turnover != null ? fmtNum(l.turnover, 2) + " 次" : "—", "") +
+      metricCard("权益乘数", l.leverage != null ? fmtNum(l.leverage, 2) : "—", "杠杆水平") +
+      '</div><div id="chart-step7-roe" class="chart-box"></div>';
+
+    if (d.dupont_table && d.dupont_table.length) {
+      body += '<div class="sub-title">ROE 与杜邦分析</div>' +
+        '<p class="roe-dupont-caption">杜邦三因子逐年对比 <span class="badge-inline">ROE = 净利润率 × 总资产周转率 × 权益乘数</span></p>' +
+        '<div class="table-wrap"><table class="dash-table"><thead><tr><th>指标</th>' +
+        d.dupont_table.map(function (r) { return '<th>' + esc(r.year) + '</th>'; }).join("") +
+        '</tr></thead><tbody>' +
+        dupontRow("净利润率(%)", d.dupont_table, "net_profit_rate", "pct") +
+        dupontRow("总资产周转率", d.dupont_table, "turnover") +
+        dupontRow("权益乘数", d.dupont_table, "leverage") +
+        dupontRow("ROE(%)", d.dupont_table, "roe", "pct", true) +
+        '</tbody></table></div>';
+    }
+    return section("step7", "⑦ 收益率（ROE 拆解）", "七步法 · 第七步", body);
+  }
+
+  function renderEight() {
+    var cards = EIGHT_QUESTIONS.map(function (item, i) {
+      return '<div class="q-card"><div class="q-num">Q' + (i + 1) + '</div>' +
+        '<div class="q-text">' + esc(item.q) + '</div>' +
+        '<div class="q-note">' + esc(item.note) + '</div></div>';
+    }).join("");
+    return section("eight", "商业八问（非财务定性）", "材料研读清单", '<div class="eight-q">' + cards + '</div>');
+  }
+
+  // ── 图表 ──
+
+  function initCharts(s) {
+    if (s.step2 && s.step2.chart) initStep2Charts(s.step2.chart);
+    if (s.step3 && s.step3.chart) initStep3Chart(s.step3.chart);
+    if (s.step6) {
+      if (s.step6.wc_chart) initWcChart(s.step6.wc_chart);
+      if (s.step6.fa_chart) initFaChart(s.step6.fa_chart);
+    }
+    if (s.step7 && s.step7.chart) initRoeChart(s.step7.chart);
+  }
+
+  function axisStyle() {
+    return {
+      axisLine: { lineStyle: { color: C.axis } },
+      axisLabel: { color: C.text, fontSize: 11 },
+      splitLine: { lineStyle: { color: C.axis, type: "dashed" } },
+    };
+  }
+
+  function baseGrid() {
+    return { left: 48, right: 48, top: 44, bottom: 32, containLabel: true };
+  }
+
+  function initChart(id, option) {
+    var el = document.getElementById(id);
     if (!el) return;
-    var chart = echarts.init(el);
-    var d = data.chart;
-    chart.setOption({
-      tooltip: { trigger: "axis" },
-      legend: { data: ["毛利率", "净利率", "ROE", "ROA"], top: 0 },
-      grid: { left: 50, right: 20, top: 30, bottom: 50 },
-      xAxis: { type: "category", data: d.dates, axisLabel: { rotate: 30, fontSize: 11 } },
-      yAxis: { type: "value", name: "%", axisLabel: { fontSize: 11 } },
+    var chart = echarts.init(el, null, { renderer: "canvas" });
+    chart.setOption(option);
+    charts.push(chart);
+  }
+
+  function initStep2Charts(c) {
+    initChart("chart-step2-margin", {
+      title: { text: "毛利率 · 净利率", left: "center", top: 8, textStyle: { color: C.text, fontSize: 13 } },
+      tooltip: { trigger: "axis", backgroundColor: "#1a2332", borderColor: C.axis, textStyle: { color: "#e8edf4" } },
+      legend: { top: 8, right: 12, textStyle: { color: C.text, fontSize: 11 } },
+      grid: baseGrid(),
+      xAxis: { type: "category", data: c.dates, ...axisStyle() },
+      yAxis: { type: "value", name: "%", nameTextStyle: { color: C.text }, ...axisStyle() },
       series: [
-        { name: "毛利率", type: "line", data: d.gross_margin, smooth: true, lineStyle: { color: "#4a6cf7" }, itemStyle: { color: "#4a6cf7" } },
-        { name: "净利率", type: "line", data: d.net_margin, smooth: true, lineStyle: { color: "#16a34a" }, itemStyle: { color: "#16a34a" } },
-        { name: "ROE", type: "line", data: d.roe, smooth: true, lineStyle: { color: "#ea580c" }, itemStyle: { color: "#ea580c" } },
-        { name: "ROA", type: "line", data: d.roa, smooth: true, lineStyle: { color: "#8b5cf6" }, itemStyle: { color: "#8b5cf6" } },
+        { name: "毛利率", type: "line", smooth: true, data: c.gross_margin, lineStyle: { color: C.purple, width: 2 }, itemStyle: { color: C.purple } },
+        { name: "净利率", type: "line", smooth: true, data: c.net_margin, lineStyle: { color: C.green, width: 2 }, itemStyle: { color: C.green } },
       ],
     });
-    charts.profitability = chart;
-  }
-
-  // ── 2. ROE 拆解 ──
-  function renderROE(data) {
-    if (!data || !data.table || !data.table.length) return "";
-    var rows = data.table.map(function (r) {
-      return "<tr>" +
-        "<td>" + esc(r.date) + "</td>" +
-        "<td class='num'>" + fmtPct(r.net_profit_rate) + "</td>" +
-        "<td class='num'>" + fmtNum(r.turnover, 4) + "</td>" +
-        "<td class='num'>" + fmtNum(r.leverage, 4) + "</td>" +
-        "<td class='num'><strong>" + fmtPct(r.roe) + "</strong></td>" +
-        "</tr>";
-    }).join("");
-    return sectionHTML("ROE 拆解", "section-roe", "ROE = 净利润率 × 总资产周转率 × 权益乘数",
-      '<table class="dash-table"><thead><tr><th>报告期</th><th>净利润率(%)</th><th>总资产周转率</th><th>权益乘数</th><th>ROE(%)</th></tr></thead><tbody>' + rows + "</tbody></table>");
-  }
-
-  // ── 3. 五力分析 ──
-  function renderFiveForces(data) {
-    if (!data || !data.table || !data.table.length) return "";
-    var rows = data.table.map(function (r) {
-      return "<tr>" +
-        "<td>" + esc(r.date) + "</td>" +
-        "<td class='num'>" + fmtPct(r.ar_ratio) + "</td>" +
-        "<td class='num'>" + fmtPct(r.prepay_ratio) + "</td>" +
-        "<td class='num'>" + fmtPct(r.ap_ratio) + "</td>" +
-        "<td class='num'>" + fmtPct(r.pr_ratio) + "</td>" +
-        "<td class='num'><strong>" + fmtPct(r.gross_margin) + "</strong></td>" +
-        "</tr>";
-    }).join("");
-    return sectionHTML("五力分析", "section-fiveforces", "上下游议价能力",
-      '<table class="dash-table"><thead><tr><th>报告期</th><th>应收/营收(%)</th><th>预付/营收(%)</th><th>应付/营收(%)</th><th>预收/营收(%)</th><th>毛利率(%)</th></tr></thead><tbody>' + rows + "</tbody></table>");
-  }
-
-  // ── 4. 自由现金流 ──
-  function renderFreeCashflow(data) {
-    if (!data || !data.table || !data.table.length) return "";
-    var rows = data.table.map(function (r) {
-      return "<tr>" +
-        "<td>" + esc(r.date) + "</td>" +
-        "<td class='num'>" + fmtNum(r.operating_cf) + "亿</td>" +
-        "<td class='num " + (r.cfr && r.cfr < 5 ? "warn" : "") + "'>" + fmtPct(r.cfr) + "</td>" +
-        "<td class='num " + (r.cfnp && r.cfnp < 80 ? "warn" : "") + "'>" + fmtPct(r.cfnp) + "</td>" +
-        "<td class='num'>" + fmtPct(r.yoy) + "</td>" +
-        "</tr>";
-    }).join("");
-    return sectionHTML("历史自由现金流", "section-cashflow", "CFR = 经营现金流/营收，CFNP = 经营现金流/净利润",
-      '<table class="dash-table"><thead><tr><th>报告期</th><th>经营现金流(亿)</th><th>CFR(%)</th><th>CFNP(%)</th><th>同比(%)</th></tr></thead><tbody>' + rows + "</tbody></table>");
-  }
-
-  // ── 5. 成长性 ──
-  function renderGrowth(data) {
-    if (!data) return "";
-    var keys = ["revenue", "net_profit_growth", "net_profit_adjusted", "holders_equity", "total_assets"];
-    var tabs = keys.map(function (k, i) {
-      return '<button class="dash-tab' + (i === 0 ? " active" : "") + '" data-gkey="' + k + '">' +
-        (data[k] ? data[k].label : k) + "</button>";
-    }).join("");
-    return '<div class="dash-section" id="section-growth">' +
-      '<div class="dash-section-header"><h2>成长性</h2></div>' +
-      '<div class="dash-section-body">' +
-      '<div class="dash-tabs" id="growthTabs">' + tabs + "</div>" +
-      '<div id="chart-growth" class="dash-chart" style="height:320px;"></div>' +
-      "</div></div>";
-  }
-
-  function initGrowthCharts(data) {
-    if (!data) return;
-    var chartEl = document.getElementById("chart-growth");
-    if (!chartEl) return;
-    var chart = echarts.init(chartEl);
-    charts.growth = chart;
-
-    var currentKey = "revenue";
-
-    function renderGrowthChart(key) {
-      var d = data[key];
-      if (!d) return;
-      chart.setOption({
-        tooltip: { trigger: "axis" },
-        grid: { left: 60, right: 50, top: 20, bottom: 40 },
-        xAxis: { type: "category", data: d.dates, axisLabel: { rotate: 30, fontSize: 11 } },
-        yAxis: [
-          { type: "value", name: "亿", axisLabel: { fontSize: 11 } },
-          { type: "value", name: "%", axisLabel: { fontSize: 11 } },
-        ],
-        series: [
-          { name: d.label, type: "bar", data: d.values, itemStyle: { color: "#4a6cf7" }, barMaxWidth: 32 },
-          { name: "同比(%)", type: "line", yAxisIndex: 1, data: d.yoy || [], smooth: true,
-            lineStyle: { color: "#ea580c", type: "dashed" }, itemStyle: { color: "#ea580c" },
-            symbol: "circle", symbolSize: 6 },
-        ],
-      }, true);
-    }
-
-    renderGrowthChart(currentKey);
-
-    // Tab 切换
-    var tabs = document.querySelectorAll("#growthTabs .dash-tab");
-    tabs.forEach(function (tab) {
-      tab.addEventListener("click", function () {
-        tabs.forEach(function (t) { t.classList.remove("active"); });
-        tab.classList.add("active");
-        currentKey = tab.dataset.gkey;
-        renderGrowthChart(currentKey);
-      });
+    initChart("chart-step2-expense", {
+      title: { text: "期间费用率构成", left: "center", top: 8, textStyle: { color: C.text, fontSize: 13 } },
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+      legend: { top: 8, right: 12, textStyle: { color: C.text, fontSize: 11 } },
+      grid: baseGrid(),
+      xAxis: { type: "category", data: c.dates, ...axisStyle() },
+      yAxis: { type: "value", name: "%", nameTextStyle: { color: C.text }, ...axisStyle() },
+      series: [
+        { name: "研发费用率", type: "bar", stack: "fee", data: c.rd_rate, itemStyle: { color: C.purple } },
+        { name: "销售费用率", type: "bar", stack: "fee", data: c.sales_rate, itemStyle: { color: C.blue } },
+        { name: "管理费用率", type: "bar", stack: "fee", data: c.admin_rate, itemStyle: { color: C.cyan } },
+        { name: "财务费用率", type: "bar", stack: "fee", data: c.finance_rate, itemStyle: { color: C.text } },
+      ],
     });
   }
 
-  // ── 6. 收益性（百分率利润表） ──
-  function renderIncomePercentage(data) {
-    if (!data || !data.table || !data.table.length) return "";
-    var rows = data.table.map(function (r) {
-      return "<tr>" +
-        "<td>" + esc(r.date) + "</td>" +
-        "<td class='num'><strong>" + fmtPct(r.gross_margin) + "</strong></td>" +
-        "<td class='num'>" + fmtPct(r.sales_fee_pct) + "</td>" +
-        "<td class='num'>" + fmtPct(r.manage_fee_pct) + "</td>" +
-        "<td class='num'>" + fmtPct(r.rd_pct) + "</td>" +
-        "<td class='num'>" + fmtPct(r.finance_pct) + "</td>" +
-        "</tr>";
-    }).join("");
-    return sectionHTML("收益性", "section-incomepct", "各项费用占营业收入百分比",
-      '<table class="dash-table"><thead><tr><th>报告期</th><th>毛利率(%)</th><th>销售费用(%)</th><th>管理费用(%)</th><th>研发费用(%)</th><th>财务费用(%)</th></tr></thead><tbody>' + rows + "</tbody></table>");
+  function initStep3Chart(c) {
+    initChart("chart-step3-growth", {
+      title: { text: "收入 / 利润同比增速", left: "center", top: 8, textStyle: { color: C.text, fontSize: 13 } },
+      tooltip: { trigger: "axis" },
+      legend: { top: 8, right: 12, textStyle: { color: C.text, fontSize: 11 } },
+      grid: baseGrid(),
+      xAxis: { type: "category", data: c.dates, ...axisStyle() },
+      yAxis: { type: "value", name: "%", nameTextStyle: { color: C.text }, ...axisStyle() },
+      series: [
+        { name: "收入增速", type: "bar", data: (c.revenue_yoy || []).map(function (v) {
+          return { value: v, itemStyle: { color: v < 0 ? C.warn : C.blue } };
+        }), barMaxWidth: 32 },
+        { name: "利润增速", type: "bar", data: (c.profit_yoy || []).map(function (v) {
+          var capped = v > 200 ? 200 : v;
+          return { value: capped, itemStyle: { color: v < 0 ? C.red : C.green } };
+        }), barMaxWidth: 32 },
+      ],
+    });
   }
 
-  // ── 7. 营运能力 ──
-  function renderOperation(data) {
-    if (!data || !data.table || !data.table.length) return "";
-    var rows = data.table.map(function (r) {
-      return "<tr>" +
-        "<td>" + esc(r.report_date) + "</td>" +
-        "<td class='num'>" + fmtNum(r.ar_turnover_days) + "</td>" +
-        "<td class='num'>" + fmtNum(r.inventory_turnover_days) + "</td>" +
-        "<td class='num'>" + fmtNum(r.fixed_asset_turnover) + "</td>" +
-        "<td class='num'>" + fmtNum(r.total_asset_turnover) + "</td>" +
-        "</tr>";
-    }).join("");
-    return sectionHTML("营运能力", "section-operation", "周转效率",
-      '<table class="dash-table"><thead><tr><th>报告期</th><th>应收周转天数</th><th>存货周转天数</th><th>固定资产周转率</th><th>总资产周转率</th></tr></thead><tbody>' + rows + "</tbody></table>");
+  function initWcChart(c) {
+    initChart("chart-step6-wc", {
+      title: { text: "1 元收入需要的 WC", left: "center", top: 8, textStyle: { color: C.text, fontSize: 13 } },
+      grid: baseGrid(),
+      xAxis: { type: "category", data: c.dates, ...axisStyle() },
+      yAxis: { type: "value", name: "元", nameTextStyle: { color: C.text }, ...axisStyle() },
+      series: [{
+        type: "line", smooth: true, data: c.wc_per_revenue,
+        lineStyle: { color: C.warn, width: 2 }, itemStyle: { color: C.warn },
+        areaStyle: { color: "rgba(245,158,11,0.10)" },
+      }],
+    });
   }
 
-  // ── 8. 财务风险 ──
-  function renderFinancialHealth(data) {
-    if (!data || !data.table || !data.table.length) return "";
-    var rows = data.table.map(function (r) {
-      return "<tr>" +
-        "<td>" + esc(r.date) + "</td>" +
-        "<td class='num " + (r.debt_ratio && r.debt_ratio > 60 ? "warn" : "") + "'>" + fmtPct(r.debt_ratio) + "</td>" +
-        "<td class='num'>" + fmtNum(r.equity_multiplier, 4) + "</td>" +
-        "<td class='num " + (r.current_ratio && r.current_ratio < 1.5 ? "warn" : "") + "'>" + fmtNum(r.current_ratio) + "</td>" +
-        "<td class='num " + (r.quick_ratio && r.quick_ratio < 1 ? "warn" : "") + "'>" + fmtNum(r.quick_ratio) + "</td>" +
-        "<td class='num'>" + fmtPct(r.ar_revenue_ratio) + "</td>" +
-        "<td class='num " + (r.goodwill_equity_ratio && r.goodwill_equity_ratio > 30 ? "warn" : "") + "'>" + fmtPct(r.goodwill_equity_ratio) + "</td>" +
-        "<td class='num " + (r.cash_debt_ratio && r.cash_debt_ratio < 100 ? "warn" : "") + "'>" + fmtPct(r.cash_debt_ratio) + "</td>" +
-        "</tr>";
-    }).join("");
-    return sectionHTML("财务风险", "section-finhealth", "",
-      '<table class="dash-table"><thead><tr><th>报告期</th><th>资产负债率(%)</th><th>权益乘数</th><th>流动比率</th><th>速动比率</th><th>应收/营收(%)</th><th>商誉/权益(%)</th><th>现金/有息负债(%)</th></tr></thead><tbody>' + rows + "</tbody></table>" +
-      '<div class="dash-thresholds"><ul><li>流动比率 &lt; 1.5 可能面临短期偿债压力</li><li>速动比率 &lt; 1 需关注（制造业/零售业）</li><li>商誉/权益 &gt; 30% 需警惕商誉减值风险</li><li>现金/有息负债 &lt; 100% 表示现金不足以覆盖有息负债</li></ul></div>');
+  function initFaChart(c) {
+    initChart("chart-step6-fa", {
+      title: { text: "1 元收入需要的固定资产 & 长期资产", left: "center", top: 8, textStyle: { color: C.text, fontSize: 13 } },
+      tooltip: { trigger: "axis" },
+      legend: { top: 8, right: 12, textStyle: { color: C.text, fontSize: 11 } },
+      grid: baseGrid(),
+      xAxis: { type: "category", data: c.dates, ...axisStyle() },
+      yAxis: { type: "value", name: "元", nameTextStyle: { color: C.text }, ...axisStyle() },
+      series: [
+        { name: "固定资产", type: "line", smooth: true, data: c.fa_per_revenue, lineStyle: { color: C.blue, width: 2 }, itemStyle: { color: C.blue } },
+        { name: "长期资产", type: "line", smooth: true, data: c.lt_per_revenue, lineStyle: { color: C.purple, width: 2 }, itemStyle: { color: C.purple } },
+      ],
+    });
   }
 
-  // ── 9. 排雷 ──
-  function renderWarnings(data) {
-    if (!data) return "";
-
-    var html = '<div class="dash-section" id="section-warnings">' +
-      '<div class="dash-section-header"><h2>排雷</h2></div>' +
-      '<div class="dash-section-body">';
-
-    // 货币资金
-    if (data.currency_funds && data.currency_funds.table) {
-      html += '<div class="warning-section"><h4>货币资金</h4><table class="dash-table"><thead><tr>' +
-        '<th>报告期</th><th>货币资金(亿)</th><th>现金/总资产(%)</th><th>资产负债率(%)</th><th>现金/营收(%)</th>' +
-        '</tr></thead><tbody>';
-      data.currency_funds.table.forEach(function (r) {
-        html += "<tr><td>" + esc(r.date) + "</td>" +
-          "<td class='num'>" + fmtNum(r.currency_funds) + "</td>" +
-          "<td class='num " + (r.cf_assets_ratio && r.cf_assets_ratio < 10 ? "warn" : "") + "'>" + fmtPct(r.cf_assets_ratio) + "</td>" +
-          "<td class='num'>" + fmtPct(r.debt_ratio) + "</td>" +
-          "<td class='num'>" + fmtPct(r.cf_revenue_ratio) + "</td></tr>";
-      });
-      html += "</tbody></table></div>";
-    }
-
-    // 应收
-    if (data.receivables && data.receivables.table) {
-      html += '<div class="warning-section"><h4>应收票据</h4><table class="dash-table"><thead><tr>' +
-        '<th>报告期</th><th>应收/营收(%)</th><th>应收票据/营收(%)</th><th>应收票据(亿)</th><th>应付票据(亿)</th><th>应收周转天数</th><th>其他应收/总资产(%)</th>' +
-        '</tr></thead><tbody>';
-      data.receivables.table.forEach(function (r) {
-        html += "<tr><td>" + esc(r.date) + "</td>" +
-          "<td class='num " + (r.ar_revenue_ratio && r.ar_revenue_ratio > 30 ? "warn" : "") + "'>" + fmtPct(r.ar_revenue_ratio) + "</td>" +
-          "<td class='num'>" + fmtPct(r.bills_receivable_revenue_ratio) + "</td>" +
-          "<td class='num'>" + fmtNum(r.bills_receivable) + "</td>" +
-          "<td class='num'>" + fmtNum(r.bills_payable) + "</td>" +
-          "<td class='num'>" + fmtNum(r.ar_turnover_days) + "</td>" +
-          "<td class='num'>" + fmtPct(r.other_receivables_assets_ratio) + "</td></tr>";
-      });
-      html += "</tbody></table></div>";
-    }
-
-    // 存货及其他
-    if (data.other_assets && data.other_assets.table) {
-      html += '<div class="warning-section"><h4>存货及其他资产</h4><table class="dash-table"><thead><tr>' +
-        '<th>报告期</th><th>存货/总资产(%)</th><th>在建工程/总资产(%)</th><th>交易性金融资产/总资产(%)</th><th>固定资产周转率</th><th>存货周转天数</th>' +
-        '</tr></thead><tbody>';
-      data.other_assets.table.forEach(function (r) {
-        html += "<tr><td>" + esc(r.date) + "</td>" +
-          "<td class='num " + (r.inventory_assets_ratio && r.inventory_assets_ratio > 30 ? "warn" : "") + "'>" + fmtPct(r.inventory_assets_ratio) + "</td>" +
-          "<td class='num " + (r.construction_assets_ratio && r.construction_assets_ratio > 20 ? "warn" : "") + "'>" + fmtPct(r.construction_assets_ratio) + "</td>" +
-          "<td class='num'>" + fmtPct(r.tradable_fin_assets_ratio) + "</td>" +
-          "<td class='num'>" + fmtNum(r.fixed_asset_turnover) + "</td>" +
-          "<td class='num'>" + fmtNum(r.inventory_turnover_days) + "</td></tr>";
-      });
-      html += "</tbody></table></div>";
-    }
-
-    html += "</div></div>";
-    return html;
+  function initRoeChart(c) {
+    initChart("chart-step7-roe", {
+      title: { text: "ROE · ROA · ROIC 趋势", left: "center", top: 8, textStyle: { color: C.text, fontSize: 13 } },
+      tooltip: { trigger: "axis" },
+      legend: { top: 8, right: 12, textStyle: { color: C.text, fontSize: 11 } },
+      grid: baseGrid(),
+      xAxis: { type: "category", data: c.dates, ...axisStyle() },
+      yAxis: { type: "value", name: "%", nameTextStyle: { color: C.text }, ...axisStyle() },
+      series: [
+        { name: "ROE", type: "line", smooth: true, data: c.roe, lineStyle: { color: C.blue, width: 2 }, itemStyle: { color: C.blue } },
+        { name: "ROA", type: "line", smooth: true, data: c.roa, lineStyle: { color: C.green, width: 2 }, itemStyle: { color: C.green } },
+        { name: "ROIC", type: "line", smooth: true, data: c.roic, lineStyle: { color: C.purple, width: 2 }, itemStyle: { color: C.purple } },
+      ],
+    });
   }
 
-  // ── 骨架屏 ──
-  function renderSkeleton() {
-    var html = "";
-    for (var i = 0; i < 9; i++) {
-      html += '<div class="dash-section"><div class="dash-section-header"><h2>加载中...</h2></div>' +
-        '<div class="dash-section-body"><div class="skeleton" style="height:200px;"></div></div></div>';
-    }
-    return html;
+  function disposeCharts() {
+    charts.forEach(function (c) { c.dispose(); });
+    charts = [];
   }
 
-  // ── 侧边导航滚动高亮 ──
-  function resetSideNav() {
-    var items = sideNav.querySelectorAll(".dash-nav-item");
-    items.forEach(function (item) { item.classList.remove("active"); });
-    if (items.length > 0) items[0].classList.add("active");
-  }
+  // ── 导航 ──
 
-  var scrollTimeout;
-  dashContent.addEventListener("scroll", function () {
-    clearTimeout(scrollTimeout);
-    scrollTimeout = setTimeout(updateActiveNav, 100);
-  });
-
-  function updateActiveNav() {
-    var sections = dashContent.querySelectorAll(".dash-section");
-    var navItems = sideNav.querySelectorAll(".dash-nav-item");
-    var scrollTop = dashContent.scrollTop + 80;
-
-    sections.forEach(function (sec, i) {
-      var top = sec.offsetTop;
-      var bottom = top + sec.offsetHeight;
-      if (scrollTop >= top && scrollTop < bottom) {
-        navItems.forEach(function (n) { n.classList.remove("active"); });
-        if (navItems[i]) navItems[i].classList.add("active");
+  function bindNav() {
+    sideNav.addEventListener("click", function (e) {
+      var a = e.target.closest("a");
+      if (!a) return;
+      e.preventDefault();
+      var target = document.querySelector(a.getAttribute("href"));
+      if (target && dashContent) {
+        var top = target.getBoundingClientRect().top
+          - dashContent.getBoundingClientRect().top
+          + dashContent.scrollTop - 12;
+        dashContent.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
       }
     });
+
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          var id = entry.target.id;
+          sideNav.querySelectorAll(".dash-nav-item").forEach(function (n) {
+            n.classList.toggle("active", n.getAttribute("href") === "#" + id);
+          });
+        }
+      });
+    }, { root: dashContent, rootMargin: "-20% 0px -60% 0px", threshold: 0 });
+
+    ["snapshot", "step1", "step2", "step3", "step4", "step5", "step6", "step7", "eight"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
   }
 
-  // 导航点击
-  sideNav.addEventListener("click", function (e) {
-    var a = e.target.closest("a");
-    if (!a) return;
-    e.preventDefault();
-    var target = document.querySelector(a.getAttribute("href"));
-    if (target) {
-      dashContent.scrollTo({ top: target.offsetTop - 20, behavior: "smooth" });
-    }
-  });
+  // ── 工具 ──
 
-  // ── 工具函数 ──
-  function sectionHTML(title, id, subtitle, body) {
-    return '<div class="dash-section" id="' + id + '">' +
-      '<div class="dash-section-header"><h2>' + title + '</h2>' +
-      (subtitle ? '<span class="badge">' + subtitle + '</span>' : '') +
-      '</div><div class="dash-section-body">' + body + "</div></div>";
+  function section(id, title, tag, body) {
+    return '<section id="' + id + '" class="dash-section">' +
+      '<div class="section-header"><h2>' + esc(title) + '</h2><span class="tag">' + esc(tag) + '</span></div>' +
+      '<div class="section-body">' + body + '</div></section>';
   }
 
-  function esc(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
-  function fmtPct(v) { if (v === null || v === undefined) return "-"; return Number(v).toFixed(2) + "%"; }
-  function fmtNum(v, d) { d = d || 2; if (v === null || v === undefined) return "-"; return Number(v).toFixed(d); }
-  function fmtMarketCap(v) { if (v === null || v === undefined) return "-"; v = Number(v); if (v >= 1e12) return (v / 1e12).toFixed(2) + "万亿"; if (v >= 1e8) return (v / 1e8).toFixed(0) + "亿"; return v + ""; }
+  function metricCard(name, val, hint, threshold) {
+    return '<div class="metric-card"><div class="m-name">' + esc(name) + '</div>' +
+      '<div class="m-val">' + esc(val) + '</div>' +
+      (hint ? '<div class="m-hint">' + esc(hint) + '</div>' : '') +
+      (threshold ? '<div class="m-threshold">' + esc(threshold) + '</div>' : '') +
+      '</div>';
+  }
 
-  // ── 窗口resize ──
+  function compCard(name, val, rows) {
+    var comp = rows.map(function (r) {
+      return '<div class="comp-row"><span>' + esc(r[0]) + '</span><span class="comp-pct">' + fmtPct(r[1]) + '</span></div>';
+    }).join("");
+    var bar = rows.length === 2 ?
+      '<div class="comp-bar"><span style="width:' + (rows[0][1] || 0) + '%"></span><span style="width:' + (rows[1][1] || 0) + '%"></span></div>' : "";
+    return '<div class="metric-card"><div class="m-name">' + esc(name) + '</div>' +
+      (val ? '<div class="m-val">' + esc(val) + '</div>' : '') +
+      '<div class="m-composition">' + comp + bar + '</div></div>';
+  }
+
+  function renderYearTable(years, rows, hints) {
+    var h = '<div class="table-wrap"><table class="data-table"><thead><tr><th>指标</th>';
+    years.forEach(function (y) { h += '<th>' + esc(y) + '</th>'; });
+    if (hints) h += '<th>判断要点</th>';
+    h += '</tr></thead><tbody>';
+    rows.forEach(function (row, i) {
+      h += '<tr><td class="row-label">' + esc(row[0]) + '</td>';
+      (row[1] || []).forEach(function (v) {
+        h += '<td class="num">' + fmtByType(v, row[2]) + '</td>';
+      });
+      if (hints) h += '<td style="text-align:left;font-size:11px;color:var(--muted)">' + esc(hints[i] || "") + '</td>';
+      h += '</tr>';
+    });
+    return h + '</tbody></table></div>';
+  }
+
+  function renderSimpleTable(data, cols) {
+    var h = '<div class="table-wrap"><table class="data-table"><thead><tr><th>类目</th>';
+    data.forEach(function (r) { h += '<th>' + esc(r.year) + '</th>'; });
+    h += '</tr></thead><tbody>';
+    cols.forEach(function (col) {
+      h += '<tr><td class="row-label' + (col.indent ? " indent-1" : "") + '">' + esc(col.label) + '</td>';
+      data.forEach(function (r) {
+        var v = r[col.key];
+        h += '<td class="num">' + (col.pct ? fmtPct(v) : fmtCell(v)) + '</td>';
+      });
+      h += '</tr>';
+    });
+    return h + '</tbody></table></div>';
+  }
+
+  function dupontRow(label, data, key, fmt, bold) {
+    var h = '<tr><td>' + esc(label) + '</td>';
+    data.forEach(function (r) {
+      var v = r[key];
+      h += '<td class="num' + (bold && v > 20 ? " good" : "") + '">' +
+        (bold ? "<strong>" : "") + (fmt === "pct" ? fmtPct(v) : fmtNum(v, 4)) + (bold ? "</strong>" : "") + '</td>';
+    });
+    return h + '</tr>';
+  }
+
+  function fmtByType(v, type) {
+    if (v == null) return "—";
+    if (type === "pct") return fmtPct(v);
+    if (type === "yi") return fmtYi(v);
+    if (type === "ratio") return fmtNum(v, 2);
+    return String(v);
+  }
+
+  function fmtCell(v) {
+    if (v == null) return "—";
+    return fmtNum(v, 2);
+  }
+
+  function fmtYi(v) {
+    if (v == null) return "—";
+    return fmtNum(v, 2);
+  }
+
+  function fmtPct(v) {
+    if (v == null) return "—";
+    return Number(v).toFixed(2) + "%";
+  }
+
+  function fmtNum(v, d) {
+    d = d == null ? 2 : d;
+    if (v == null) return "—";
+    return Number(v).toFixed(d);
+  }
+
+  function esc(s) {
+    return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
   window.addEventListener("resize", function () {
-    Object.values(charts).forEach(function (c) { c.resize(); });
+    charts.forEach(function (c) { c.resize(); });
   });
 
-  // ── 支持 URL 参数跳转 ──
   var urlParams = new URLSearchParams(window.location.search);
   var codeFromUrl = urlParams.get("code");
   if (codeFromUrl) {
