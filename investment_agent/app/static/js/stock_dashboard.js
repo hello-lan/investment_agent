@@ -216,13 +216,13 @@
       '<div class="stock-name">' + esc(name) + ' ' + esc(stock.code || "") + '</div>' +
       '<div class="stock-meta">' + esc(meta || "—") + '</div>' +
       '<div class="kpi-row">' +
-      kpi("营业收入", fmtYi(snap.revenue)) +
-      kpi("归母净利润", fmtYi(snap.net_profit)) +
+      kpi("营业收入", fmtYi(snap.revenue) + " 亿") +
+      kpi("归母净利润", fmtYi(snap.net_profit) + " 亿") +
       kpi("净利率", fmtPct(snap.net_margin)) +
       kpi("毛利率", fmtPct(snap.gross_margin)) +
       kpi("ROE", fmtPct(snap.roe), snap.roe > 20 ? "good" : "") +
       kpi("经营现金流/净利润", snap.cfnp != null ? fmtNum(snap.cfnp, 2) : "—") +
-      kpi("自由现金流", snap.fcf != null ? (snap.fcf_positive ? "正向" : fmtYi(snap.fcf)) : "—",
+      kpi("自由现金流", snap.fcf != null ? (snap.fcf_positive ? "正向" : fmtYi(snap.fcf) + " 亿") : "—",
         snap.fcf_positive ? "good" : "") +
       '</div>' +
       '<p class="snapshot-guide">' +
