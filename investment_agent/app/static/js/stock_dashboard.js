@@ -364,6 +364,23 @@
         '分业务毛利率差异大时，未来整体毛利率可按各业务占比与毛利率加权估算。');
     if (!d || !d.available) {
       body += '<div class="unavailable-box">' + esc((d && d.message) || "分业务数据暂不可用") + '</div>';
+      return section("step4", "④ 业务构成", body);
+    }
+    body += '<div class="meta-row" style="margin-bottom:12px;font-size:12px;color:var(--muted)">' +
+      esc(d.category_type || "") + ' · 报告期 ' + esc(d.report_date || "") + '</div>';
+    body += '<div id="chart-step4-pie" class="chart-box" style="height:320px"></div>';
+    if (d.trend && d.trend.dates && d.trend.dates.length > 1) {
+      body += '<div id="chart-step4-trend" class="chart-box" style="height:280px;margin-top:16px"></div>';
+    }
+    if (d.table && d.table.length) {
+      body += '<table class="dash-table" style="margin-top:16px"><thead><tr>' +
+        '<th>业务</th><th>收入(亿)</th><th>收入占比</th><th>毛利率</th><th>利润(亿)</th></tr></thead><tbody>';
+      d.table.forEach(function (r) {
+        body += '<tr><td>' + esc(r.name) + '</td><td>' + fmtNum(r.revenue_yi) + '</td>' +
+          '<td>' + fmtPct(r.revenue_pct) + '</td><td>' + fmtPct(r.gross_margin) + '</td>' +
+          '<td>' + fmtNum(r.profit_yi) + '</td></tr>';
+      });
+      body += '</tbody></table>';
     }
     return section("step4", "④ 业务构成", body);
   }
@@ -577,6 +594,7 @@
   function initCharts(s) {
     if (s.step2 && s.step2.chart) initStep2Charts(s.step2.chart);
     if (s.step3 && s.step3.chart) initStep3Chart(s.step3.chart);
+    if (s.step4 && s.step4.available) initStep4Charts(s.step4);
     if (s.step6) {
       if (s.step6.wc_chart) initWcChart(s.step6.wc_chart);
       if (s.step6.fa_chart) initFaChart(s.step6.fa_chart);
@@ -651,6 +669,50 @@
         }), barMaxWidth: 32 },
       ],
     });
+  }
+
+  function initStep4Charts(d) {
+    if (d.pie && d.pie.length) {
+      initChart("chart-step4-pie", {
+        title: { text: "收入构成", left: "center", top: 8, textStyle: { color: C.text, fontSize: 13 } },
+        tooltip: {
+          trigger: "item",
+          formatter: function (p) {
+            var gm = p.data.gross_margin != null ? " · 毛利率 " + p.data.gross_margin + "%" : "";
+            return p.name + ": " + p.value + "%" + gm;
+          },
+        },
+        legend: { orient: "vertical", right: 8, top: "middle", textStyle: { color: C.text, fontSize: 11 } },
+        series: [{
+          type: "pie", radius: ["38%", "62%"], center: ["40%", "55%"],
+          data: d.pie.map(function (item, i) {
+            var colors = [C.blue, C.green, C.purple, C.cyan, C.warn, C.red, "#6366f1", "#ec4899"];
+            return { name: item.name, value: item.value, gross_margin: item.gross_margin,
+              itemStyle: { color: colors[i % colors.length] } };
+          }),
+          label: { color: C.text, fontSize: 11 },
+        }],
+      });
+    }
+    if (d.trend && d.trend.dates && d.trend.dates.length > 1 && d.trend.series) {
+      var colors = [C.blue, C.green, C.purple, C.cyan, C.warn, C.red];
+      var series = Object.keys(d.trend.series).map(function (name, i) {
+        return {
+          name: name, type: "line", smooth: true, data: d.trend.series[name],
+          lineStyle: { color: colors[i % colors.length], width: 2 },
+          itemStyle: { color: colors[i % colors.length] },
+        };
+      });
+      initChart("chart-step4-trend", {
+        title: { text: "分业务收入占比趋势", left: "center", top: 8, textStyle: { color: C.text, fontSize: 13 } },
+        tooltip: { trigger: "axis" },
+        legend: { top: 8, right: 12, textStyle: { color: C.text, fontSize: 11 } },
+        grid: baseGrid(),
+        xAxis: { type: "category", data: d.trend.dates, ...axisStyle() },
+        yAxis: { type: "value", name: "%", nameTextStyle: { color: C.text }, ...axisStyle() },
+        series: series,
+      });
+    }
   }
 
   function initWcChart(c) {

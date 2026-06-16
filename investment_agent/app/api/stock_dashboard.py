@@ -170,6 +170,131 @@ def _wc_narrow(row) -> float:
     )
 
 
+_SEGMENT_CATEGORY_KEYWORDS = ("产品", "行业", "地区")
+
+
+def _pick_segment_category(categories: list[str]) -> str | None:
+    if not categories:
+        return None
+    # 精确匹配优先
+    for pref in ("按产品分类", "按行业分类", "按地区分类"):
+        if pref in categories:
+            return pref
+    # 模糊匹配（兼容数据源命名差异）
+    for kw in _SEGMENT_CATEGORY_KEYWORDS:
+        for cat in categories:
+            if kw in cat:
+                return cat
+    return categories[0]
+
+
+def _segment_gross_margin_pct(v) -> float | None:
+    if v is None:
+        return None
+    return round(v * 100, 2) if abs(v) <= 1 else round(v, 2)
+
+
+def _is_valid_segment_row(name: str, ratio) -> bool:
+    if not name:
+        return False
+    if any(x in name for x in ("合计", "总计", "小计")):
+        return False
+    return (ratio or 0) > 0.001
+
+
+async def _fetch_segments_for_dashboard(db, code: str) -> dict:
+    """组装看板 Step4 业务构成数据"""
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM stock_segments WHERE code = ?",
+        (code,),
+    )
+    if (await cursor.fetchone())[0] == 0:
+        return {"available": False, "message": "分业务数据尚未同步，正在后台拉取，请稍后刷新"}
+
+    cursor = await db.execute(
+        "SELECT DISTINCT report_date FROM stock_segments WHERE code = ? "
+        "ORDER BY report_date DESC LIMIT 12",
+        (code,),
+    )
+    all_dates = [r[0] for r in await cursor.fetchall()]
+    annual_dates = [d for d in all_dates if d.endswith("-12-31")]
+    dates = (annual_dates or all_dates)[:5]
+    if not dates:
+        return {"available": False, "message": "分业务数据需同步后获取，请稍后刷新"}
+
+    latest_date = dates[0]
+    cursor = await db.execute(
+        "SELECT DISTINCT category_type FROM stock_segments WHERE code = ? AND report_date = ?",
+        (code, latest_date),
+    )
+    categories = [r[0] for r in await cursor.fetchall()]
+    category = _pick_segment_category(categories)
+    if not category:
+        return {"available": False, "message": "未找到有效的业务分类数据"}
+
+    cursor = await db.execute(
+        """SELECT segment_name, revenue, revenue_ratio, gross_margin, profit
+           FROM stock_segments
+           WHERE code = ? AND report_date = ? AND category_type = ?
+           ORDER BY revenue_ratio DESC""",
+        (code, latest_date, category),
+    )
+    latest_rows = [dict(r) for r in await cursor.fetchall()]
+    # 过滤汇总行与无效行
+    segments = [
+        r for r in latest_rows
+        if _is_valid_segment_row(r.get("segment_name"), r.get("revenue_ratio"))
+    ]
+    if not segments:
+        return {"available": False, "message": "最新报告期无有效分业务明细"}
+
+    pie = [
+        {
+            "name": r["segment_name"],
+            "value": round((r.get("revenue_ratio") or 0) * 100, 2),
+            "revenue_yi": _div100m(r.get("revenue")),
+            "gross_margin": _segment_gross_margin_pct(r.get("gross_margin")),
+        }
+        for r in segments[:12]
+    ]
+
+    # 多年趋势：各 segment 收入占比
+    trend_dates = list(reversed(dates))
+    seg_names = [r["segment_name"] for r in segments[:6]]
+    trend_chart = {"dates": [_year_label(d) for d in trend_dates], "series": {}}
+    for name in seg_names:
+        ratios = []
+        for d in trend_dates:
+            cursor = await db.execute(
+                """SELECT revenue_ratio FROM stock_segments
+                   WHERE code = ? AND report_date = ? AND category_type = ? AND segment_name = ?""",
+                (code, d, category, name),
+            )
+            row = await cursor.fetchone()
+            ratios.append(round(row[0] * 100, 2) if row and row[0] is not None else None)
+        trend_chart["series"][name] = ratios
+
+    table = [
+        {
+            "name": r["segment_name"],
+            "revenue_yi": _div100m(r.get("revenue")),
+            "revenue_pct": round((r.get("revenue_ratio") or 0) * 100, 2),
+            "gross_margin": _segment_gross_margin_pct(r.get("gross_margin")),
+            "profit_yi": _div100m(r.get("profit")),
+        }
+        for r in segments
+    ]
+
+    return {
+        "available": True,
+        "report_date": latest_date,
+        "category_type": category,
+        "pie": pie,
+        "trend": trend_chart,
+        "table": table,
+    }
+
+
 async def _has_table(db, table: str) -> bool:
     cursor = await db.execute(f"SELECT COUNT(*) FROM {table} LIMIT 1")
     row = await cursor.fetchone()
@@ -403,11 +528,8 @@ async def _build_dashboard(code: str, years: int) -> dict:
             },
         }
 
-        # ── 第四步：业务构成（暂无分业务数据源） ──
-        sections["step4"] = {
-            "available": False,
-            "message": "分业务营收/毛利数据需从年报附注解析，当前数据源暂不支持",
-        }
+        # ── 第四步：业务构成 ──
+        sections["step4"] = await _fetch_segments_for_dashboard(db, code)
 
         # ── 第五步：资产负债 ──
         if latest.get("total_assets"):

@@ -29,7 +29,7 @@ def _is_trading_time() -> bool:
 
 
 async def _needs_update(code: str) -> bool:
-    """需要更新？交易时段超1h / 非交易时段超1天"""
+    """需要更新？交易时段超1h / 非交易时段超1天 / 缺少分业务数据"""
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT updated_at FROM stock_info WHERE code = ?", (code,)
@@ -41,7 +41,13 @@ async def _needs_update(code: str) -> bool:
         now = datetime.now(timezone.utc)
         delta = now - updated_at.replace(tzinfo=timezone.utc)
         threshold = 3600 if _is_trading_time() else 86400
-        return delta.total_seconds() > threshold
+        if delta.total_seconds() > threshold:
+            return True
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM stock_segments WHERE code = ?", (code,)
+        )
+        seg_count = (await cursor.fetchone())[0]
+        return seg_count == 0
 
 
 def _parse_float(v: Any) -> float | None:
@@ -334,6 +340,58 @@ async def _fetch_cashflow_em(code: str) -> list[dict]:
     return _parse_em_dataframe(df, code)
 
 
+_ZYGC_COLS = [
+    "code", "report_date", "category_type", "segment_name",
+    "revenue", "revenue_ratio", "cost", "cost_ratio",
+    "profit", "profit_ratio", "gross_margin",
+]
+
+
+async def _fetch_segments_em(code: str) -> list[dict]:
+    """东财主营业务构成 — stock_zygc_em（按行业/产品/地区）"""
+    import akshare as ak
+
+    symbol = _code_to_em_symbol(code)
+    loop = asyncio.get_event_loop()
+    try:
+        df = await loop.run_in_executor(None, ak.stock_zygc_em, symbol)
+    except Exception as e:
+        logger.warning(f"[stock_data] stock_zygc_em failed: {e}")
+        return []
+
+    if df is None or len(df) == 0:
+        return []
+
+    df = df.copy()
+    if len(df.columns) >= len(_ZYGC_COLS):
+        df.columns = _ZYGC_COLS[: len(df.columns)]
+
+    rows = []
+    for _, row in df.iterrows():
+        rd = row.get("report_date")
+        if rd is None:
+            continue
+        rd_str = str(rd)[:10]
+        seg = str(row.get("segment_name") or "").strip()
+        cat = str(row.get("category_type") or "").strip()
+        if not seg or not cat:
+            continue
+        rows.append({
+            "code": code,
+            "report_date": rd_str,
+            "category_type": cat,
+            "segment_name": seg,
+            "revenue": _parse_float(row.get("revenue")),
+            "revenue_ratio": _parse_float(row.get("revenue_ratio")),
+            "cost": _parse_float(row.get("cost")),
+            "cost_ratio": _parse_float(row.get("cost_ratio")),
+            "profit": _parse_float(row.get("profit")),
+            "profit_ratio": _parse_float(row.get("profit_ratio")),
+            "gross_margin": _parse_float(row.get("gross_margin")),
+        })
+    return rows
+
+
 # ── 状态管理 ──────────────────────────────────────────────
 
 
@@ -382,16 +440,18 @@ async def sync_stock_data(code: str) -> None:
         balance_task = asyncio.create_task(_fetch_balance_sheet_em(code))
         income_task = asyncio.create_task(_fetch_income_statement_em(code))
         cashflow_task = asyncio.create_task(_fetch_cashflow_em(code))
+        segments_task = asyncio.create_task(_fetch_segments_em(code))
 
         indicators = await ind_task
         ths_data = await ths_task
         balance_data = await balance_task
         income_data = await income_task
         cashflow_data = await cashflow_task
+        segments_data = await segments_task
         logger.info(
             f"[stock_data] indicators={len(indicators)}, ths={len(ths_data)}, "
             f"balance={len(balance_data)}, income={len(income_data)}, "
-            f"cashflow={len(cashflow_data)}"
+            f"cashflow={len(cashflow_data)}, segments={len(segments_data)}"
         )
 
         # 用东财利润表补充 total_revenue / net_profit（优先），THS 作为 fallback
@@ -457,6 +517,21 @@ async def sync_stock_data(code: str) -> None:
                 )
 
             # 三大报表：东财数据，动态列写入（支持不同公司类型字段差异）
+            if segments_data:
+                seg_fields = list(segments_data[0].keys())
+                for row in segments_data:
+                    params = {k: row.get(k) for k in seg_fields}
+                    set_clause = ", ".join(
+                        f"{k}=:{k}" for k in seg_fields
+                        if k not in ("code", "report_date", "category_type", "segment_name")
+                    )
+                    await db.execute(
+                        f"""INSERT INTO stock_segments ({", ".join(seg_fields)})
+                            VALUES ({", ".join(':' + f for f in seg_fields)})
+                            ON CONFLICT(code, report_date, category_type, segment_name) DO UPDATE SET {set_clause}""",
+                        params,
+                    )
+
             for table_name, data in [
                 ("stock_balance", balance_data),
                 ("stock_income", income_data),
@@ -499,7 +574,7 @@ async def sync_stock_data(code: str) -> None:
                         AND stock_income.report_date = stock_indicators.report_date),
                     net_profit = (SELECT parent_netprofit FROM stock_income
                         WHERE stock_income.code = stock_indicators.code
-                        AND stock_income.report_date = stock_indicators.report_date),
+                        AND stock_income.report_date = stock_indicators.report_date)
                 WHERE code = ? AND total_revenue IS NULL""",
                 (code,),
             )
@@ -521,7 +596,7 @@ async def sync_stock_data(code: str) -> None:
         logger.info(
             f"[stock_data] 同步完成 {code}: indicators={len(indicators)}, "
             f"balance={len(balance_data)}, income={len(income_data)}, "
-            f"cashflow={len(cashflow_data)}"
+            f"cashflow={len(cashflow_data)}, segments={len(segments_data)}"
         )
 
     except Exception as e:

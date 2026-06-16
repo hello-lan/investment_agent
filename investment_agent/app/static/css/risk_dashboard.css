@@ -1,0 +1,40 @@
+:root {
+  --bg: #0f1419; --surface: #1a2332; --surface2: #243044; --border: #2d3a4f;
+  --text: #e8edf4; --muted: #8b9cb3; --accent: #3b82f6; --accent2: #10b981;
+  --warn: #f59e0b; --danger: #ef4444; --radius: 10px;
+  --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.risk-page { min-height: calc(100vh - 44px); background: var(--bg); color: var(--text); font-family: var(--font); padding: 20px; }
+.risk-topbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+.risk-search { flex: 1; min-width: 200px; max-width: 360px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+.risk-filter { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+.risk-btn { padding: 8px 16px; border: none; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; font-size: 13px; }
+.risk-btn-ghost { background: var(--surface2); border: 1px solid var(--border); color: var(--text); margin-bottom: 16px; }
+.risk-summary { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.risk-kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; text-align: center; }
+.risk-kpi .label { font-size: 11px; color: var(--muted); }
+.risk-kpi .value { font-size: 22px; font-weight: 600; margin-top: 4px; }
+.risk-empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+.risk-empty-icon { font-size: 48px; margin-bottom: 12px; }
+.risk-empty-hint { font-size: 12px; margin-top: 8px; }
+.risk-list { display: grid; gap: 12px; }
+.risk-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; cursor: pointer; transition: border-color .15s; }
+.risk-card:hover { border-color: var(--accent); }
+.risk-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.risk-card-title { font-size: 16px; font-weight: 600; }
+.risk-card-meta { font-size: 12px; color: var(--muted); }
+.risk-badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+.risk-badge-critical, .risk-badge-danger { background: rgba(239,68,68,.2); color: var(--danger); }
+.risk-badge-high { background: rgba(239,68,68,.15); color: #f87171; }
+.risk-badge-warn { background: rgba(245,158,11,.2); color: var(--warn); }
+.risk-badge-pass { background: rgba(16,185,129,.2); color: var(--accent2); }
+.risk-badge-neutral { background: rgba(139,156,179,.15); color: var(--muted); }
+.risk-drivers { font-size: 13px; color: var(--muted); margin-top: 8px; }
+.risk-drivers li { margin-left: 16px; }
+.risk-detail { max-width: 900px; }
+.risk-detail-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 16px; }
+.risk-detail-section h3 { font-size: 14px; margin-bottom: 12px; color: var(--muted); }
+.risk-flag-list { list-style: none; }
+.risk-flag-item { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.risk-flag-item:last-child { border-bottom: none; }
+.risk-flag-rule { font-size: 11px; color: var(--accent); margin-top: 4px; }

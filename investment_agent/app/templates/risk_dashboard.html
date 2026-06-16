@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}排雷看板 — 投研 Agent{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/css/risk_dashboard.css">
+{% endblock %}
+{% block content %}
+
+<div class="risk-page">
+  <div class="risk-topbar">
+    <input type="text" id="riskSearch" class="risk-search" placeholder="搜索代码或公司名...">
+    <select id="gradeFilter" class="risk-filter">
+      <option value="">全部等级</option>
+      <option value="critical">极高风险</option>
+      <option value="high">高风险</option>
+      <option value="warn">存疑</option>
+      <option value="pass">暂未发现重大疑点</option>
+    </select>
+    <button id="refreshBtn" class="risk-btn">刷新</button>
+  </div>
+
+  <div id="riskSummary" class="risk-summary"></div>
+
+  <div id="riskEmpty" class="risk-empty">
+    <div class="risk-empty-icon">🔍</div>
+    <p>暂无排雷报告</p>
+    <p class="risk-empty-hint">运行完整财报分析流程后，报告将出现在 <code>data/reports/{code}/4_output/</code></p>
+  </div>
+
+  <div id="riskList" class="risk-list" style="display:none"></div>
+
+  <div id="riskDetail" class="risk-detail" style="display:none">
+    <button id="backBtn" class="risk-btn risk-btn-ghost">← 返回列表</button>
+    <div id="riskDetailContent"></div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/risk_dashboard.js"></script>
+{% endblock %}

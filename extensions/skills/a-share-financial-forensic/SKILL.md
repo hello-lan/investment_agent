@@ -41,6 +41,19 @@ python3 extensions/skills/a-share-financial-forensic/scripts/collect_data.py {sp
 
 脚本 stderr 输出文件发现摘要（每年每类是否找到），用于确认数据完整性。
 
+### 阶段〇-B：第三方数据交叉验证（1步脚本，推荐）
+
+在数据加载前，用 AKShare 三表数据与 `data_manifest.md` 解析结果交叉比对，标注偏差项：
+
+```bash
+python3 extensions/skills/a-share-financial-forensic/scripts/cross_validate.py \
+  --code {code} \
+  --manifest data/reports/{code}/4_output/data_manifest.md \
+  --output data/reports/{code}/4_output/crosscheck_report.md
+```
+
+**输出**：`crosscheck_report.md`（偏差 <3% pass，3-10% warn，>10% fail）。分析时若某科目 fail，优先以 AKShare 数据为准并标注口径差异。
+
 ### 阶段一：数据加载（每文件只读一次）
 
 **核心规则**：

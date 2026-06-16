@@ -679,6 +679,26 @@ async def init_db() -> None:
                 ON stock_income(code, report_date DESC);
             CREATE INDEX IF NOT EXISTS idx_stock_cashflow_code_date
                 ON stock_cashflow(code, report_date DESC);
+
+            -- 主营业务构成（东财 stock_zygc_em）
+            CREATE TABLE IF NOT EXISTS stock_segments (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                code            TEXT NOT NULL,
+                report_date     TEXT NOT NULL,
+                category_type   TEXT NOT NULL,
+                segment_name    TEXT NOT NULL,
+                revenue         REAL,
+                revenue_ratio   REAL,
+                cost            REAL,
+                cost_ratio      REAL,
+                profit          REAL,
+                profit_ratio    REAL,
+                gross_margin    REAL,
+                UNIQUE(code, report_date, category_type, segment_name)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_stock_segments_code_date
+                ON stock_segments(code, report_date DESC);
         """)
 
         # 启动时清理过期数据
