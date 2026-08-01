@@ -117,7 +117,7 @@ class TaskManager:
             await self._broadcast(state, {"type": "error", "message": str(e)})
             state.status = "error"
         finally:
-            await self._finalize_task(state)
+            await self._finalize_task(state, hooks)
 
     async def _execute_engine_loop(
         self, state: _TaskState, hooks: ObservabilityHooks,
@@ -169,11 +169,17 @@ class TaskManager:
             elif event_type in ("done", "interrupted"):
                 state.status = "done"
 
-    async def _finalize_task(self, state: _TaskState) -> None:
+    async def _finalize_task(self, state: _TaskState, hooks: ObservabilityHooks) -> None:
         """任务收尾：保存回复、清理引擎、恢复会话状态、调度延迟清理。"""
         state.done = True
         task_id = state.task_id
         session_id = state.session_id
+
+        # 先冲刷 trace，避免任务结束后缓冲中的事件丢失
+        try:
+            await hooks.flush_traces()
+        except Exception:
+            logger.exception("Failed to flush trace buffer for task %s", task_id)
 
         # 保存 assistant 回复 —— 必须在 cleanup 之前执行
         try:

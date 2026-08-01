@@ -2,8 +2,8 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from ...config import get_settings, save_settings
-from ...agent.skills.loader import reload_skills
+from ...config import get_settings, get_tushare_token, resolve_skills_dir, save_settings
+from ...agent.skills.loader import init_skills_dir
 from ..db import get_db
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -127,21 +127,26 @@ async def test_model(body: TestModelRequest):
 
 @router.get("")
 async def read_settings():
-    s = get_settings()
-    return {k: v for k, v in s.items() if k != "models"}
+    s = {k: v for k, v in get_settings().items() if k != "models"}
+    tools = dict(s.get("tools", {}))
+    tools["tushare_token"] = "***" if get_tushare_token() else ""
+    s["tools"] = tools
+    return s
 
 
 class EngineSettings(BaseModel):
-    max_steps: int
-    slow_think_interval: int
-    token_budget: int
-    loop_detection_threshold: int
+    max_steps: int | None = None
+    slow_think_interval: int | None = None
+    token_budget: int | None = None
+    loop_detection_threshold: int | None = None
 
 
 @router.put("/engine")
 async def update_engine(body: EngineSettings):
     s = get_settings()
-    s["engine"] = body.model_dump()
+    engine = dict(s.get("engine", {}))
+    engine.update(body.model_dump(exclude_none=True))
+    s["engine"] = engine
     save_settings(s)
     return {"success": True}
 
@@ -157,11 +162,10 @@ class SkillsSettings(BaseModel):
 @router.put("/skills")
 async def update_skills(body: SkillsSettings):
     s = get_settings()
-    s["skills"] = {
-        "directory": (body.directory or "skills").strip() or "skills",
-    }
+    directory = (body.directory or "skills").strip() or "skills"
+    s["skills"] = {"directory": directory}
     save_settings(s)
-    reload_skills()
+    init_skills_dir(resolve_skills_dir(directory))
     return {"success": True}
 
 

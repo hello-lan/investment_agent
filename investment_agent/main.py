@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -18,7 +16,7 @@ from .app.api.stock_dashboard import router as stock_dashboard_router
 from .app.api.stock_dashboard_old import router as stock_dashboard_old_router
 from .agent.skills.loader import init_skills_dir
 from .agent.tools.run_command import set_project_root
-from .config import PROJECT_ROOT, get_settings
+from .config import PROJECT_ROOT, resolve_skills_dir
 
 STATIC_DIR = PROJECT_ROOT / "investment_agent" / "app" / "static"
 TEMPLATE_DIR = PROJECT_ROOT / "investment_agent" / "app" / "templates"
@@ -38,17 +36,6 @@ TABS = [
 ]
 
 
-def _resolve_skills_dir() -> Path:
-    """解析 Skills 目录路径（支持相对路径，相对于项目根目录）"""
-    settings = get_settings()
-    skills_cfg = settings.get("skills", {}) if isinstance(settings.get("skills", {}), dict) else {}
-    raw_dir = str(skills_cfg.get("directory", "./skills")).strip() or "./skills"
-    path = Path(raw_dir)
-    if not path.is_absolute():
-        path = PROJECT_ROOT / path
-    return path
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化数据库、输出目录、Skills、全局依赖"""
@@ -57,7 +44,7 @@ async def lifespan(app: FastAPI):
     (OUTPUT_DIR / "charts").mkdir(parents=True, exist_ok=True)
     # 注入 agent 包所需的全局依赖
     set_project_root(str(PROJECT_ROOT))
-    init_skills_dir(_resolve_skills_dir())
+    init_skills_dir(resolve_skills_dir())
     yield
 
 

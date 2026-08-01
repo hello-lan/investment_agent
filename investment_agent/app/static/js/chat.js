@@ -1,10 +1,11 @@
-let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,totalCacheReadTokens=0,totalCacheCreationTokens=0,totalCostUsd=0,totalCurrency='USD',currentAgentId=null,currentFile=null;
+let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,totalCacheReadTokens=0,totalCacheCreationTokens=0,totalCostUsd=0,totalCurrency='USD',currentAgentId=null,currentFile=null,currentStreamState=null;
 let allSessions=[],agentMap={};
 let userScrolledUp=false, hasNewContentSinceScroll=false;
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const ALLOWED_EXTS = new Set(['.txt','.md','.pdf','.xlsx','.xls','.docx','.doc']);
 const AGENT_ICONS = ['📊','🔍','💡','📈','🧠','⚡','🎯','🔬','💼','📋'];
+const STREAM_RENDER_INTERVAL_MS = 60;
 
 function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
@@ -19,18 +20,54 @@ function _safeUrl(url){
   return '#';
 }
 
-function _normalizeLinkArgs(args){
+function _normalizeRendererArgs(args){
   if (args.length === 1 && args[0] && typeof args[0] === 'object') {
     return { href: args[0].href || '', title: args[0].title || '', text: args[0].text || '' };
   }
   return { href: args[0] || '', title: args[1] || '', text: args[2] || '' };
 }
 
-function _normalizeImageArgs(args){
-  if (args.length === 1 && args[0] && typeof args[0] === 'object') {
-    return { href: args[0].href || '', title: args[0].title || '', text: args[0].text || '' };
+function _renderAssistantText(bodyEl, text){
+  bodyEl.innerHTML = renderMarkdown(text);
+}
+
+function _scheduleAssistantRender(s, bodyEl){
+  if (s.renderTimer) return;
+  s.renderTimer = window.setTimeout(function(){
+    s.renderTimer = null;
+    _renderAssistantText(bodyEl, s.aText);
+  }, STREAM_RENDER_INTERVAL_MS);
+}
+
+function _flushAssistantRender(s, bodyEl){
+  if (s.renderTimer) {
+    clearTimeout(s.renderTimer);
+    s.renderTimer = null;
   }
-  return { href: args[0] || '', title: args[1] || '', text: args[2] || '' };
+  _renderAssistantText(bodyEl, s.aText);
+}
+
+function _finalizeAssistantRender(s){
+  const b = s.replyBlock;
+  if (!b) return;
+  _flushAssistantRender(s, b.bodyEl);
+}
+
+function _resetStreamRenderState(s){
+  if (s.renderTimer) {
+    clearTimeout(s.renderTimer);
+    s.renderTimer = null;
+  }
+}
+
+function _createStreamState(replyBlock){
+  return {
+    replyBlock: replyBlock || null,
+    aText: '',
+    pendingTool: null,
+    thinkSteps: [],
+    renderTimer: null,
+  };
 }
 
 function renderMarkdown(t){
@@ -42,13 +79,13 @@ function renderMarkdown(t){
     marked.setOptions({ gfm: true, breaks: false, headerIds: false, mangle: false });
     const renderer = new marked.Renderer();
     renderer.link = function(...args){
-      const { href, title, text } = _normalizeLinkArgs(args);
+      const { href, title, text } = _normalizeRendererArgs(args);
       const safe = _safeUrl(href);
       const tAttr = title ? ` title="${escapeHtml(title)}"` : '';
       return `<a href="${safe}" target="_blank" rel="noopener noreferrer"${tAttr}>${text}</a>`;
     };
     renderer.image = function(...args){
-      const { href, title, text } = _normalizeImageArgs(args);
+      const { href, title, text } = _normalizeRendererArgs(args);
       const safe = _safeUrl(href);
       const tAttr = title ? ` title="${escapeHtml(title)}"` : '';
       return `<img src="${safe}" alt="${escapeHtml(text || '')}" loading="lazy"${tAttr}>`;
@@ -116,6 +153,16 @@ async function loadAgents(){
   }
 }
 
+function resetUsageStats(){
+  totalInputTokens = 0;
+  totalOutputTokens = 0;
+  totalCacheReadTokens = 0;
+  totalCacheCreationTokens = 0;
+  totalCostUsd = 0;
+  totalCurrency = 'USD';
+  updateStats();
+}
+
 function selectAgent(id, silent){
   currentAgentId = id;
   const agent = agentMap[id];
@@ -145,7 +192,7 @@ function selectAgent(id, silent){
   if (!silent) {
     currentSessionId = null;
     document.getElementById('messages').innerHTML = _welcomeHtml();
-    totalInputTokens = 0; totalOutputTokens = 0; totalCacheReadTokens = 0; totalCacheCreationTokens = 0; totalCostUsd = 0; totalCurrency = 'USD'; updateStats();
+    resetUsageStats();
   }
   loadSessions();
 }
@@ -207,7 +254,7 @@ async function loadSessions(){
 
 async function loadSession(sid){
   // 如果有正在运行的 SSE 连接，先关闭
-  if (currentEventSource){ currentEventSource.close(); currentEventSource = null; }
+  _closeStreamConnection();
 
   currentSessionId = sid;
   _showSpinner('messages', '加载会话中...');
@@ -253,16 +300,16 @@ async function deleteSession(sid){
   if (currentSessionId === sid) {
     currentSessionId = null;
     document.getElementById('messages').innerHTML = _welcomeHtml();
-    totalInputTokens = 0; totalOutputTokens = 0; totalCacheReadTokens = 0; totalCacheCreationTokens = 0; totalCostUsd = 0; totalCurrency = 'USD'; updateStats();
+    resetUsageStats();
   }
   loadSessions();
 }
 
 function newSession(){
-  if (currentEventSource){ currentEventSource.close(); currentEventSource = null; }
+  _closeStreamConnection();
   currentSessionId = null;
   document.getElementById('messages').innerHTML = _welcomeHtml();
-  totalInputTokens = 0; totalOutputTokens = 0; totalCacheReadTokens = 0; totalCacheCreationTokens = 0; totalCostUsd = 0; totalCurrency = 'USD'; updateStats();
+  resetUsageStats();
   setRunning(false);
   loadSessions();
 }
@@ -455,14 +502,22 @@ function setRunning(r){
   document.getElementById('btnStop').style.display = r ? 'inline-block' : 'none';
 }
 
-function finishStream(){
+function _closeStreamConnection(){
+  if (currentStreamState) {
+    _resetStreamRenderState(currentStreamState);
+    currentStreamState = null;
+  }
   if (currentEventSource){ currentEventSource.close(); currentEventSource = null; }
+}
+
+function finishStream(){
+  _closeStreamConnection();
   setRunning(false); loadSessions();
 }
 
 function stopTask(){
   if (currentTaskId) fetch('/api/chat/' + currentTaskId + '/interrupt', {method:'POST'});
-  if (currentEventSource){ currentEventSource.close(); currentEventSource = null; }
+  _closeStreamConnection();
   removeThinking(); setRunning(false);
 }
 
@@ -498,7 +553,7 @@ function _handleStreamEvent(ev, state){
     // 隐藏重试按钮（如果有）
     if (b.retryEl) b.retryEl.style.display = 'none';
     s.aText += ev.content;
-    b.bodyEl.innerHTML = renderMarkdown(s.aText);
+    _scheduleAssistantRender(s, b.bodyEl);
     if (userScrolledUp) {
       hasNewContentSinceScroll = true;
       _updateScrollButton();
@@ -516,6 +571,7 @@ function _handleStreamEvent(ev, state){
   } else if (ev.type === 'slow_think'){
     _addThinkStep(_ensureBlock(s, setState), s.thinkSteps, '💭', '策略复盘', ev.content);
   } else if (ev.type === 'done'){
+    _finalizeAssistantRender(s);
     const b = s.replyBlock;
     if (b) {
       const spin = b.bodyEl.querySelector('.thinking-inline');
@@ -534,12 +590,14 @@ function _handleStreamEvent(ev, state){
     }
     updateStats(); finishStream();
   } else if (ev.type === 'interrupted'){
+    _finalizeAssistantRender(s);
     removeThinking();
     if (ev.message) _append('<div class="msg-info">' + escapeHtml(ev.message) + '</div>');
     const b = s.replyBlock;
     if (b) _collapseThink(b, s.thinkSteps);
     finishStream();
   } else if (ev.type === 'error'){
+    _finalizeAssistantRender(s);
     removeThinking();
     const b = s.replyBlock;
     if (b) _collapseThink(b, s.thinkSteps);
@@ -596,7 +654,7 @@ async function retryTask(){
 
   // 重置状态
   showThinking(); setRunning(true);
-  totalInputTokens = 0; totalOutputTokens = 0; totalCacheReadTokens = 0; totalCacheCreationTokens = 0; totalCostUsd = 0; totalCurrency = 'USD'; updateStats();
+  resetUsageStats();
 
   try {
     const res = await fetch('/api/chat/retry', {
@@ -618,16 +676,11 @@ async function retryTask(){
 
     // 创建新的回复块用于重试输出
     const replyBlock = _createReplyBlock();
-    const s = {
-      replyBlock: replyBlock,
-      aText: '',
-      pendingTool: null,
-      thinkSteps: [],
-    };
+    currentStreamState = _createStreamState(replyBlock);
 
     _connectToStream(currentTaskId, {
-      getState: () => s,
-      setState: (updates) => Object.assign(s, updates),
+      getState: () => currentStreamState,
+      setState: (updates) => Object.assign(currentStreamState, updates),
     });
 
   } catch(e) {
@@ -671,16 +724,11 @@ async function reconnectToTask(sessionId, taskId){
 
   // 创建回复块用于接收回放+实时事件
   const replyBlock = _createReplyBlock();
-  const s = {
-    replyBlock: replyBlock,
-    aText: '',
-    pendingTool: null,
-    thinkSteps: [],
-  };
+  currentStreamState = _createStreamState(replyBlock);
 
   _connectToStream(taskId, {
-    getState: () => s,
-    setState: (updates) => Object.assign(s, updates),
+    getState: () => currentStreamState,
+    setState: (updates) => Object.assign(currentStreamState, updates),
   });
 
   loadSessions();
@@ -731,17 +779,11 @@ async function sendMessage(){
   currentTaskId = data.task_id;
   currentSessionId = data.session_id;
 
-  const replyBlock = null;
-  const s = {
-    replyBlock: replyBlock,
-    aText: '',
-    pendingTool: null,
-    thinkSteps: [],
-  };
+  currentStreamState = _createStreamState(null);
 
   _connectToStream(currentTaskId, {
-    getState: () => s,
-    setState: (updates) => Object.assign(s, updates),
+    getState: () => currentStreamState,
+    setState: (updates) => Object.assign(currentStreamState, updates),
   });
 
   // 刷新会话列表以显示运行中状态

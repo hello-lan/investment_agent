@@ -1,5 +1,5 @@
+import asyncio
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -28,7 +28,7 @@ def _kwargs_to_cli(kwargs: dict) -> list[str]:
     return cli_args
 
 
-def run_skill_entry(skill_dir: Path, entry: str, kwargs: dict, timeout_seconds: int = 20) -> str:
+async def run_skill_entry(skill_dir: Path, entry: str, kwargs: dict, timeout_seconds: int = 20) -> str:
     """通过子进程执行 Skill 的 Python 入口脚本
 
     安全措施：
@@ -47,17 +47,31 @@ def run_skill_entry(skill_dir: Path, entry: str, kwargs: dict, timeout_seconds: 
 
     cli_args = _kwargs_to_cli(kwargs)
     payload = json.dumps(kwargs, ensure_ascii=False)
-    proc = subprocess.run(
-        [sys.executable, str(entry_path), *cli_args],
-        input=payload,
-        text=True,
-        capture_output=True,
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable,
+        str(entry_path),
+        *cli_args,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
         cwd=str(skill_dir),
-        timeout=timeout_seconds,
     )
 
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(payload.encode("utf-8")),
+            timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError as exc:
+        proc.kill()
+        await proc.communicate()
+        raise RuntimeError(f"script timed out after {timeout_seconds}s") from exc
+
+    stdout_text = stdout.decode("utf-8", errors="replace") if stdout else ""
+    stderr_text = stderr.decode("utf-8", errors="replace") if stderr else ""
+
     if proc.returncode != 0:
-        err = (proc.stderr or proc.stdout or "script failed").strip()
+        err = (stderr_text or stdout_text or "script failed").strip()
         raise RuntimeError(err)
 
-    return (proc.stdout or "").strip()
+    return stdout_text.strip()
