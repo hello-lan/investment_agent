@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 
 _DELEGATION_STRATEGY = (
     "\n\n## 子任务委派策略\n"
-    "加载技能说明后，分析其工作流程是否包含互不依赖的子阶段。若技能明确分为多个独立分析维度"
-    "应使用 DelegateTask 将各维度委派给子Agent逐个执行。"
+    "加载技能说明后，分析其工作流程是否包含互不依赖的子阶段。若技能明确分为多个独立分析维度，"
+    "应使用 {tool_name} 将各维度委派给子Agent逐个执行。"
     "父Agent保留全局判断（交叉验证、综合定级），子Agent返回结果后汇总整合。"
     "简单场景（如仅查单一指标）直接执行，无需委派。"
 )
@@ -30,9 +30,15 @@ class PromptBuilder:
     幂等性：多次调用 build() 返回相同结果。
     """
 
-    def __init__(self, base_prompt: str, skills: list | None = None):
+    def __init__(
+        self,
+        base_prompt: str,
+        skills: list | None = None,
+        delegation_tool_name: str = "DelegateTask",
+    ):
         self._base_prompt = base_prompt
         self._skills = skills or []
+        self._delegation_tool_name = delegation_tool_name
 
     def set_base_prompt(self, prompt: str) -> None:
         """更新基础 prompt（ContextManager 处理后调用）。"""
@@ -67,7 +73,7 @@ class PromptBuilder:
             + "\n\n---\n\n# 可用技能\n\n"
             + self._format_skills()
             + "\n\n> 使用 Skill 工具加载技能完整说明后再执行。"
-            + _DELEGATION_STRATEGY
+            + _DELEGATION_STRATEGY.format(tool_name=self._delegation_tool_name)
         )
 
     def _ensure_project_info(self, prompt: str) -> str:
@@ -75,11 +81,11 @@ class PromptBuilder:
         if "## 项目路径" in prompt:
             return prompt
 
-        from ...config import PROJECT_ROOT
+        from ...config import ROOT_DIR
 
         return prompt + (
             f"\n\n## 项目路径\n\n"
-            f"PROJECT_ROOT = {PROJECT_ROOT}\n"
+            f"ROOT_DIR = {ROOT_DIR}\n"
         )
 
     def _format_skills(self) -> str:

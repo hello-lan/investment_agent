@@ -30,7 +30,7 @@ class BaseLoopEngine:
     SLOW_THINK_MAX_TOKENS = 200       # 预留给子类反思阶段的 max_tokens
     SYSTEM_PROMPT_EXCERPT_CHARS = 200 # system prompt 截取长度
     REASONING_MAX_CHARS = 300         # 推理内容保留长度
-    LOOP_WHITELIST = {"run_command", "DelegateTask"}  # 不受死循环检测限制的工具
+    LOOP_WHITELIST = {"run_command", "DelegateTask", "Subagent"}  # 不受死循环检测限制的工具
 
     def __init__(
         self,
@@ -69,6 +69,7 @@ class BaseLoopEngine:
         self.offload_threshold = config.offload_threshold
         self.offload_summary_strategy = config.offload_summary_strategy
         self.offload_summary_chars = config.offload_summary_chars
+        self.subagent_workspace_dir = config.subagent_workspace_dir
 
         # 任务指令生成参数
         self.planning_max_tokens = getattr(config, "planning_max_tokens", PLANNING_MAX_TOKENS_DEFAULT)
@@ -115,7 +116,14 @@ class BaseLoopEngine:
     def system_prompt(self) -> str | list[dict]:
         """动态拼接：基础 prompt + 项目路径 + 已注册 skill 的名称/描述"""
         if self._prompt_builder is None:
-            self._prompt_builder = PromptBuilder(self._system_prompt, self._skills)
+            delegation_tool_name = (
+                "Subagent" if self.loop_mode == "react_subagent" else "DelegateTask"
+            )
+            self._prompt_builder = PromptBuilder(
+                self._system_prompt,
+                self._skills,
+                delegation_tool_name=delegation_tool_name,
+            )
         return self._prompt_builder.build()
 
     @system_prompt.setter

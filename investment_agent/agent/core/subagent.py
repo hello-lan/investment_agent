@@ -177,7 +177,7 @@ def create_child_engine(
     from ..skills.dependency import expand_with_dependencies
     from ..tools.access_policy import AccessPolicy
     from ..tools.run_command import RunCommandTool
-    from ...config import PROJECT_ROOT
+    from ...config import ROOT_DIR
     from .base_loop import BaseLoopEngine
     from .loop_factory import create_loop_engine
 
@@ -191,7 +191,7 @@ def create_child_engine(
 
     # 子Agent 始终创建独立的 CompressRuntimeCompressor + offloader（不继承父Agent compressor）
     offload_dir = os.path.join(
-        PROJECT_ROOT, "data", ".offload", parent.session_id, session_id,
+        ROOT_DIR, "data", ".offload", parent.session_id, session_id,
     )
     offloader = ContextOffloader(
         offload_dir,
@@ -224,7 +224,7 @@ def create_child_engine(
     child = create_loop_engine(
         session_id=session_id,
         system_prompt=(
-            SUBAGENT_SYSTEM_PROMPT.format(PROJECT_ROOT=PROJECT_ROOT)
+            SUBAGENT_SYSTEM_PROMPT.format(ROOT_DIR=ROOT_DIR)
             + OFFLOAD_AWARE_PROMPT
         ),
         provider=parent.provider,
@@ -243,7 +243,7 @@ def create_child_engine(
 
     # 注册基础工具（独立实例 + AccessPolicy）
     run_tool = RunCommandTool()
-    policy = AccessPolicy.for_agent(str(PROJECT_ROOT), all_skill_names)
+    policy = AccessPolicy.for_agent(str(ROOT_DIR), all_skill_names)
     run_tool.access_policy = policy
     child._system_prompt += policy.prompt_section()
     child.register_tool(run_tool.schema, run_tool.run)

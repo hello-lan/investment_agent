@@ -7,7 +7,12 @@ from __future__ import annotations
 
 import json
 
-from ..agent.config import AgentRunConfig, DEFAULT_SYSTEM_PROMPT, PLANNING_MAX_TOKENS_DEFAULT
+from ..agent.config import (
+    AgentRunConfig,
+    DEFAULT_SYSTEM_PROMPT,
+    PLANNING_MAX_TOKENS_DEFAULT,
+    SUBAGENT_WORKSPACE_DIR_DEFAULT,
+)
 from ..agent.constants import OffloadSummaryStrategy, ProviderType, LoopMode
 from ..agent.core.provider import ClaudeProvider, ModelProvider, OpenAICompatProvider
 from ..agent.skills.cache import get_cache
@@ -78,6 +83,8 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
                                  or global_cfg.get("offload_summary_chars", 200),
         "planning_max_tokens": agent_cfg.get("planning_max_tokens")
                                or global_cfg.get("planning_max_tokens", PLANNING_MAX_TOKENS_DEFAULT),
+        "subagent_workspace_dir": agent_cfg.get("subagent_workspace_dir")
+                                   or global_cfg.get("subagent_workspace_dir", SUBAGENT_WORKSPACE_DIR_DEFAULT),
     }
 
 
@@ -187,6 +194,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         offload_summary_strategy=engine_params["offload_summary_strategy"],
         offload_summary_chars=engine_params["offload_summary_chars"],
         planning_max_tokens=engine_params["planning_max_tokens"],
+        subagent_workspace_dir=engine_params["subagent_workspace_dir"],
         input_price=provider.input_price,
         output_price=provider.output_price,
         currency=provider.currency,

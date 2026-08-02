@@ -50,7 +50,7 @@ depends_on:
 - 股票代码：{code}
 - 年份范围：{start_year}-{end_year}（共{count}年）
 - 报告类型：年报
-- 保存目录：{PROJECT_ROOT}/data/reports/{code}/1_pdf/
+- 保存目录：{ROOT_DIR}/data/reports/{code}/1_pdf/
 - 已有文件跳过，只下载缺失的
 ```
 
@@ -70,13 +70,13 @@ depends_on:
 
 **委派指令模板（精简）**：
 ```
-输出目录: {PROJECT_ROOT}/data/reports/{code}/2_markdown/
+输出目录: {ROOT_DIR}/data/reports/{code}/2_markdown/
 逐一转换以下PDF为Markdown（快速模式）:
-- {PROJECT_ROOT}/data/reports/{code}/1_pdf/{code}/{code}_{year1}年年度报告_{year1}.pdf
-- {PROJECT_ROOT}/data/reports/{code}/1_pdf/{code}/{code}_{year2}年年度报告_{year2}.pdf
+- {ROOT_DIR}/data/reports/{code}/1_pdf/{code}/{code}_{year1}年年度报告_{year1}.pdf
+- {ROOT_DIR}/data/reports/{code}/1_pdf/{code}/{code}_{year2}年年度报告_{year2}.pdf
 - ...
 ```
-> 路径占位符替换规则：`{code}`=股票代码（如002258），`{year1}`=起始年，`{PROJECT_ROOT}`=项目根目录
+> 路径占位符替换规则：`{code}`=股票代码（如002258），`{year1}`=起始年，`{ROOT_DIR}`=项目根目录
 
 **输入**：步骤 1 输出的 PDF 路径列表
 **输出**：`data/reports/{股票代码}/2_markdown/` 目录下的 `.md` 文件
@@ -94,10 +94,10 @@ depends_on:
 
 **委派指令模板（精简）**：
 ```
-输出根目录: {PROJECT_ROOT}/data/reports/{code}/3_split/
+输出根目录: {ROOT_DIR}/data/reports/{code}/3_split/
 逐一切割以下Markdown文件（auto模式，启用 --financial-sub）:
-- {PROJECT_ROOT}/data/reports/{code}/2_markdown/{code}_{year1}年年度报告_{year1}.md
-- {PROJECT_ROOT}/data/reports/{code}/2_markdown/{code}_{year2}年年度报告_{year2}.md
+- {ROOT_DIR}/data/reports/{code}/2_markdown/{code}_{year1}年年度报告_{year1}.md
+- {ROOT_DIR}/data/reports/{code}/2_markdown/{code}_{year2}年年度报告_{year2}.md
 - ...
 ⚠️ 必须使用指定的输出根目录，禁止自行为输出目录改名（如3_chapters等）
 ```
@@ -119,9 +119,9 @@ depends_on:
 ```
 股票代码: {code}
 股票名称: {name}
-split_dir: {PROJECT_ROOT}/data/reports/{code}/3_split/
+split_dir: {ROOT_DIR}/data/reports/{code}/3_split/
 覆盖年份: {year1}-{yearN}
-输出报告: {PROJECT_ROOT}/data/reports/{code}/4_output/{code}_{year1}-{yearN}_财务排雷分析报告.md
+输出报告: {ROOT_DIR}/data/reports/{code}/4_output/{code}_{year1}-{yearN}_财务排雷分析报告.md
 ```
 > split_dir 下的年份子目录格式为 `{code}_{year}/`，collect_data.py 脚本按此格式自动发现
 

@@ -16,12 +16,12 @@ from .app.api.stock_dashboard import router as stock_dashboard_router
 from .app.api.stock_dashboard_old import router as stock_dashboard_old_router
 from .agent.skills.loader import init_skills_dir
 from .agent.tools.run_command import set_project_root
-from .config import PROJECT_ROOT, resolve_skills_dir
+from .config import ROOT_DIR, resolve_skills_dir
 
-STATIC_DIR = PROJECT_ROOT / "investment_agent" / "app" / "static"
-TEMPLATE_DIR = PROJECT_ROOT / "investment_agent" / "app" / "templates"
-OUTPUT_DIR = PROJECT_ROOT / "output"
-DATA_DIR = PROJECT_ROOT / "data"
+STATIC_DIR = ROOT_DIR / "investment_agent" / "app" / "static"
+TEMPLATE_DIR = ROOT_DIR / "investment_agent" / "app" / "templates"
+OUTPUT_DIR = ROOT_DIR / "output"
+DATA_DIR = ROOT_DIR / "data"
 
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
     (OUTPUT_DIR / "reports").mkdir(parents=True, exist_ok=True)
     (OUTPUT_DIR / "charts").mkdir(parents=True, exist_ok=True)
     # 注入 agent 包所需的全局依赖
-    set_project_root(str(PROJECT_ROOT))
+    set_project_root(str(ROOT_DIR))
     init_skills_dir(resolve_skills_dir())
     yield
 

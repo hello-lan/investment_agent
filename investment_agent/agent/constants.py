@@ -46,6 +46,7 @@ class LoopMode(StrEnum):
     """执行循环模式。"""
     DUAL_LOOP = "dual_loop"
     REACT = "react"
+    REACT_SUBAGENT = "react_subagent"
 
 
 # ── 消息角色 ──────────────────────────────────────────────────────────

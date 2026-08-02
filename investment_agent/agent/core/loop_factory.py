@@ -6,12 +6,14 @@ from ..context.runtime_compressor import RuntimeCompressor
 from .base_loop import BaseLoopEngine
 from .dual_loop import DualLoopEngine
 from .react_loop import ReactLoopEngine
+from .react_subagent_loop import ReactSubagentLoopEngine
 from .provider import ModelProvider
 
 
 _ENGINE_REGISTRY = {
     LoopMode.DUAL_LOOP: DualLoopEngine,
     LoopMode.REACT: ReactLoopEngine,
+    LoopMode.REACT_SUBAGENT: ReactSubagentLoopEngine,
 }
 
 

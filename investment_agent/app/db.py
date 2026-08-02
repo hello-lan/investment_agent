@@ -5,11 +5,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from ..config import get_settings, PROJECT_ROOT
+from ..config import get_settings, ROOT_DIR
 
 
 # SQLite 数据库文件路径
-DB_PATH = (PROJECT_ROOT / get_settings().get("db", {}).get("sqlite_path", "./data/agent.db")).resolve()
+DB_PATH = (ROOT_DIR / get_settings().get("db", {}).get("sqlite_path", "./data/agent.db")).resolve()
 
 
 @asynccontextmanager

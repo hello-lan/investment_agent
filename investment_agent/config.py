@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from functools import lru_cache
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ROOT_DIR = Path(__file__).resolve().parent.parent
 SETTINGS_PATH = Path(__file__).resolve().parent / "settings.json"
 
 
@@ -37,7 +37,7 @@ def resolve_skills_dir(raw_dir: str | None = None) -> Path:
         raw_dir = str(skills_cfg.get("directory", "./skills")).strip() or "./skills"
     path = Path(raw_dir)
     if not path.is_absolute():
-        path = PROJECT_ROOT / path
+        path = ROOT_DIR / path
     return path
 
 

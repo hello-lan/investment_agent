@@ -95,10 +95,11 @@ function renderToolOptions(selected = []) {
     } else if (selectedSet.has(t.name)) {
       cls += ' selected';
     }
+    const badge = isAuto ? '<span class="skill-type-tag orch">默认</span>' : '';
     return `<div class="${cls}" data-skill="${esc(t.name)}" data-auto="${isAuto ? '1' : '0'}">
       <span class="skill-mark">&#10003;</span>
       <div class="skill-item-text">
-        <span>${esc(t.name)}</span>
+        <span>${badge}${esc(t.name)}</span>
         <span class="skill-deps">${esc(t.description)}</span>
       </div>
     </div>`;

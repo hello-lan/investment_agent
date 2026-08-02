@@ -9,6 +9,7 @@ from .constants import OffloadSummaryStrategy, LoopMode
 
 # ── 默认值常量（全局单一来源，避免多文件硬编码）──────────────────────────
 PLANNING_MAX_TOKENS_DEFAULT = 1024  # 委派任务指令生成 max_tokens 默认值
+SUBAGENT_WORKSPACE_DIR_DEFAULT = "data/tmp/subagents"
 
 
 DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
@@ -38,10 +39,10 @@ SUBAGENT_SYSTEM_PROMPT = """你是一个专业的子Agent，负责执行父Agent
 10. **指令截断处理**：如果 task 指令在文件列表处截断（如只列出了部分文件），完成已列出的文件后立即返回结果，并在返回中注明"指令可能截断，以下文件未处理: ..."。禁止自行猜测或查找其他文件来填补
 
 ## 项目目录结构
-- 项目根目录: {PROJECT_ROOT}
-- 技能脚本路径: {PROJECT_ROOT}/extensions/skills/<skill_name>/scripts/
+- 项目根目录: {ROOT_DIR}
+- 技能脚本路径: {ROOT_DIR}/extensions/skills/<skill_name>/scripts/
   - 运行脚本时使用绝对路径，不要 `cd` 后再执行
-- 数据目录: {PROJECT_ROOT}/data/reports/<股票代码>/
+- 数据目录: {ROOT_DIR}/data/reports/<股票代码>/
   - 1_pdf/ → 下载的PDF年报
   - 2_markdown/ → PDF转换后的Markdown文件
   - 3_split/ → 按章节目录切割后的文件
@@ -68,6 +69,23 @@ TASK_PLANNER_PROMPT = (
     "7. 用中文输出，不要添加解释性文字，直接输出任务指令"
 )
 
+SUBAGENT_TASK_PLANNER_SYSTEM = "你是一个文件型子任务规划助手，负责生成安全、聚焦的子Agent任务说明。"
+
+SUBAGENT_TASK_PLANNER_PROMPT = (
+    "你是一个任务规划者。请基于以下对话上下文，为文件子Agent生成一条完整的任务指令。\n\n"
+    "项目根目录: {project_root}\n"
+    "允许读取的 targets: {targets}\n"
+    "期望输出: {expected_output}\n"
+    "授权输出路径: {output_path}\n\n"
+    "父Agent要求: {task}\n\n"
+    "要求：\n"
+    "1. 只围绕已授权的 targets 展开，不要扩展到其他文件或目录\n"
+    "2. 如需写文件，只能写入 {project_root}/data 目录及其子目录；若仅提供文件名，默认写入 {project_root}/data/tmp\n"
+    "3. 指令中明确要读取哪些文件、筛选什么信息、输出什么结果\n"
+    "4. 指令必须自包含，禁止让子Agent自行猜测路径或范围\n"
+    "5. 用中文输出，不要添加解释性文字，直接输出任务指令"
+)
+
 SLOW_THINK_PROMPT = (
     "[慢思考 @ step {step}] 请简要评估：\n"
     "1. 当前进度是否符合目标？\n"
@@ -89,6 +107,40 @@ OFFLOAD_AWARE_PROMPT = """
 - 如需查看完整原始内容，使用 run_command: cat 文件路径
 - 不要尝试删除或修改这些临时文件"""
 
+REACT_SUBAGENT_PROMPT = """
+
+## Subagent 委派策略
+当任务满足以下任一条件时，优先考虑调用 `Subagent`：
+- 需要在一组文件或目录中做读取、搜索、筛选、汇总
+- 子任务与主线推理相对独立，适合在隔离上下文中完成
+- 需要产出中间文件或结构化摘录，随后再由你整合判断
+
+使用 `Subagent` 时：
+- `task` 要求清晰、聚焦、自包含
+- `targets` 明确限定子Agent可读取的文件/目录范围
+- `output_path` 仅在确实需要落盘时提供
+- 子Agent主要使用安全文件工具（list/read/search/write），不使用 shell 命令
+- 若子Agent返回的文件工具结果头包含 `complete=false` 或 `has_more=true`，说明它仍需继续翻页读取，不能把当前结果当作完整结论
+
+简单单步查询、需要你立即综合判断的任务，不要委派。
+"""
+
+SAFE_SUBAGENT_SYSTEM_PROMPT = """你是一个通用文件子Agent，负责在授权范围内完成局部文件任务。
+
+关键规则：
+1. 你的主要能力是列举文件、读取文件、搜索文本、写入授权输出文件
+2. 严格限定在任务说明给出的 targets 范围内读取文件，禁止自行扩大搜索范围
+3. 只能写入 `{ROOT_DIR}/data` 目录及其子目录；若只提供文件名，默认写入 `{ROOT_DIR}/data/tmp`
+4. `read_file` / `list_files` / `search_text` 的结果会先给出 `[result]` 元信息头；若看到 `complete=false` 或 `has_more=true`，表示结果未完整返回，必须结合 `next_start_line` 或 `next_offset` 继续读取，不能直接声称已覆盖全部内容
+5. 禁止访问 shell / cmd / run_command，也不要假设存在其他高风险工具
+6. 发现范围不足、文件缺失、或写入路径未授权时，应直接返回原因
+7. 输出需说明：处理了哪些文件、得出了什么结果、是否有未完成项
+
+## 项目根目录
+- ROOT_DIR = {ROOT_DIR}
+- 子Agent工作区 = {WORKSPACE_ROOT}
+"""
+
 
 @dataclass
 class EngineConfig:
@@ -105,6 +157,7 @@ class EngineConfig:
     offload_summary_strategy: str = OffloadSummaryStrategy.TRUNCATE
     offload_summary_chars: int = 200
     planning_max_tokens: int = PLANNING_MAX_TOKENS_DEFAULT  # 任务指令生成 max_tokens（委派给子Agent时的指令长度上限）
+    subagent_workspace_dir: str = SUBAGENT_WORKSPACE_DIR_DEFAULT
 
 
 @dataclass
@@ -154,6 +207,7 @@ class AgentRunConfig:
 
     # ── 子Agent配置 ──
     max_subagent_depth: int = 3
+    subagent_workspace_dir: str = SUBAGENT_WORKSPACE_DIR_DEFAULT
 
     # ── Provider 定价信息 ──
     input_price: float | None = None

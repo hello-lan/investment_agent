@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import re
 
-# 系统设备路径白名单（允许访问，不检查 PROJECT_ROOT 限制）
+# 系统设备路径白名单（允许访问，不检查 ROOT_DIR 限制）
 _SYSTEM_PATHS_UNIX = {"/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"}
 _SYSTEM_PATHS_WINDOWS = {"NUL", "CON", "PRN", "AUX"}
 

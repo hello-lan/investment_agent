@@ -14,7 +14,8 @@ from .base import BaseTool
 _tool_registry: dict[str, BaseTool] = {}
 
 # 始终自动绑定的基础设施工具（Skill 加载 + 命令执行 + 任务委派）
-AUTO_BOUND_TOOLS: set[str] = {"Skill", "run_command", "DelegateTask"}
+#AUTO_BOUND_TOOLS: set[str] = {"Skill", "run_command", "DelegateTask"}
+AUTO_BOUND_TOOLS: set[str] = {"Skill", "read_file", "write_file", "list_files", "search_files"}
 
 
 def register_tool(cls):
@@ -24,12 +25,9 @@ def register_tool(cls):
     return cls
 
 
-# —— 导入工具模块，触发 @register_tool 装饰器 ——
-# 这些 import 的唯一目的是让工具类的 @register_tool 生效。
-# 不再需要手动逐个 _register() 调用。
-from .run_command import RunCommandTool  # noqa: F401
-from .delegate_task import DelegateTaskTool  # noqa: F401
-from .skill_tool import SkillTool  # noqa: F401
+# —— 保留向后兼容的装饰器注册接口 ——
+# scoped file tools / 运行时工具目录现已由 AgentRegistry 显式装配，
+# 此模块不再通过 import side effect 预加载工具，避免循环导入。
 
 
 # ── 查询 API（_tool_registry 是内部实现，外部只通过以下函数访问）──
