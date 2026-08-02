@@ -9,7 +9,7 @@ import logging
 from typing import AsyncGenerator
 
 from ..config import SUBAGENT_SYSTEM_PROMPT
-from ..constants import EventType
+from ..constants import EventType, LoopMode
 
 _log = logging.getLogger(__name__)
 
@@ -155,7 +155,7 @@ def create_child_engine(
     parent,
     skill_names: list[str],
     delegate_id: str,
-) -> "AgentEngine":
+) -> "BaseLoopEngine":
     """创建委派子引擎（共享父Agent的 token 预算）。
 
     子引擎为叶子执行器，不允许嵌套委派。
@@ -166,7 +166,7 @@ def create_child_engine(
         delegate_id: 委派 ID
 
     Returns:
-        配置好工具和技能的子 AgentEngine 实例
+        配置好工具和技能的子循环引擎实例
     """
     import os
     from ..config import EngineConfig, OFFLOAD_AWARE_PROMPT, PLANNING_MAX_TOKENS_DEFAULT
@@ -178,8 +178,8 @@ def create_child_engine(
     from ..tools.access_policy import AccessPolicy
     from ..tools.run_command import RunCommandTool
     from ...config import PROJECT_ROOT
-    # 延迟导入避免循环依赖
-    from .engine import AgentEngine
+    from .base_loop import BaseLoopEngine
+    from .loop_factory import create_loop_engine
 
     depth = parent.subagent_depth + 1
     session_id = f"delegate_{delegate_id}"
@@ -210,6 +210,7 @@ def create_child_engine(
     child_cfg = EngineConfig(
         max_steps=child_max_steps,
         slow_think_interval=0,
+        loop_mode=LoopMode.REACT,
         token_budget=remaining_budget,
         loop_detection_threshold=parent.loop_threshold,
         context_trim_token_threshold=parent.context_trim_token_threshold,
@@ -220,7 +221,7 @@ def create_child_engine(
         planning_max_tokens=PLANNING_MAX_TOKENS_DEFAULT,  # 子Agent不委派，使用默认值即可
     )
 
-    child = AgentEngine(
+    child = create_loop_engine(
         session_id=session_id,
         system_prompt=(
             SUBAGENT_SYSTEM_PROMPT.format(PROJECT_ROOT=PROJECT_ROOT)
@@ -329,15 +330,6 @@ async def run_delegate_task(
             {"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}
         ],
     }]
-    # 注入当前日期到首条消息（不在 system prompt 中注入以保持 cache 命中）
-    from datetime import datetime
-    now = datetime.now()
-    date_note = (
-        f"[系统信息] 当前时间为 {now.year} 年 {now.month} 月 {now.day} 日 "
-        f"{now.hour:02d}:{now.minute:02d}。"
-        f"请以当前时间为基准判断时间相关的问题。\n\n"
-    )
-    child_messages[0]["content"][0]["text"] = date_note + child_messages[0]["content"][0]["text"]
     depth = parent.subagent_depth + 1
     prefix = "sub_" * depth
 

@@ -10,6 +10,18 @@ let defaultModelId = '';
 
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+function formatTestModelError(model, data) {
+  const lines = [
+    `模型：${model.name || model.id}`,
+    `Provider：${model.type}`,
+    `主错误：${data.error || '未知错误'}`,
+  ];
+  if (data.root_error && data.root_error !== data.error) lines.push(`根因：${data.root_error}`);
+  if (data.hint) lines.push(`建议：${data.hint}`);
+  if (data.detail) lines.push('', `错误链：\n${data.detail}`);
+  return lines.join('\n');
+}
+
 async function loadAll() {
   const models = await fetch('/api/settings/models').then(r => r.json());
   modelList = models.list || [];
@@ -157,8 +169,12 @@ async function testModel(id) {
     btn.textContent = data.ok ? '✓ 连通' : '✗ 失败';
     btn.style.background = data.ok ? '#e8f5e9' : '#ffebee';
     btn.style.color = data.ok ? '#2e7d32' : '#c62828';
+    if (!data.ok) {
+      alert(formatTestModelError(m, data));
+    }
   } catch(e) {
     btn.textContent = '✗ 失败';
+    alert(`模型：${m.name || m.id}\n主错误：${e?.message || '请求失败'}\n建议：请检查服务端日志或稍后重试。`);
   }
   setTimeout(() => { btn.textContent = '测试'; btn.disabled = false; btn.style = ''; }, 3000);
 }

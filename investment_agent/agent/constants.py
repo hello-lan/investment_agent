@@ -40,6 +40,14 @@ class OffloadSummaryStrategy(StrEnum):
     LOCAL = "local"
 
 
+# ── Loop 类型 ──────────────────────────────────────────────────────────
+
+class LoopMode(StrEnum):
+    """执行循环模式。"""
+    DUAL_LOOP = "dual_loop"
+    REACT = "react"
+
+
 # ── 消息角色 ──────────────────────────────────────────────────────────
 
 class MessageRole(StrEnum):

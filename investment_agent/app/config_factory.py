@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import json
 
-from ..agent.config import AgentRunConfig, DEFAULT_SYSTEM_PROMPT
-from ..agent.constants import OffloadSummaryStrategy, ProviderType
+from ..agent.config import AgentRunConfig, DEFAULT_SYSTEM_PROMPT, PLANNING_MAX_TOKENS_DEFAULT
+from ..agent.constants import OffloadSummaryStrategy, ProviderType, LoopMode
 from ..agent.core.provider import ClaudeProvider, ModelProvider, OpenAICompatProvider
 from ..agent.skills.cache import get_cache
 from ..config import get_settings
@@ -48,6 +48,14 @@ async def get_provider(model_id: str | None = None) -> ModelProvider:
     return provider
 
 
+def _normalize_loop_mode(value) -> str:
+    """标准化 loop_mode，未知值回退到 dual_loop。"""
+    try:
+        return LoopMode(value)
+    except (TypeError, ValueError):
+        return LoopMode.DUAL_LOOP
+
+
 def _resolve_engine_params(agent_cfg: dict | None) -> dict:
     """合并 agent 级 engine_config 与全局 settings，返回已解析的引擎参数。"""
     settings = get_settings()
@@ -56,6 +64,7 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
     return {
         "max_steps": agent_cfg.get("max_steps") or global_cfg.get("max_steps", 30),
         "slow_think_interval": agent_cfg.get("slow_think_interval") or global_cfg.get("slow_think_interval", 3),
+        "loop_mode": _normalize_loop_mode(agent_cfg.get("loop_mode") or global_cfg.get("loop_mode", LoopMode.DUAL_LOOP)),
         "token_budget": agent_cfg.get("token_budget") or global_cfg.get("token_budget", 100000),
         "loop_detection_threshold": agent_cfg.get("loop_detection_threshold") or global_cfg.get("loop_detection_threshold", 3),
         "context_trim_token_threshold": agent_cfg.get("context_trim_token_threshold")
@@ -67,6 +76,8 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
                                     or global_cfg.get("offload_summary_strategy", OffloadSummaryStrategy.TRUNCATE),
         "offload_summary_chars": agent_cfg.get("offload_summary_chars")
                                  or global_cfg.get("offload_summary_chars", 200),
+        "planning_max_tokens": agent_cfg.get("planning_max_tokens")
+                               or global_cfg.get("planning_max_tokens", PLANNING_MAX_TOKENS_DEFAULT),
     }
 
 
@@ -164,6 +175,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         max_tokens=fields["max_tokens"],
         max_steps=engine_params["max_steps"],
         slow_think_interval=engine_params["slow_think_interval"],
+        loop_mode=engine_params["loop_mode"],
         token_budget=engine_params["token_budget"],
         loop_detection_threshold=engine_params["loop_detection_threshold"],
         context_trim_token_threshold=engine_params["context_trim_token_threshold"],
@@ -174,6 +186,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         offload_threshold=engine_params["offload_threshold"],
         offload_summary_strategy=engine_params["offload_summary_strategy"],
         offload_summary_chars=engine_params["offload_summary_chars"],
+        planning_max_tokens=engine_params["planning_max_tokens"],
         input_price=provider.input_price,
         output_price=provider.output_price,
         currency=provider.currency,

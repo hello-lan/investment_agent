@@ -180,9 +180,19 @@ function fillContextFields(cfg) {
   elCtxSysBudget.value = budget.system_max_tokens ?? '';
 }
 
+function updateLoopModeUI() {
+  const mode = document.getElementById('agentLoopMode').value || 'dual_loop';
+  const slowThinkRow = document.getElementById('agentSlowThinkRow');
+  const slowThink = document.getElementById('agentSlowThink');
+  const disabled = mode !== 'dual_loop';
+  slowThink.disabled = disabled;
+  slowThinkRow.style.opacity = disabled ? '0.55' : '1';
+}
+
 function fillEngineFields(cfg) {
   const maxSteps = document.getElementById('agentMaxSteps');
   const slowThink = document.getElementById('agentSlowThink');
+  const loopMode = document.getElementById('agentLoopMode');
   const tokenBudget = document.getElementById('agentTokenBudget');
   const loopThreshold = document.getElementById('agentLoopThreshold');
   const maxSubagentDepth = document.getElementById('agentMaxSubagentDepth');
@@ -191,6 +201,7 @@ function fillEngineFields(cfg) {
     maxSteps.value = 30;
     document.getElementById('agentMaxStepsVal').textContent = '30';
     slowThink.value = 3;
+    loopMode.value = 'dual_loop';
     document.getElementById('agentSlowThinkVal').textContent = '3';
     tokenBudget.value = '';
     loopThreshold.value = 3;
@@ -201,12 +212,15 @@ function fillEngineFields(cfg) {
     document.getElementById('agentOffloadThreshold').value = '';
     document.getElementById('agentOffloadStrategy').value = 'truncate';
     document.getElementById('agentOffloadSummaryChars').value = '';
+    document.getElementById('agentTrimTokenThreshold').value = '';
+    updateLoopModeUI();
     return;
   }
 
   maxSteps.value = cfg.max_steps ?? 30;
   document.getElementById('agentMaxStepsVal').textContent = cfg.max_steps ?? 30;
   slowThink.value = cfg.slow_think_interval ?? 3;
+  loopMode.value = cfg.loop_mode || 'dual_loop';
   document.getElementById('agentSlowThinkVal').textContent = cfg.slow_think_interval ?? 3;
   tokenBudget.value = cfg.token_budget ?? '';
   loopThreshold.value = cfg.loop_detection_threshold ?? 3;
@@ -218,6 +232,7 @@ function fillEngineFields(cfg) {
   document.getElementById('agentOffloadStrategy').value = cfg.offload_summary_strategy || 'truncate';
   document.getElementById('agentOffloadSummaryChars').value = cfg.offload_summary_chars ?? '';
   document.getElementById('agentTrimTokenThreshold').value = cfg.context_trim_token_threshold ?? '';
+  updateLoopModeUI();
 }
 
 function openModal(agent){
@@ -279,6 +294,7 @@ async function saveAgent(){
 
   const engineMaxSteps = parseInt(document.getElementById('agentMaxSteps').value) || 30;
   const engineSlowThink = parseInt(document.getElementById('agentSlowThink').value) || 3;
+  const engineLoopMode = document.getElementById('agentLoopMode').value || 'dual_loop';
   const engineTokenBudget = toNullableInt(document.getElementById('agentTokenBudget').value);
   const engineLoopThreshold = parseInt(document.getElementById('agentLoopThreshold').value) || 3;
   const maxSubagentDepth = parseInt(document.getElementById('agentMaxSubagentDepth').value) || 3;
@@ -292,6 +308,7 @@ async function saveAgent(){
   const engineConfig = {
     max_steps: engineMaxSteps,
     slow_think_interval: engineSlowThink,
+    loop_mode: engineLoopMode,
     token_budget: engineTokenBudget,
     loop_detection_threshold: engineLoopThreshold,
     context_trim_token_threshold: trimTokenThreshold,
@@ -322,4 +339,10 @@ async function saveAgent(){
   loadAgents();
 }
 
-window.addEventListener('DOMContentLoaded', loadAgents);
+window.addEventListener('DOMContentLoaded', () => {
+  const loopMode = document.getElementById('agentLoopMode');
+  if (loopMode) {
+    loopMode.addEventListener('change', updateLoopModeUI);
+  }
+  loadAgents();
+});

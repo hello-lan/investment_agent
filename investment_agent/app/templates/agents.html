@@ -212,11 +212,19 @@
 
           <div class="config-sub-block csb-safety">
             <div class="sub-title">安全策略</div>
+            <div class="form-row">
+              <label>Loop 类型</label>
+              <select id="agentLoopMode">
+                <option value="dual_loop">双循环（快循环 + 慢思考）</option>
+                <option value="react">ReAct（普通单循环）</option>
+              </select>
+              <div class="hint">双循环适合复杂任务纠偏；ReAct 适合更轻量、线性的工具推理流程</div>
+            </div>
             <div class="form-row-2col">
-              <div class="form-row">
+              <div class="form-row" id="agentSlowThinkRow">
                 <label>慢思考间隔（每N步）</label>
                 <div class="range-row"><input type="range" id="agentSlowThink" min="1" max="10" step="1" oninput="document.getElementById('agentSlowThinkVal').textContent=this.value"><span class="range-val" id="agentSlowThinkVal">3</span></div>
-                <div class="hint">留空=默认 3</div>
+                <div class="hint">仅双循环模式生效；留空=默认 3</div>
               </div>
               <div class="form-row">
                 <label>死循环检测阈值</label>

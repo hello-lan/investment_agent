@@ -14,7 +14,8 @@ from .constants import ProviderType
 from .context.context_offloader import ContextOffloader
 from .context.manager import ContextManager, ContextResult
 from .context.runtime_compressor import CompressRuntimeCompressor, NoOpRuntimeCompressor
-from .core.engine import AgentEngine
+from .core.base_loop import BaseLoopEngine
+from .core.loop_factory import create_loop_engine
 from .protocols import ExecutionLoop, LifecycleHooks, Storage
 from .registry_container import AgentRegistry
 from .skills.dependency import expand_with_dependencies
@@ -31,7 +32,7 @@ class AgentRunner:
         context:   上下文管理策略，默认 TokenBudgetManager
     """
 
-    _engines: ClassVar[dict[str, AgentEngine]] = {}
+    _engines: ClassVar[dict[str, BaseLoopEngine]] = {}
 
     def __init__(
         self,
@@ -179,7 +180,7 @@ class AgentRunner:
         )
 
     @classmethod
-    def get_engine(cls, task_id: str) -> AgentEngine | None:
+    def get_engine(cls, task_id: str) -> BaseLoopEngine | None:
         """获取指定任务的引擎实例。"""
         return cls._engines.get(task_id)
 
@@ -194,7 +195,7 @@ class AgentRunner:
 
     # ── Internal helpers ──────────────────────────────────────────────────
 
-    def _create_engine(self, config: AgentRunConfig, session_id: str) -> AgentEngine:
+    def _create_engine(self, config: AgentRunConfig, session_id: str) -> BaseLoopEngine:
         """创建引擎并注册工具/技能。start() 和 setup() 共用。"""
         # 创建注册容器 + 编目默认工具
         registry = AgentRegistry()
@@ -220,6 +221,7 @@ class AgentRunner:
         engine_cfg = EngineConfig(
             max_steps=config.max_steps,
             slow_think_interval=config.slow_think_interval,
+            loop_mode=config.loop_mode,
             token_budget=config.token_budget,
             loop_detection_threshold=config.loop_detection_threshold,
             context_trim_token_threshold=config.context_trim_token_threshold,
@@ -229,7 +231,7 @@ class AgentRunner:
             offload_summary_chars=config.offload_summary_chars,
             planning_max_tokens=config.planning_max_tokens,
         )
-        engine = AgentEngine(
+        engine = create_loop_engine(
             session_id=session_id,
             system_prompt=config.system_prompt,
             provider=config.provider,

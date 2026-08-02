@@ -13,7 +13,7 @@ import logging
 from typing import Any, AsyncGenerator
 
 from ..agent.runner import AgentRunner
-from ..agent.core.engine import AgentEngine
+from ..agent.core.base_loop import BaseLoopEngine
 from ..agent.core.events import build_trace_detail
 from .observability.hooks_impl import ObservabilityHooks
 from .observability.cost_tracker import _estimate_cost_usd
@@ -44,7 +44,7 @@ class _TaskState:
         self,
         task_id: str,
         session_id: str,
-        engine: AgentEngine,
+        engine: BaseLoopEngine,
         runner: AgentRunner,
         config: Any,
     ):
@@ -72,7 +72,7 @@ class TaskManager:
     async def start_task(
         self,
         task_id: str,
-        engine: AgentEngine,
+        engine: BaseLoopEngine,
         runner: AgentRunner,
         config: Any,
         session_id: str,
@@ -242,7 +242,7 @@ class TaskManager:
     async def _fire_terminal_hooks(
         self,
         hooks: ObservabilityHooks,
-        engine: AgentEngine,
+        engine: BaseLoopEngine,
         last_step: int,
         event: dict,
     ) -> None:

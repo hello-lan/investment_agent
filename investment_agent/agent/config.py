@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .constants import OffloadSummaryStrategy
+from .constants import OffloadSummaryStrategy, LoopMode
 
 # ── 默认值常量（全局单一来源，避免多文件硬编码）──────────────────────────
 PLANNING_MAX_TOKENS_DEFAULT = 1024  # 委派任务指令生成 max_tokens 默认值
@@ -96,6 +96,7 @@ class EngineConfig:
 
     max_steps: int = 60
     slow_think_interval: int = 3
+    loop_mode: str = LoopMode.DUAL_LOOP
     token_budget: int = 100_000
     loop_detection_threshold: int = 3
     context_trim_token_threshold: int = 0  # input_tokens 超过此阈值时触发安全压缩（0=禁用）
@@ -131,6 +132,7 @@ class AgentRunConfig:
     # ── 引擎参数 ──
     max_steps: int = 60
     slow_think_interval: int = 3
+    loop_mode: str = LoopMode.DUAL_LOOP
     token_budget: int = 100000
     loop_detection_threshold: int = 3
     context_trim_token_threshold: int = 0
