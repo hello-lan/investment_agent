@@ -53,8 +53,10 @@ async def get_provider(model_id: str | None = None) -> ModelProvider:
     return provider
 
 
-def _normalize_loop_mode(value) -> str:
-    """标准化 loop_mode，未知值回退到 dual_loop。"""
+def _normalize_loop_mode(value, workflow_id: str | None = None) -> str:
+    """标准化 loop_mode，兼容旧 workflow=plan_execute 数据。"""
+    if value == LoopMode.WORKFLOW and not workflow_id:
+        return LoopMode.PLAN_EXECUTE
     try:
         return LoopMode(value)
     except (TypeError, ValueError):
@@ -69,7 +71,11 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
     return {
         "max_steps": agent_cfg.get("max_steps") or global_cfg.get("max_steps", 30),
         "slow_think_interval": agent_cfg.get("slow_think_interval") or global_cfg.get("slow_think_interval", 3),
-        "loop_mode": _normalize_loop_mode(agent_cfg.get("loop_mode") or global_cfg.get("loop_mode", LoopMode.DUAL_LOOP)),
+        "loop_mode": _normalize_loop_mode(
+            agent_cfg.get("loop_mode") or global_cfg.get("loop_mode", LoopMode.DUAL_LOOP),
+            workflow_id=agent_cfg.get("workflow_id"),
+        ),
+        "workflow_id": agent_cfg.get("workflow_id") or None,
         "token_budget": agent_cfg.get("token_budget") or global_cfg.get("token_budget", 100000),
         "loop_detection_threshold": agent_cfg.get("loop_detection_threshold") or global_cfg.get("loop_detection_threshold", 3),
         "context_trim_token_threshold": agent_cfg.get("context_trim_token_threshold")
@@ -195,6 +201,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         offload_summary_chars=engine_params["offload_summary_chars"],
         planning_max_tokens=engine_params["planning_max_tokens"],
         subagent_workspace_dir=engine_params["subagent_workspace_dir"],
+        workflow_id=engine_params["workflow_id"],
         input_price=provider.input_price,
         output_price=provider.output_price,
         currency=provider.currency,

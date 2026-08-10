@@ -134,7 +134,7 @@
           </div>
           <div id="agentSkills" class="skill-list tab-panel active"></div>
           <div id="agentTools" class="skill-list tab-panel"></div>
-          <div class="hint">安全文件工具默认绑定；`run_command` 和 `DelegateTask` 需在此处手动勾选后才会启用；在 ReAct + Subagent 模式下，Subagent 会自动绑定，无需手动选择</div>
+          <div class="hint">安全文件工具默认绑定；`run_command` 和 `DelegateTask` 需在此处手动勾选后才会启用；在 ReAct + Subagent 模式下，Subagent 会自动绑定；在 Plan Execute 模式下，系统会同时复用 `DelegateTask` 和 `Subagent` 做规划委派；在 Workflow 模式下，执行流程由选中的 JSON/DAG 工作流定义驱动</div>
         </div>
       </div>
     </div>
@@ -153,8 +153,17 @@
             <option value="dual_loop">双循环（快循环 + 慢思考）</option>
             <option value="react">ReAct（普通单循环）</option>
             <option value="react_subagent">ReAct + Subagent（安全文件子Agent）</option>
+            <option value="plan_execute">Plan Execute（规划 + 委派执行）</option>
+            <option value="workflow">Workflow（JSON / DAG 工作流）</option>
           </select>
-          <div class="hint">双循环适合复杂任务纠偏；ReAct 适合轻量工具推理；ReAct + Subagent 适合把文件检索/筛选/写作类子任务委派给安全子Agent</div>
+          <div class="hint">双循环适合复杂任务纠偏；ReAct 适合轻量工具推理；ReAct + Subagent 适合把文件检索/筛选/写作类子任务委派给安全子Agent；Plan Execute 适合开放式复杂任务先拆解，再按阶段委派执行并最终汇总；Workflow 适合执行已定义好的 JSON / DAG 工作流</div>
+        </div>
+        <div class="form-row" id="agentWorkflowRow" style="display:none;">
+          <label>关联 Workflow</label>
+          <select id="agentWorkflowSelect">
+            <option value="">请选择 Workflow</option>
+          </select>
+          <div class="hint">仅在 Workflow 模式下生效。请先在 <a href="/workflows" style="color:#1a1a2e">Workflow</a> 页面创建 JSON / DAG 工作流</div>
         </div>
       </div>
     </div>
@@ -236,7 +245,7 @@
               <div class="form-row" id="agentSlowThinkRow">
                 <label>慢思考间隔（每N步）</label>
                 <div class="range-row"><input type="range" id="agentSlowThink" min="1" max="10" step="1" oninput="document.getElementById('agentSlowThinkVal').textContent=this.value"><span class="range-val" id="agentSlowThinkVal">3</span></div>
-                <div class="hint">仅双循环模式生效；留空=默认 3</div>
+                <div class="hint">双循环与 Plan Execute 模式可配置；Workflow 模式当前不使用慢思考</div>
               </div>
               <div class="form-row">
                 <label>死循环检测阈值</label>

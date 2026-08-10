@@ -12,6 +12,7 @@ from .app.api.skills import router as skills_router
 from .app.api.files import router as files_router
 from .app.api.observability import router as observability_router
 from .app.api.tools import router as tools_router
+from .app.api.workflows import router as workflows_router
 from .app.api.stock_dashboard import router as stock_dashboard_router
 from .app.api.stock_dashboard_old import router as stock_dashboard_old_router
 from .agent.skills.loader import init_skills_dir
@@ -28,6 +29,7 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 TABS = [
     {"label": "对话", "href": "/"},
     {"label": "Agent", "href": "/agents"},
+    {"label": "Workflow", "href": "/workflows"},
     {"label": "Skills", "href": "/skills"},
     {"label": "模型", "href": "/model"},
     {"label": "文件", "href": "/files"},
@@ -59,6 +61,7 @@ app.include_router(skills_router)
 app.include_router(files_router)
 app.include_router(observability_router)
 app.include_router(tools_router)
+app.include_router(workflows_router)
 app.include_router(stock_dashboard_router)
 app.include_router(stock_dashboard_old_router)
 
@@ -75,6 +78,11 @@ async def index(request: Request):
 @app.get("/agents")
 async def agents_page(request: Request):
     return templates.TemplateResponse("agents.html", {"request": request, "tabs": TABS, "active_tab": "Agent"})
+
+
+@app.get("/workflows")
+async def workflows_page(request: Request):
+    return templates.TemplateResponse("workflows.html", {"request": request, "tabs": TABS, "active_tab": "Workflow"})
 
 
 @app.get("/skills")

@@ -6,7 +6,7 @@ import uuid
 from typing import AsyncGenerator, Callable
 
 from ._signals import _Terminal, _Value
-from ..constants import EventType, StopReason
+from ..constants import EventType, StopReason, LoopMode
 from .provider import ModelProvider, LLMResponse, ToolCall
 from .prompt_builder import PromptBuilder
 from .tool_executor import ToolExecutor, LoopDetector
@@ -53,6 +53,7 @@ class BaseLoopEngine:
         self._skills: list = []
         self._allowed_skill_names: set[str] = set()
         self._interrupt = asyncio.Event()
+        self.storage = None
 
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -64,6 +65,7 @@ class BaseLoopEngine:
         self.token_budget = config.token_budget
         self.loop_threshold = config.loop_detection_threshold
         self.context_trim_token_threshold = config.context_trim_token_threshold
+        self.workflow_id = getattr(config, "workflow_id", None)
 
         # 上下文卸载参数（子Agent创建时需要读取）
         self.offload_threshold = config.offload_threshold
@@ -116,13 +118,18 @@ class BaseLoopEngine:
     def system_prompt(self) -> str | list[dict]:
         """动态拼接：基础 prompt + 项目路径 + 已注册 skill 的名称/描述"""
         if self._prompt_builder is None:
-            delegation_tool_name = (
-                "Subagent" if self.loop_mode == "react_subagent" else "DelegateTask"
-            )
+            if self.loop_mode == LoopMode.REACT_SUBAGENT:
+                delegation_tool_names = ["Subagent"]
+            elif self.loop_mode == LoopMode.PLAN_EXECUTE:
+                delegation_tool_names = ["DelegateTask", "Subagent"]
+            elif self.loop_mode == LoopMode.WORKFLOW:
+                delegation_tool_names = []
+            else:
+                delegation_tool_names = ["DelegateTask"]
             self._prompt_builder = PromptBuilder(
                 self._system_prompt,
                 self._skills,
-                delegation_tool_name=delegation_tool_name,
+                delegation_tool_names=delegation_tool_names,
             )
         return self._prompt_builder.build()
 

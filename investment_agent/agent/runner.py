@@ -236,6 +236,7 @@ class AgentRunner:
             offload_summary_chars=config.offload_summary_chars,
             planning_max_tokens=config.planning_max_tokens,
             subagent_workspace_dir=config.subagent_workspace_dir,
+            workflow_id=config.workflow_id,
         )
         engine = create_loop_engine(
             session_id=session_id,
@@ -246,10 +247,15 @@ class AgentRunner:
             config=engine_cfg,
             runtime_compressor=runtime_compressor,
         )
+        engine.storage = self._storage
         allowed_tools = registry.auto_bound_tools | set(config.tools)
         enable_run_command = "run_command" in allowed_tools
         if config.loop_mode == LoopMode.REACT_SUBAGENT:
             allowed_tools = (allowed_tools - {"DelegateTask"}) | {"Subagent"}
+        elif config.loop_mode == LoopMode.PLAN_EXECUTE:
+            allowed_tools = allowed_tools | {"DelegateTask", "Subagent"}
+        elif config.loop_mode == LoopMode.WORKFLOW:
+            allowed_tools = allowed_tools
         else:
             allowed_tools = allowed_tools - {"Subagent"}
 

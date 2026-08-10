@@ -64,7 +64,9 @@ var EVT_CATEGORY = {
   text_delta: 'engine', slow_think: 'engine', done: 'engine',
   error: 'engine', interrupted: 'engine',
   llm_request: 'llm', llm_response: 'llm',
-  context_budget: 'system', cache_metrics: 'system'
+  context_budget: 'system', cache_metrics: 'system',
+  workflow_start: 'workflow', workflow_node_ready: 'workflow', workflow_node_start: 'workflow',
+  workflow_node_done: 'workflow', workflow_node_error: 'workflow', workflow_done: 'workflow'
 };
 
 function evtCategory(type) {
@@ -682,6 +684,12 @@ async function fetchAndExpandRow(row) {
       }
     } else if (data.event_type === 'llm_response') {
       expandHtml = buildResponseExpand(detailObj);
+    } else if (data.event_type === 'tool_call') {
+      expandHtml = buildSubToolExpand(detailObj, 'input');
+    } else if (data.event_type === 'tool_result') {
+      expandHtml = buildSubToolExpand(detailObj, 'output');
+    } else if (data.event_type.indexOf('workflow_node_') === 0) {
+      expandHtml = buildWorkflowExpand(detailObj);
     } else if (data.event_type.indexOf('tool_call') !== -1) {
       expandHtml = buildSubToolExpand(detailObj, 'input');
     } else if (data.event_type.indexOf('tool_result') !== -1) {
@@ -737,6 +745,33 @@ function buildStepRow(step) {
     }
     rowClass += ' obs-expandable';
     expandHtml = buildSubToolExpand(detailObj, 'output');
+  } else if (step.event_type === 'workflow_start') {
+    detailText = 'Workflow 启动 · ' + esc(detailObj.workflow_name || detailObj.workflow_id || '-');
+    if (detailObj.node_count != null) detailText += ' · 节点数 ' + detailObj.node_count;
+  } else if (step.event_type === 'workflow_node_ready') {
+    detailText = '节点就绪 · ' + esc(detailObj.node_id || '-') + ' (' + esc(detailObj.node_type || '-') + ')';
+    rowClass += ' obs-expandable';
+    expandHtml = buildWorkflowExpand(detailObj);
+  } else if (step.event_type === 'workflow_node_start') {
+    detailText = '节点执行 · ' + esc(detailObj.node_id || '-') + ' (' + esc(detailObj.node_type || '-') + ')';
+    if (detailObj.task) detailText += ' → ' + esc(String(detailObj.task).slice(0, 80));
+    rowClass += ' obs-expandable';
+    expandHtml = buildWorkflowExpand(detailObj);
+  } else if (step.event_type === 'workflow_node_done') {
+    detailText = '节点完成 · ' + esc(detailObj.node_id || '-') + ' (' + esc(detailObj.node_type || '-') + ')';
+    if (detailObj.output_preview) detailText += ' → ' + esc(String(detailObj.output_preview).slice(0, 100));
+    rowClass += ' obs-expandable';
+    expandHtml = buildWorkflowExpand(detailObj);
+  } else if (step.event_type === 'workflow_node_error') {
+    detailText = '节点失败 · ' + esc(detailObj.node_id || '-') + ' (' + esc(detailObj.node_type || '-') + ')';
+    if (detailObj.message) detailText += ' → ' + esc(String(detailObj.message).slice(0, 100));
+    rowClass += ' obs-expandable';
+    expandHtml = buildWorkflowExpand(detailObj);
+  } else if (step.event_type === 'workflow_done') {
+    detailText = 'Workflow 完成 · ' + esc(detailObj.workflow_name || detailObj.workflow_id || '-');
+    if (detailObj.completed_nodes != null && detailObj.node_count != null) {
+      detailText += ' · ' + detailObj.completed_nodes + '/' + detailObj.node_count + ' 节点';
+    }
   } else if (step.event_type.indexOf('tool_call') !== -1 && detailObj.tool) {
     var subPrefix = step.event_type.replace(/tool_call.*$/, '');
     detailText = '[' + (subPrefix || 'sub_').replace(/_/g, ' ').trim() + '] ' + detailObj.tool;
@@ -827,7 +862,8 @@ function buildStepRow(step) {
     var et = step.event_type;
     if (et === 'llm_request' || et === 'llm_response' ||
         et.indexOf('tool_call') !== -1 || et.indexOf('tool_result') !== -1 ||
-        et.indexOf('llm_request') !== -1 || et.indexOf('llm_response') !== -1) {
+        et.indexOf('llm_request') !== -1 || et.indexOf('llm_response') !== -1 ||
+        et.indexOf('workflow_node_') === 0) {
       rowClass += ' obs-expandable';
     }
   }
@@ -1000,6 +1036,72 @@ function buildSubLlmExpand(detailObj, mode) {
         '<pre class="obs-msg-content">' + esc(JSON.stringify(detailObj.tool_calls, null, 2)) + '</pre>' +
         '</div>';
     }
+  }
+  html += '</div></div>';
+  return html;
+}
+
+function buildWorkflowExpand(detailObj) {
+  var html = '<div class="obs-step-expand"><div class="obs-step-expand-inner">';
+  if (detailObj.workflow_name || detailObj.workflow_id) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">workflow</div>' +
+      '<pre class="obs-msg-content">' + esc(detailObj.workflow_name || detailObj.workflow_id) + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.node_id) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">node_id</div>' +
+      '<pre class="obs-msg-content">' + esc(detailObj.node_id) + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.node_type) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">node_type</div>' +
+      '<pre class="obs-msg-content">' + esc(detailObj.node_type) + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.depends_on && detailObj.depends_on.length) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">depends_on</div>' +
+      '<pre class="obs-msg-content">' + esc(JSON.stringify(detailObj.depends_on, null, 2)) + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.input_from && detailObj.input_from.length) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">input_from</div>' +
+      '<pre class="obs-msg-content">' + esc(JSON.stringify(detailObj.input_from, null, 2)) + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.task) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">task</div>' +
+      '<pre class="obs-msg-content">' + esc(detailObj.task) + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.output_preview) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">output_preview</div>' +
+      '<pre class="obs-msg-content">' + esc(detailObj.output_preview) + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.message) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">message</div>' +
+      '<pre class="obs-msg-content">' + esc(detailObj.message) + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.node_count != null) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">node_count</div>' +
+      '<pre class="obs-msg-content">' + detailObj.node_count + '</pre>' +
+      '</div>';
+  }
+  if (detailObj.completed_nodes != null) {
+    html += '<div class="obs-rsp-section">' +
+      '<div class="obs-rsp-label">completed_nodes</div>' +
+      '<pre class="obs-msg-content">' + detailObj.completed_nodes + '</pre>' +
+      '</div>';
   }
   html += '</div></div>';
   return html;

@@ -47,6 +47,8 @@ class LoopMode(StrEnum):
     DUAL_LOOP = "dual_loop"
     REACT = "react"
     REACT_SUBAGENT = "react_subagent"
+    PLAN_EXECUTE = "plan_execute"
+    WORKFLOW = "workflow"
 
 
 # ── 消息角色 ──────────────────────────────────────────────────────────
@@ -87,6 +89,14 @@ class EventType(StrEnum):
     CONTEXT_TRIM = "context_trim"
     CONTEXT_BUDGET = "context_budget"
     BUDGET_STATUS = "budget_status"
+
+    # Workflow
+    WORKFLOW_START = "workflow_start"
+    WORKFLOW_NODE_READY = "workflow_node_ready"
+    WORKFLOW_NODE_START = "workflow_node_start"
+    WORKFLOW_NODE_DONE = "workflow_node_done"
+    WORKFLOW_NODE_ERROR = "workflow_node_error"
+    WORKFLOW_DONE = "workflow_done"
 
     # 子Agent 内部事件（不直接暴露给前端）
     _DELEGATE_DONE = "__delegate_done__"

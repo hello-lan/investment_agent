@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 _RENDER_EVENTS = frozenset({
     "text_delta", "tool_call", "tool_result",
     "slow_think", "done", "error", "interrupted",
+    "workflow_start", "workflow_node_ready", "workflow_node_start",
+    "workflow_node_done", "workflow_node_error", "workflow_done",
 })
 
 # 任务完成后缓冲保留时间（秒）

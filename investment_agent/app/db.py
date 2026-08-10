@@ -84,6 +84,16 @@ async def init_db() -> None:
                 updated_at    TEXT                    -- 更新时间
             );
 
+            -- Workflow 定义（JSON / DAG）
+            CREATE TABLE IF NOT EXISTS workflows (
+                id          TEXT PRIMARY KEY,
+                name        TEXT NOT NULL,
+                description TEXT,
+                definition  TEXT NOT NULL,
+                created_at  TEXT,
+                updated_at  TEXT
+            );
+
             -- 对话会话
             CREATE TABLE IF NOT EXISTS sessions (
                 id         TEXT PRIMARY KEY,          -- 会话 ID
@@ -630,6 +640,26 @@ async def init_db() -> None:
         await _ensure_columns(db, column_migrations)
 
         # ── 特殊迁移（数据回填）──────────────────────────────────────
+        # 兼容旧 pseudo-workflow：无 workflow_id 的 workflow 统一视为 plan_execute
+        async with db.execute("SELECT id, engine_config FROM agents WHERE engine_config IS NOT NULL") as cursor:
+            agent_rows = await cursor.fetchall()
+        for row in agent_rows:
+            raw = row["engine_config"]
+            if not raw:
+                continue
+            try:
+                import json
+                cfg = json.loads(raw)
+            except Exception:
+                continue
+            if cfg.get("loop_mode") == "workflow" and not cfg.get("workflow_id"):
+                cfg["loop_mode"] = "plan_execute"
+                await db.execute(
+                    "UPDATE agents SET engine_config = ? WHERE id = ?",
+                    (json.dumps(cfg, ensure_ascii=False), row["id"]),
+                )
+        await db.commit()
+
         # agents.model_id: 从旧列 model_name 回填
         cursor = await db.execute("PRAGMA table_info(agents)")
         agent_cols = {row[1] for row in await cursor.fetchall()}

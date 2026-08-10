@@ -14,8 +14,11 @@ if TYPE_CHECKING:
 
 _DELEGATION_STRATEGY = (
     "\n\n## 子任务委派策略\n"
-    "加载技能说明后，分析其工作流程是否包含互不依赖的子阶段。若技能明确分为多个独立分析维度，"
-    "应使用 {tool_name} 将各维度委派给子Agent逐个执行。"
+    "加载技能说明后，分析其工作流程是否包含互不依赖的子阶段。"
+    "若存在多个独立分析维度，应优先使用合适的委派工具拆分执行。\n"
+    "- DelegateTask：适合技能驱动、工具调用密集、需要多步执行的开放式子任务\n"
+    "- Subagent：适合限定文件范围的检索、筛选、摘录、写作类子任务\n"
+    "当前可用委派工具：{tool_names}。"
     "父Agent保留全局判断（交叉验证、综合定级），子Agent返回结果后汇总整合。"
     "简单场景（如仅查单一指标）直接执行，无需委派。"
 )
@@ -34,11 +37,11 @@ class PromptBuilder:
         self,
         base_prompt: str,
         skills: list | None = None,
-        delegation_tool_name: str = "DelegateTask",
+        delegation_tool_names: list[str] | None = None,
     ):
         self._base_prompt = base_prompt
         self._skills = skills or []
-        self._delegation_tool_name = delegation_tool_name
+        self._delegation_tool_names = delegation_tool_names or ["DelegateTask"]
 
     def set_base_prompt(self, prompt: str) -> None:
         """更新基础 prompt（ContextManager 处理后调用）。"""
@@ -68,12 +71,18 @@ class PromptBuilder:
         if "# 可用技能" in prompt:
             return prompt
 
+        delegation = ""
+        if self._delegation_tool_names:
+            delegation = _DELEGATION_STRATEGY.format(
+                tool_names=", ".join(self._delegation_tool_names),
+            )
+
         return (
             prompt
             + "\n\n---\n\n# 可用技能\n\n"
             + self._format_skills()
             + "\n\n> 使用 Skill 工具加载技能完整说明后再执行。"
-            + _DELEGATION_STRATEGY.format(tool_name=self._delegation_tool_name)
+            + delegation
         )
 
     def _ensure_project_info(self, prompt: str) -> str:

@@ -568,6 +568,22 @@ function _handleStreamEvent(ev, state){
   } else if (ev.type === 'tool_result'){
     _addThinkStep(_ensureBlock(s, setState), s.thinkSteps, '🔧', s.pendingTool?.tool || ev.tool, ev.output);
     s.pendingTool = null;
+  } else if (ev.type === 'workflow_start'){
+    const detail = (ev.workflow_name || 'Workflow') + ' · ' + (ev.node_count || 0) + ' 个节点';
+    _addThinkStep(_ensureBlock(s, setState), s.thinkSteps, '🧭', 'Workflow 启动', detail);
+  } else if (ev.type === 'workflow_node_ready'){
+    const deps = (ev.depends_on || []).length;
+    const inputs = (ev.input_from || []).length;
+    _addThinkStep(_ensureBlock(s, setState), s.thinkSteps, '📦', `节点就绪：${ev.node_id}`, `${ev.node_type} · 依赖 ${deps} · 输入 ${inputs}`);
+  } else if (ev.type === 'workflow_node_start'){
+    _addThinkStep(_ensureBlock(s, setState), s.thinkSteps, '▶️', `执行节点：${ev.node_id}`, ev.task || ev.node_type || '');
+  } else if (ev.type === 'workflow_node_done'){
+    _addThinkStep(_ensureBlock(s, setState), s.thinkSteps, '✅', `节点完成：${ev.node_id}`, ev.output_preview || ev.node_type || '');
+  } else if (ev.type === 'workflow_node_error'){
+    _addThinkStep(_ensureBlock(s, setState), s.thinkSteps, '❌', `节点失败：${ev.node_id}`, ev.message || '执行失败');
+  } else if (ev.type === 'workflow_done'){
+    const detail = `完成 ${ev.completed_nodes || 0}/${ev.node_count || 0} 个节点`;
+    _addThinkStep(_ensureBlock(s, setState), s.thinkSteps, '🏁', 'Workflow 完成', detail);
   } else if (ev.type === 'slow_think'){
     _addThinkStep(_ensureBlock(s, setState), s.thinkSteps, '💭', '策略复盘', ev.content);
   } else if (ev.type === 'done'){

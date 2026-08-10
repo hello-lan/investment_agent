@@ -3,6 +3,7 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 let availableModels = [];
 let availableSkills = [];
 let availableTools = [];
+let availableWorkflows = [];
 
 function modelNameById(id) {
   const m = availableModels.find(x => x.id === id);
@@ -25,8 +26,17 @@ async function loadToolsCatalog() {
   return availableTools;
 }
 
+async function loadWorkflowsCatalog() {
+  try {
+    availableWorkflows = await fetch('/api/workflows').then(r => r.json());
+  } catch {
+    availableWorkflows = [];
+  }
+  return availableWorkflows;
+}
+
 async function loadAgents(){
-  await Promise.all([loadModels(), loadSkillsCatalog(), loadToolsCatalog()]);
+  await Promise.all([loadModels(), loadSkillsCatalog(), loadToolsCatalog(), loadWorkflowsCatalog()]);
   const agents = await fetch('/api/agents').then(r => r.json());
   const grid = document.getElementById('agentGrid');
   if(!agents.length){
@@ -78,6 +88,16 @@ function renderSkillOptions(selected = []) {
       </div>
     </div>`;
   }).join('');
+}
+
+function renderWorkflowOptions(selectedId = '') {
+  const select = document.getElementById('agentWorkflowSelect');
+  if (!select) return;
+  const options = ['<option value="">请选择 Workflow</option>'];
+  (availableWorkflows || []).forEach(w => {
+    options.push(`<option value="${esc(w.id)}" ${w.id === selectedId ? 'selected' : ''}>${esc(w.name)}</option>`);
+  });
+  select.innerHTML = options.join('');
 }
 
 function renderToolOptions(selected = []) {
@@ -185,9 +205,14 @@ function updateLoopModeUI() {
   const mode = document.getElementById('agentLoopMode').value || 'dual_loop';
   const slowThinkRow = document.getElementById('agentSlowThinkRow');
   const slowThink = document.getElementById('agentSlowThink');
-  const disabled = mode !== 'dual_loop';
+  const workflowRow = document.getElementById('agentWorkflowRow');
+  const workflowSelect = document.getElementById('agentWorkflowSelect');
+  const enabledModes = new Set(['dual_loop', 'plan_execute']);
+  const disabled = !enabledModes.has(mode);
   slowThink.disabled = disabled;
   slowThinkRow.style.opacity = disabled ? '0.55' : '1';
+  if (workflowRow) workflowRow.style.display = mode === 'workflow' ? '' : 'none';
+  if (workflowSelect) workflowSelect.disabled = mode !== 'workflow';
 }
 
 function fillEngineFields(cfg) {
@@ -197,6 +222,7 @@ function fillEngineFields(cfg) {
   const tokenBudget = document.getElementById('agentTokenBudget');
   const loopThreshold = document.getElementById('agentLoopThreshold');
   const maxSubagentDepth = document.getElementById('agentMaxSubagentDepth');
+  const workflowSelect = document.getElementById('agentWorkflowSelect');
 
   if (!cfg) {
     maxSteps.value = 30;
@@ -214,6 +240,7 @@ function fillEngineFields(cfg) {
     document.getElementById('agentOffloadStrategy').value = 'truncate';
     document.getElementById('agentOffloadSummaryChars').value = '';
     document.getElementById('agentTrimTokenThreshold').value = '';
+    if (workflowSelect) workflowSelect.value = '';
     updateLoopModeUI();
     return;
   }
@@ -233,6 +260,7 @@ function fillEngineFields(cfg) {
   document.getElementById('agentOffloadStrategy').value = cfg.offload_summary_strategy || 'truncate';
   document.getElementById('agentOffloadSummaryChars').value = cfg.offload_summary_chars ?? '';
   document.getElementById('agentTrimTokenThreshold').value = cfg.context_trim_token_threshold ?? '';
+  if (workflowSelect) workflowSelect.value = cfg.workflow_id || '';
   updateLoopModeUI();
 }
 
@@ -247,6 +275,7 @@ function openModal(agent){
   document.getElementById('agentModel').innerHTML = buildModelOptions(agent?.model_id || '');
   document.getElementById('agentTemp').value = agent?.temperature ?? 0.7;
   document.getElementById('agentMaxTokens').value = agent?.max_tokens || 4096;
+  renderWorkflowOptions(engineConfig?.workflow_id || '');
   fillContextFields(compressConfig);
   fillEngineFields(engineConfig);
   renderSkillOptions(agent?.skills || []);
@@ -306,10 +335,13 @@ async function saveAgent(){
   const offloadSummaryChars = toNullableInt(document.getElementById('agentOffloadSummaryChars').value);
   const trimTokenThreshold = toNullableInt(document.getElementById('agentTrimTokenThreshold').value);
 
+  const workflowId = (document.getElementById('agentWorkflowSelect')?.value || '').trim();
+
   const engineConfig = {
     max_steps: engineMaxSteps,
     slow_think_interval: engineSlowThink,
     loop_mode: engineLoopMode,
+    workflow_id: workflowId || null,
     token_budget: engineTokenBudget,
     loop_detection_threshold: engineLoopThreshold,
     context_trim_token_threshold: trimTokenThreshold,
@@ -319,6 +351,11 @@ async function saveAgent(){
     offload_summary_strategy: offloadStrategy,
     offload_summary_chars: offloadSummaryChars,
   };
+
+  if (engineLoopMode === 'workflow' && !workflowId) {
+    alert('Workflow 模式下请选择一个 Workflow');
+    return;
+  }
 
   const body = {
     name,

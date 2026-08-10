@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Workflow — 投研 Agent{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/css/settings.css">
+<style>
+.workflow-item{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:16px 0;border-bottom:1px solid #eee;}
+.workflow-item:last-child{border-bottom:none;}
+.workflow-info{flex:1;min-width:0;}
+.workflow-name{font-size:15px;font-weight:600;color:#1a1a2e;margin-bottom:4px;}
+.workflow-desc{font-size:13px;color:#666;line-height:1.6;margin-bottom:8px;}
+.workflow-meta{font-size:12px;color:#999;display:flex;gap:12px;flex-wrap:wrap;}
+.workflow-actions{display:flex;gap:8px;flex-shrink:0;}
+.json-editor{width:100%;min-height:320px;border:1px solid #ddd;border-radius:8px;padding:12px;font-size:13px;line-height:1.6;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;resize:vertical;outline:none;background:#fafafa;}
+.validation-box{margin-top:10px;padding:10px 12px;border-radius:6px;font-size:12px;display:none;white-space:pre-wrap;line-height:1.6;}
+.validation-box.ok{display:block;background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;}
+.validation-box.error{display:block;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;}
+</style>
+{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="card">
+    <div class="card-header">
+      <h3>Workflow 配置</h3>
+      <button class="btn btn-primary btn-sm" onclick="openWorkflowModal()">+ 新建 Workflow</button>
+    </div>
+    <div class="card-body">
+      <div id="workflowListContainer"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="workflowModalOverlay">
+  <div class="modal" style="width:760px;max-width:92vw;">
+    <div class="modal-title" id="workflowModalTitle">新建 Workflow</div>
+    <input type="hidden" id="workflowEditId">
+
+    <div class="form-row">
+      <label>名称 <span class="required">*</span></label>
+      <input type="text" id="workflowName" placeholder="如：财报多阶段分析">
+    </div>
+    <div class="form-row">
+      <label>描述</label>
+      <input type="text" id="workflowDesc" placeholder="简要说明该 Workflow 的用途">
+    </div>
+    <div class="form-row">
+      <label>Workflow JSON <span class="required">*</span></label>
+      <textarea id="workflowDefinition" class="json-editor" spellcheck="false"></textarea>
+      <div class="hint">定义标准 JSON / DAG 工作流。节点类型支持 assistant / delegate / subagent。</div>
+      <div id="workflowValidation" class="validation-box"></div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-cancel" onclick="closeWorkflowModal()">取消</button>
+      <button class="btn btn-ghost" onclick="validateWorkflowDefinition()">校验 JSON</button>
+      <button class="btn btn-primary" onclick="saveWorkflow()">保存</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/workflows.js"></script>
+{% endblock %}
