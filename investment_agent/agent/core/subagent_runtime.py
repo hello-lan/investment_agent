@@ -105,6 +105,7 @@ def _create_child_engine(parent, request: SubagentRequest, subagent_id: str):
         loop_mode=LoopMode.REACT_SUBAGENT,
         token_budget=remaining_budget,
         loop_detection_threshold=parent.loop_threshold,
+        runtime_context_compression_enabled=False,
         context_trim_token_threshold=0,
         max_subagent_depth=parent.max_subagent_depth,
         offload_threshold=parent.offload_threshold,

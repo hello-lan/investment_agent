@@ -151,6 +151,7 @@ class EngineConfig:
     loop_mode: str = LoopMode.DUAL_LOOP
     token_budget: int = 100_000
     loop_detection_threshold: int = 3
+    runtime_context_compression_enabled: bool = True
     context_trim_token_threshold: int = 0  # input_tokens 超过此阈值时触发安全压缩（0=禁用）
     max_subagent_depth: int = 3
     offload_threshold: int = 800
@@ -189,6 +190,7 @@ class AgentRunConfig:
     loop_mode: str = LoopMode.DUAL_LOOP
     token_budget: int = 100000
     loop_detection_threshold: int = 3
+    runtime_context_compression_enabled: bool = True
     context_trim_token_threshold: int = 0
     planning_max_tokens: int = PLANNING_MAX_TOKENS_DEFAULT  # 任务指令生成 max_tokens（委派给子Agent时的指令长度上限）
 

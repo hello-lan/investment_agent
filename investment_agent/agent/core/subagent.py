@@ -171,7 +171,7 @@ def create_child_engine(
     import os
     from ..config import EngineConfig, OFFLOAD_AWARE_PROMPT, PLANNING_MAX_TOKENS_DEFAULT
     from ..context.context_offloader import ContextOffloader
-    from ..context.runtime_compressor import CompressRuntimeCompressor
+    from ..context.runtime_compressor import CompressRuntimeCompressor, NoOpRuntimeCompressor
     from ..tools.skill_tool import SkillTool
     from ..skills.loader import _registry as skill_registry
     from ..skills.dependency import expand_with_dependencies
@@ -189,21 +189,30 @@ def create_child_engine(
         0, parent.token_budget - parent.total_input_tokens - parent.total_output_tokens
     )
 
-    # 子Agent 始终创建独立的 CompressRuntimeCompressor + offloader（不继承父Agent compressor）
-    offload_dir = os.path.join(
-        ROOT_DIR, "data", ".offload", parent.session_id, session_id,
+    runtime_context_compression_enabled = getattr(
+        parent,
+        "runtime_context_compression_enabled",
+        True,
     )
-    offloader = ContextOffloader(
-        offload_dir,
-        threshold=parent.offload_threshold,
-        summary_strategy=parent.offload_summary_strategy,
-        summary_chars=parent.offload_summary_chars,
-        provider=parent.provider,
-    )
-    child_compressor = CompressRuntimeCompressor(
-        keep_recent=3,
-        offloader=offloader,
-    )
+    if runtime_context_compression_enabled and parent.context_trim_token_threshold > 0:
+        offload_dir = os.path.join(
+            ROOT_DIR, "data", ".offload", parent.session_id, session_id,
+        )
+        offloader = ContextOffloader(
+            offload_dir,
+            threshold=parent.offload_threshold,
+            summary_strategy=parent.offload_summary_strategy,
+            summary_chars=parent.offload_summary_chars,
+            provider=parent.provider,
+        )
+        child_compressor = CompressRuntimeCompressor(
+            keep_recent=3,
+            offloader=offloader,
+        )
+        child_trim_threshold = parent.context_trim_token_threshold
+    else:
+        child_compressor = NoOpRuntimeCompressor()
+        child_trim_threshold = 0
 
     # 子Agent 执行繁重IO任务，保底 max_steps=60（父Agent的50可能不足以拆分大文件）
     child_max_steps = max(parent.max_steps, 60)
@@ -213,7 +222,8 @@ def create_child_engine(
         loop_mode=LoopMode.REACT,
         token_budget=remaining_budget,
         loop_detection_threshold=parent.loop_threshold,
-        context_trim_token_threshold=parent.context_trim_token_threshold,
+        runtime_context_compression_enabled=runtime_context_compression_enabled,
+        context_trim_token_threshold=child_trim_threshold,
         max_subagent_depth=parent.max_subagent_depth,
         offload_threshold=parent.offload_threshold,
         offload_summary_strategy=parent.offload_summary_strategy,
@@ -225,7 +235,7 @@ def create_child_engine(
         session_id=session_id,
         system_prompt=(
             SUBAGENT_SYSTEM_PROMPT.format(ROOT_DIR=ROOT_DIR)
-            + OFFLOAD_AWARE_PROMPT
+            + (OFFLOAD_AWARE_PROMPT if child_trim_threshold > 0 else "")
         ),
         provider=parent.provider,
         temperature=parent.temperature,

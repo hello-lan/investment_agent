@@ -64,6 +64,11 @@ class BaseLoopEngine:
         self.loop_mode = config.loop_mode
         self.token_budget = config.token_budget
         self.loop_threshold = config.loop_detection_threshold
+        self.runtime_context_compression_enabled = getattr(
+            config,
+            "runtime_context_compression_enabled",
+            True,
+        )
         self.context_trim_token_threshold = config.context_trim_token_threshold
         self.workflow_id = getattr(config, "workflow_id", None)
 

@@ -63,34 +63,61 @@ def _normalize_loop_mode(value, workflow_id: str | None = None) -> str:
         return LoopMode.DUAL_LOOP
 
 
+def _resolve_preferring_agent(agent_cfg: dict, global_cfg: dict, key: str, default=None):
+    """优先使用 Agent 显式值；仅在缺失或为 None 时回退到全局/默认。"""
+    if key in agent_cfg and agent_cfg.get(key) is not None:
+        return agent_cfg.get(key)
+    if key in global_cfg and global_cfg.get(key) is not None:
+        return global_cfg.get(key)
+    return default
+
+
 def _resolve_engine_params(agent_cfg: dict | None) -> dict:
     """合并 agent 级 engine_config 与全局 settings，返回已解析的引擎参数。"""
     settings = get_settings()
     global_cfg = settings.get("engine", {})
     agent_cfg = agent_cfg or {}
+
+    runtime_context_compression_enabled = _resolve_preferring_agent(
+        agent_cfg,
+        global_cfg,
+        "runtime_context_compression_enabled",
+        True,
+    )
+    workflow_id = _resolve_preferring_agent(agent_cfg, global_cfg, "workflow_id")
+    context_trim_token_threshold = _resolve_preferring_agent(
+        agent_cfg,
+        global_cfg,
+        "context_trim_token_threshold",
+        0,
+    )
+    if runtime_context_compression_enabled is False:
+        context_trim_token_threshold = 0
+
     return {
-        "max_steps": agent_cfg.get("max_steps") or global_cfg.get("max_steps", 30),
-        "slow_think_interval": agent_cfg.get("slow_think_interval") or global_cfg.get("slow_think_interval", 3),
+        "max_steps": _resolve_preferring_agent(agent_cfg, global_cfg, "max_steps", 30),
+        "slow_think_interval": _resolve_preferring_agent(agent_cfg, global_cfg, "slow_think_interval", 3),
         "loop_mode": _normalize_loop_mode(
-            agent_cfg.get("loop_mode") or global_cfg.get("loop_mode", LoopMode.DUAL_LOOP),
-            workflow_id=agent_cfg.get("workflow_id"),
+            _resolve_preferring_agent(agent_cfg, global_cfg, "loop_mode", LoopMode.DUAL_LOOP),
+            workflow_id=workflow_id,
         ),
-        "workflow_id": agent_cfg.get("workflow_id") or None,
-        "token_budget": agent_cfg.get("token_budget") or global_cfg.get("token_budget", 100000),
-        "loop_detection_threshold": agent_cfg.get("loop_detection_threshold") or global_cfg.get("loop_detection_threshold", 3),
-        "context_trim_token_threshold": agent_cfg.get("context_trim_token_threshold")
-                                        or global_cfg.get("context_trim_token_threshold", 0),
-        "max_subagent_depth": agent_cfg.get("max_subagent_depth") or global_cfg.get("max_subagent_depth", 3),
-        "offload_threshold": agent_cfg.get("offload_threshold")
-                             or global_cfg.get("offload_threshold", 800),
-        "offload_summary_strategy": agent_cfg.get("offload_summary_strategy")
-                                    or global_cfg.get("offload_summary_strategy", OffloadSummaryStrategy.TRUNCATE),
-        "offload_summary_chars": agent_cfg.get("offload_summary_chars")
-                                 or global_cfg.get("offload_summary_chars", 200),
-        "planning_max_tokens": agent_cfg.get("planning_max_tokens")
-                               or global_cfg.get("planning_max_tokens", PLANNING_MAX_TOKENS_DEFAULT),
-        "subagent_workspace_dir": agent_cfg.get("subagent_workspace_dir")
-                                   or global_cfg.get("subagent_workspace_dir", SUBAGENT_WORKSPACE_DIR_DEFAULT),
+        "workflow_id": workflow_id,
+        "token_budget": _resolve_preferring_agent(agent_cfg, global_cfg, "token_budget", 100000),
+        "loop_detection_threshold": _resolve_preferring_agent(agent_cfg, global_cfg, "loop_detection_threshold", 3),
+        "runtime_context_compression_enabled": runtime_context_compression_enabled,
+        "context_trim_token_threshold": context_trim_token_threshold,
+        "max_subagent_depth": _resolve_preferring_agent(agent_cfg, global_cfg, "max_subagent_depth", 3),
+        "offload_threshold": _resolve_preferring_agent(agent_cfg, global_cfg, "offload_threshold", 800),
+        "offload_summary_strategy": _resolve_preferring_agent(
+            agent_cfg, global_cfg, "offload_summary_strategy", OffloadSummaryStrategy.TRUNCATE,
+        ),
+        "offload_summary_chars": _resolve_preferring_agent(agent_cfg, global_cfg, "offload_summary_chars", 200),
+        "planning_max_tokens": _resolve_preferring_agent(
+            agent_cfg, global_cfg, "planning_max_tokens", PLANNING_MAX_TOKENS_DEFAULT,
+        ),
+        "subagent_workspace_dir": _resolve_preferring_agent(
+            agent_cfg, global_cfg, "subagent_workspace_dir", SUBAGENT_WORKSPACE_DIR_DEFAULT,
+        ),
     }
 
 
@@ -192,6 +219,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         token_budget=engine_params["token_budget"],
         loop_detection_threshold=engine_params["loop_detection_threshold"],
         context_trim_token_threshold=engine_params["context_trim_token_threshold"],
+        runtime_context_compression_enabled=engine_params["runtime_context_compression_enabled"],
         tools=fields["tools"],
         skills=fields["skills"],
         context=context_cfg,

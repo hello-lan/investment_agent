@@ -54,6 +54,15 @@
 .ctx-tab-btn.active{color:#fff;background:#e65100;border-radius:6px 6px 0 0;border-bottom-color:#e65100;}
 .ctx-tab-panel{display:none;}
 .ctx-tab-panel.active{display:block;}
+.toggle-label{display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:500;cursor:pointer;}
+.switch-text{display:flex;flex-direction:column;gap:2px;}
+.switch-control{position:relative;display:inline-flex;width:46px;height:26px;flex-shrink:0;}
+.switch-control input{position:absolute;opacity:0;pointer-events:none;}
+.switch-slider{position:absolute;inset:0;border-radius:999px;background:#d0d5dd;transition:background 0.2s ease;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06);}
+.switch-slider::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform 0.2s ease;}
+.switch-control input:checked + .switch-slider{background:#7c3aed;}
+.switch-control input:checked + .switch-slider::after{transform:translateX(20px);}
+.hidden{display:none !important;}
 </style>
 {% endblock %}
 {% block content %}
@@ -198,28 +207,40 @@
           <div class="config-sub-block csb-compress">
             <div class="sub-title">上下文压缩</div>
             <div class="form-row">
-              <label>Token 安全阈值</label>
-              <input type="number" id="agentTrimTokenThreshold" min="0" max="200000" step="5000" placeholder="留空=使用全局默认 90000">
-              <div class="hint">单次 LLM 调用的 input_tokens 超过此值时自动触发压缩。设为 0 则禁用，建议值 70000-100000（DeepSeek 128K 上下文的 ~55%-78%）</div>
+              <label class="toggle-label">
+                <span class="switch-text">启用运行时上下文压缩</span>
+                <span class="switch-control">
+                  <input type="checkbox" id="agentRuntimeCompressionEnabled">
+                  <span class="switch-slider"></span>
+                </span>
+              </label>
+              <div class="hint">关闭后，不再进行运行时上下文裁剪，也不会触发 tool_result 卸载。</div>
             </div>
-            <div id="offloadOptions">
+            <div id="runtimeCompressionFields">
               <div class="form-row">
-                <label>卸载阈值 (字符)</label>
-                <input type="number" id="agentOffloadThreshold" min="500" max="20000" step="500" placeholder="留空=默认 800">
-                <div class="hint">tool_result 超过此字符数时卸载到临时文件，替换为摘要占位符</div>
+                <label>Token 安全阈值</label>
+                <input type="number" id="agentTrimTokenThreshold" min="0" max="200000" step="5000" placeholder="留空=使用全局默认 90000">
+                <div class="hint">单次 LLM 调用的 input_tokens 超过此值时自动触发压缩。设为 0 则禁用，建议值 70000-100000（DeepSeek 128K 上下文的 ~55%-78%）</div>
               </div>
-              <div class="form-row">
-                <label>摘要策略</label>
-                <select id="agentOffloadStrategy">
-                  <option value="truncate">截断（取前N字符，零成本）</option>
-                  <option value="local">抽取式（通用打分）</option>
-                </select>
-                <div class="hint">卸载时如何生成摘要：截断最快、抽取式信息密度更高</div>
-              </div>
-              <div class="form-row">
-                <label>摘要字符数</label>
-                <input type="number" id="agentOffloadSummaryChars" min="50" max="1000" step="50" placeholder="留空=默认 200">
-                <div class="hint">摘要最大字符数，越大保留信息越多但占用上下文越大</div>
+              <div id="offloadOptions">
+                <div class="form-row">
+                  <label>卸载阈值 (字符)</label>
+                  <input type="number" id="agentOffloadThreshold" min="500" max="20000" step="500" placeholder="留空=默认 800">
+                  <div class="hint">tool_result 超过此字符数时卸载到临时文件，替换为摘要占位符</div>
+                </div>
+                <div class="form-row">
+                  <label>摘要策略</label>
+                  <select id="agentOffloadStrategy">
+                    <option value="truncate">截断（取前N字符，零成本）</option>
+                    <option value="local">抽取式（通用打分）</option>
+                  </select>
+                  <div class="hint">卸载时如何生成摘要：截断最快、抽取式信息密度更高</div>
+                </div>
+                <div class="form-row">
+                  <label>摘要字符数</label>
+                  <input type="number" id="agentOffloadSummaryChars" min="50" max="1000" step="50" placeholder="留空=默认 200">
+                  <div class="hint">摘要最大字符数，越大保留信息越多但占用上下文越大</div>
+                </div>
               </div>
             </div>
           </div>

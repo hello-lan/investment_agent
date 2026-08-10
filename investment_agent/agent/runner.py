@@ -207,7 +207,10 @@ class AgentRunner:
         main_scope = registry.get_tool("read_file").scope
 
         # 创建 offloader + trimmer
-        needs_compressor = config.context_trim_token_threshold > 0
+        needs_compressor = (
+            config.runtime_context_compression_enabled
+            and config.context_trim_token_threshold > 0
+        )
         if needs_compressor:
             offload_dir = os.path.join(ROOT_DIR, "data", ".offload", session_id)
             offloader = ContextOffloader(
@@ -229,7 +232,10 @@ class AgentRunner:
             loop_mode=config.loop_mode,
             token_budget=config.token_budget,
             loop_detection_threshold=config.loop_detection_threshold,
-            context_trim_token_threshold=config.context_trim_token_threshold,
+            runtime_context_compression_enabled=config.runtime_context_compression_enabled,
+            context_trim_token_threshold=(
+                config.context_trim_token_threshold if needs_compressor else 0
+            ),
             max_subagent_depth=config.max_subagent_depth,
             offload_threshold=config.offload_threshold,
             offload_summary_strategy=config.offload_summary_strategy,
@@ -273,8 +279,9 @@ class AgentRunner:
         if enable_run_command:
             policy = AccessPolicy.for_agent(str(ROOT_DIR), all_skill_names)
             engine._system_prompt += policy.prompt_section()
-        engine._system_prompt += OFFLOAD_AWARE_PROMPT
-        if not enable_run_command:
+        if needs_compressor:
+            engine._system_prompt += OFFLOAD_AWARE_PROMPT
+        if not enable_run_command and needs_compressor:
             engine._system_prompt += "\n- 当前未启用 run_command 时，如需查看卸载文件，请改用 read_file 读取对应路径。"
         if config.loop_mode == LoopMode.REACT_SUBAGENT:
             from .config import REACT_SUBAGENT_PROMPT

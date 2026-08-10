@@ -201,6 +201,13 @@ function fillContextFields(cfg) {
   elCtxSysBudget.value = budget.system_max_tokens ?? '';
 }
 
+function updateRuntimeCompressionUI() {
+  const toggle = document.getElementById('agentRuntimeCompressionEnabled');
+  const fields = document.getElementById('runtimeCompressionFields');
+  if (!toggle || !fields) return;
+  fields.classList.toggle('hidden', !toggle.checked);
+}
+
 function updateLoopModeUI() {
   const mode = document.getElementById('agentLoopMode').value || 'dual_loop';
   const slowThinkRow = document.getElementById('agentSlowThinkRow');
@@ -224,6 +231,8 @@ function fillEngineFields(cfg) {
   const maxSubagentDepth = document.getElementById('agentMaxSubagentDepth');
   const workflowSelect = document.getElementById('agentWorkflowSelect');
 
+  const runtimeCompressionToggle = document.getElementById('agentRuntimeCompressionEnabled');
+
   if (!cfg) {
     maxSteps.value = 30;
     document.getElementById('agentMaxStepsVal').textContent = '30';
@@ -240,7 +249,9 @@ function fillEngineFields(cfg) {
     document.getElementById('agentOffloadStrategy').value = 'truncate';
     document.getElementById('agentOffloadSummaryChars').value = '';
     document.getElementById('agentTrimTokenThreshold').value = '';
+    if (runtimeCompressionToggle) runtimeCompressionToggle.checked = false;
     if (workflowSelect) workflowSelect.value = '';
+    updateRuntimeCompressionUI();
     updateLoopModeUI();
     return;
   }
@@ -260,7 +271,11 @@ function fillEngineFields(cfg) {
   document.getElementById('agentOffloadStrategy').value = cfg.offload_summary_strategy || 'truncate';
   document.getElementById('agentOffloadSummaryChars').value = cfg.offload_summary_chars ?? '';
   document.getElementById('agentTrimTokenThreshold').value = cfg.context_trim_token_threshold ?? '';
+  if (runtimeCompressionToggle) {
+    runtimeCompressionToggle.checked = cfg.runtime_context_compression_enabled !== false;
+  }
   if (workflowSelect) workflowSelect.value = cfg.workflow_id || '';
+  updateRuntimeCompressionUI();
   updateLoopModeUI();
 }
 
@@ -334,6 +349,7 @@ async function saveAgent(){
   const offloadStrategy = document.getElementById('agentOffloadStrategy').value;
   const offloadSummaryChars = toNullableInt(document.getElementById('agentOffloadSummaryChars').value);
   const trimTokenThreshold = toNullableInt(document.getElementById('agentTrimTokenThreshold').value);
+  const runtimeCompressionEnabled = document.getElementById('agentRuntimeCompressionEnabled').checked;
 
   const workflowId = (document.getElementById('agentWorkflowSelect')?.value || '').trim();
 
@@ -344,6 +360,7 @@ async function saveAgent(){
     workflow_id: workflowId || null,
     token_budget: engineTokenBudget,
     loop_detection_threshold: engineLoopThreshold,
+    runtime_context_compression_enabled: runtimeCompressionEnabled,
     context_trim_token_threshold: trimTokenThreshold,
     max_subagent_depth: maxSubagentDepth,
     planning_max_tokens: planningMaxTokens,
@@ -382,5 +399,10 @@ window.addEventListener('DOMContentLoaded', () => {
   if (loopMode) {
     loopMode.addEventListener('change', updateLoopModeUI);
   }
+  const runtimeCompressionToggle = document.getElementById('agentRuntimeCompressionEnabled');
+  if (runtimeCompressionToggle) {
+    runtimeCompressionToggle.addEventListener('change', updateRuntimeCompressionUI);
+  }
+  updateRuntimeCompressionUI();
   loadAgents();
 });
