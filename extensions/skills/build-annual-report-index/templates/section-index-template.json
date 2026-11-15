@@ -1,0 +1,95 @@
+{
+  "report_file": "reports/company-a/annual-report-2024.md",
+  "company": "<company>",
+  "ticker": "<ticker>",
+  "year": 2024,
+  "index_version": 2,
+  "chapters": [
+    {
+      "chapter_id": "chapter_02",
+      "title": "第二节 公司简介和主要财务指标",
+      "line_start": 0,
+      "line_end": 0,
+      "priority": "P1",
+      "reason": "用于快速建立公司基础信息和核心财务指标的整体认知",
+      "children": [
+        {
+          "chapter_id": "chapter_02_item_01",
+          "title": "一、公司信息",
+          "line_start": 0,
+          "line_end": 0,
+          "priority": "P1",
+          "reason": "公司简介和主要财务指标章节内小节，便于定向回查"
+        },
+        {
+          "chapter_id": "chapter_02_item_02",
+          "title": "二、联系人和联系方式",
+          "line_start": 0,
+          "line_end": 0,
+          "priority": "P1",
+          "reason": "公司简介和主要财务指标章节内小节，便于定向回查"
+        }
+      ]
+    },
+    {
+      "chapter_id": "chapter_03",
+      "title": "第三节 管理层讨论与分析",
+      "line_start": 0,
+      "line_end": 0,
+      "priority": "P0",
+      "reason": "经营情况、资产负债变化与管理层叙事的核心入口",
+      "children": [
+        {
+          "chapter_id": "chapter_03_item_01",
+          "title": "一、报告期内公司所处行业情况",
+          "line_start": 0,
+          "line_end": 0,
+          "priority": "P0",
+          "reason": "管理层讨论与分析章节内小节，便于定向回查"
+        },
+        {
+          "chapter_id": "chapter_03_item_04",
+          "title": "四、主营业务分析",
+          "line_start": 0,
+          "line_end": 0,
+          "priority": "P0",
+          "reason": "管理层讨论与分析中的核心经营段落"
+        }
+      ]
+    },
+    {
+      "chapter_id": "financial_report_audit_report",
+      "title": "财务报告-审计报告",
+      "line_start": 0,
+      "line_end": 0,
+      "priority": "P0",
+      "reason": "用于确认审计报告类型、覆盖范围和签字信息"
+    },
+    {
+      "chapter_id": "financial_report_notes",
+      "title": "财务报告-合并报表附注",
+      "line_start": 0,
+      "line_end": 0,
+      "priority": "P0",
+      "reason": "用于按附注项目回查主表异常的解释层",
+      "children": [
+        {
+          "chapter_id": "financial_report_notes_item_1",
+          "title": "1、货币资金",
+          "line_start": 0,
+          "line_end": 0,
+          "priority": "P0",
+          "reason": "合并报表附注中的一层科目“货币资金”，便于按科目定向回查"
+        },
+        {
+          "chapter_id": "financial_report_notes_item_2",
+          "title": "2、交易性金融资产",
+          "line_start": 0,
+          "line_end": 0,
+          "priority": "P0",
+          "reason": "合并报表附注中的一层科目“交易性金融资产”，便于按科目定向回查"
+        }
+      ]
+    }
+  ]
+}

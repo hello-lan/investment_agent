@@ -8,7 +8,9 @@ from __future__ import annotations
 from typing import Any
 
 from .cost_tracker import log_cost
-from .trace import log_trace
+from .trace import log_trace_batch
+
+_TRACE_FLUSH_SIZE = 20
 
 
 class ObservabilityHooks:
@@ -26,15 +28,44 @@ class ObservabilityHooks:
         self.task_id = task_id
         self.session_id = session_id
         self.agent_name = agent_name
+        self._trace_buffer: list[dict[str, Any]] = []
+
+    async def _buffer_trace(
+        self,
+        step: int | None,
+        event_type: str,
+        detail: dict[str, Any] | None,
+    ) -> None:
+        self._trace_buffer.append({
+            "session_id": self.session_id,
+            "task_id": self.task_id,
+            "step": step,
+            "event_type": event_type,
+            "detail": detail,
+            "agent_name": self.agent_name,
+        })
+        if len(self._trace_buffer) >= _TRACE_FLUSH_SIZE:
+            await self.flush_traces()
+
+    async def flush_traces(self) -> None:
+        if not self._trace_buffer:
+            return
+
+        pending = self._trace_buffer
+        self._trace_buffer = []
+        try:
+            await log_trace_batch(pending)
+        except Exception:
+            self._trace_buffer = pending + self._trace_buffer
+            raise
 
     async def on_event(
         self, step: int | None, event_type: str,
         detail: dict[str, Any] | None,
     ) -> None:
-        await log_trace(
-            self.session_id, self.task_id, step, event_type, detail,
-            agent_name=self.agent_name,
-        )
+        if detail is None:
+            return
+        await self._buffer_trace(step, event_type, detail)
 
     async def on_cost(
         self, model: str, input_tokens: int, output_tokens: int,
@@ -74,21 +105,17 @@ class ObservabilityHooks:
             "warnings": context_result.warnings,
         }
 
-        await log_trace(
-            self.session_id, self.task_id, None, "context_budget",
-            detail,
-            agent_name=self.agent_name,
-        )
+        await self._buffer_trace(None, "context_budget", detail)
 
     async def on_cache_metrics(
         self, step: int | None,
         cache_read_tokens: int, cache_creation_tokens: int,
     ) -> None:
-        await log_trace(
-            self.session_id, self.task_id, step, "cache_metrics",
+        await self._buffer_trace(
+            step,
+            "cache_metrics",
             {
                 "cache_read_tokens": cache_read_tokens,
                 "cache_creation_tokens": cache_creation_tokens,
             },
-            agent_name=self.agent_name,
         )

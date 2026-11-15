@@ -54,6 +54,15 @@
 .ctx-tab-btn.active{color:#fff;background:#e65100;border-radius:6px 6px 0 0;border-bottom-color:#e65100;}
 .ctx-tab-panel{display:none;}
 .ctx-tab-panel.active{display:block;}
+.toggle-label{display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:500;cursor:pointer;}
+.switch-text{display:flex;flex-direction:column;gap:2px;}
+.switch-control{position:relative;display:inline-flex;width:46px;height:26px;flex-shrink:0;}
+.switch-control input{position:absolute;opacity:0;pointer-events:none;}
+.switch-slider{position:absolute;inset:0;border-radius:999px;background:#d0d5dd;transition:background 0.2s ease;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06);}
+.switch-slider::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2);transition:transform 0.2s ease;}
+.switch-control input:checked + .switch-slider{background:#7c3aed;}
+.switch-control input:checked + .switch-slider::after{transform:translateX(20px);}
+.hidden{display:none !important;}
 </style>
 {% endblock %}
 {% block content %}
@@ -134,15 +143,44 @@
           </div>
           <div id="agentSkills" class="skill-list tab-panel active"></div>
           <div id="agentTools" class="skill-list tab-panel"></div>
-          <div class="hint">Skill 和 run_command 工具自动绑定，无需手动选择</div>
+          <div class="hint">安全文件工具默认绑定；`run_command` 和 `DelegateTask` 需在此处手动勾选后才会启用；在 ReAct + Subagent 模式下，Subagent 会自动绑定；在 Plan Execute 模式下，系统会同时复用 `DelegateTask` 和 `Subagent` 做规划委派；在 Workflow 模式下，执行流程由选中的 JSON/DAG 工作流定义驱动</div>
         </div>
       </div>
     </div>
 
-    <!-- ===== 4. 上下文管理 ===== -->
+    <!-- ===== 4. Loop 类型 ===== -->
     <div class="config-group">
       <div class="config-group-header">
-        <span class="group-num" style="background:#e65100;">4</span>
+        <span class="group-num" style="background:#9c27b0;">4</span>
+        <span class="group-title">Loop 类型</span>
+      </div>
+      <div class="config-group-body">
+        <div class="config-group-desc">选择 Agent 的执行循环模式。该配置决定推理节奏与是否启用子Agent委派，不属于上下文管理策略。</div>
+        <div class="form-row">
+          <label>Loop 类型</label>
+          <select id="agentLoopMode">
+            <option value="dual_loop">双循环（快循环 + 慢思考）</option>
+            <option value="react">ReAct（普通单循环）</option>
+            <option value="react_subagent">ReAct + Subagent（安全文件子Agent）</option>
+            <option value="plan_execute">Plan Execute（规划 + 委派执行）</option>
+            <option value="workflow">Workflow（JSON / DAG 工作流）</option>
+          </select>
+          <div class="hint">双循环适合复杂任务纠偏；ReAct 适合轻量工具推理；ReAct + Subagent 适合把文件检索/筛选/写作类子任务委派给安全子Agent；Plan Execute 适合开放式复杂任务先拆解，再按阶段委派执行并最终汇总；Workflow 适合执行已定义好的 JSON / DAG 工作流</div>
+        </div>
+        <div class="form-row" id="agentWorkflowRow" style="display:none;">
+          <label>关联 Workflow</label>
+          <select id="agentWorkflowSelect">
+            <option value="">请选择 Workflow</option>
+          </select>
+          <div class="hint">仅在 Workflow 模式下生效。请先在 <a href="/workflows" style="color:#1a1a2e">Workflow</a> 页面创建 JSON / DAG 工作流</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 5. 上下文管理 ===== -->
+    <div class="config-group">
+      <div class="config-group-header">
+        <span class="group-num" style="background:#e65100;">5</span>
         <span class="group-title">上下文管理</span>
       </div>
       <div class="config-group-body">
@@ -169,28 +207,40 @@
           <div class="config-sub-block csb-compress">
             <div class="sub-title">上下文压缩</div>
             <div class="form-row">
-              <label>Token 安全阈值</label>
-              <input type="number" id="agentTrimTokenThreshold" min="0" max="200000" step="5000" placeholder="留空=使用全局默认 90000">
-              <div class="hint">单次 LLM 调用的 input_tokens 超过此值时自动触发压缩。设为 0 则禁用，建议值 70000-100000（DeepSeek 128K 上下文的 ~55%-78%）</div>
+              <label class="toggle-label">
+                <span class="switch-text">启用运行时上下文压缩</span>
+                <span class="switch-control">
+                  <input type="checkbox" id="agentRuntimeCompressionEnabled">
+                  <span class="switch-slider"></span>
+                </span>
+              </label>
+              <div class="hint">关闭后，不再进行运行时上下文裁剪，也不会触发 tool_result 卸载。</div>
             </div>
-            <div id="offloadOptions">
+            <div id="runtimeCompressionFields">
               <div class="form-row">
-                <label>卸载阈值 (字符)</label>
-                <input type="number" id="agentOffloadThreshold" min="500" max="20000" step="500" placeholder="留空=默认 800">
-                <div class="hint">tool_result 超过此字符数时卸载到临时文件，替换为摘要占位符</div>
+                <label>Token 安全阈值</label>
+                <input type="number" id="agentTrimTokenThreshold" min="0" max="200000" step="5000" placeholder="留空=使用全局默认 90000">
+                <div class="hint">单次 LLM 调用的 input_tokens 超过此值时自动触发压缩。设为 0 则禁用，建议值 70000-100000（DeepSeek 128K 上下文的 ~55%-78%）</div>
               </div>
-              <div class="form-row">
-                <label>摘要策略</label>
-                <select id="agentOffloadStrategy">
-                  <option value="truncate">截断（取前N字符，零成本）</option>
-                  <option value="local">抽取式（通用打分）</option>
-                </select>
-                <div class="hint">卸载时如何生成摘要：截断最快、抽取式信息密度更高</div>
-              </div>
-              <div class="form-row">
-                <label>摘要字符数</label>
-                <input type="number" id="agentOffloadSummaryChars" min="50" max="1000" step="50" placeholder="留空=默认 200">
-                <div class="hint">摘要最大字符数，越大保留信息越多但占用上下文越大</div>
+              <div id="offloadOptions">
+                <div class="form-row">
+                  <label>卸载阈值 (字符)</label>
+                  <input type="number" id="agentOffloadThreshold" min="500" max="20000" step="500" placeholder="留空=默认 800">
+                  <div class="hint">tool_result 超过此字符数时卸载到临时文件，替换为摘要占位符</div>
+                </div>
+                <div class="form-row">
+                  <label>摘要策略</label>
+                  <select id="agentOffloadStrategy">
+                    <option value="truncate">截断（取前N字符，零成本）</option>
+                    <option value="local">抽取式（通用打分）</option>
+                  </select>
+                  <div class="hint">卸载时如何生成摘要：截断最快、抽取式信息密度更高</div>
+                </div>
+                <div class="form-row">
+                  <label>摘要字符数</label>
+                  <input type="number" id="agentOffloadSummaryChars" min="50" max="1000" step="50" placeholder="留空=默认 200">
+                  <div class="hint">摘要最大字符数，越大保留信息越多但占用上下文越大</div>
+                </div>
               </div>
             </div>
           </div>
@@ -213,10 +263,10 @@
           <div class="config-sub-block csb-safety">
             <div class="sub-title">安全策略</div>
             <div class="form-row-2col">
-              <div class="form-row">
+              <div class="form-row" id="agentSlowThinkRow">
                 <label>慢思考间隔（每N步）</label>
                 <div class="range-row"><input type="range" id="agentSlowThink" min="1" max="10" step="1" oninput="document.getElementById('agentSlowThinkVal').textContent=this.value"><span class="range-val" id="agentSlowThinkVal">3</span></div>
-                <div class="hint">留空=默认 3</div>
+                <div class="hint">双循环与 Plan Execute 模式可配置；Workflow 模式当前不使用慢思考</div>
               </div>
               <div class="form-row">
                 <label>死循环检测阈值</label>
@@ -231,12 +281,12 @@
             <div class="form-row">
               <label>最大嵌套深度</label>
               <div class="range-row"><input type="range" id="agentMaxSubagentDepth" min="0" max="5" step="1" oninput="document.getElementById('agentMaxSubagentDepthVal').textContent=this.value"><span class="range-val" id="agentMaxSubagentDepthVal">3</span></div>
-              <div class="hint">子Agent可再委派的最大层数，0=不允许委派，默认 3</div>
+              <div class="hint">旧 DelegateTask 或新 react_subagent 的 Subagent 可继续分派的最大层数；0=不允许子Agent继续创建下一层</div>
             </div>
             <div class="form-row">
               <label>任务指令 max_tokens</label>
               <input type="number" id="agentPlanningMaxTokens" min="256" max="4096" step="256" placeholder="留空=默认 1024">
-              <div class="hint">委派子Agent时生成任务指令的 max_tokens 上限。复杂任务（多文件、多年份）建议 1024-2048</div>
+              <div class="hint">委派子Agent时生成任务指令的 max_tokens 上限。对 react_subagent 会影响文件范围、输出要求等约束描述的完整度</div>
             </div>
           </div>
         </div>

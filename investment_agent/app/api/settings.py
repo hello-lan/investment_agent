@@ -1,12 +1,14 @@
+import logging
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from ...config import get_settings, save_settings
-from ...agent.skills.loader import reload_skills
+from ...config import get_settings, get_tushare_token, resolve_skills_dir, save_settings
+from ...agent.skills.loader import init_skills_dir
 from ..db import get_db
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+_log = logging.getLogger(__name__)
 
 
 # ── 模型管理（CRUD + 默认值 + 连接测试）────────────────────────────────────
@@ -108,6 +110,48 @@ class TestModelRequest(BaseModel):
     model_id: str
 
 
+def _collect_exception_chain(exc: Exception) -> list[Exception]:
+    chain: list[Exception] = []
+    seen: set[int] = set()
+    current: Exception | None = exc
+    while current and id(current) not in seen and len(chain) < 6:
+        seen.add(id(current))
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+    return chain
+
+
+def _build_test_model_error(exc: Exception) -> dict:
+    chain = _collect_exception_chain(exc)
+    root = chain[-1] if chain else exc
+
+    parts: list[str] = []
+    for item in chain:
+        message = str(item).strip()
+        parts.append(f"{item.__class__.__name__}: {message}" if message else item.__class__.__name__)
+
+    text_blob = "\n".join(parts).lower()
+    hint = "请检查 API Key、Base URL、模型名，以及当前网络连通性。"
+    if any(key in text_blob for key in ["proxy", "socks", "tunnel", "connection refused"]):
+        hint = "检测到代理/VPN 相关异常，请检查代理设置，或重启服务后再试。"
+    elif any(key in text_blob for key in ["401", "403", "unauthorized", "authentication", "invalid api key"]):
+        hint = "认证失败，请检查 API Key 是否正确、是否仍然有效，以及是否有对应模型权限。"
+    elif any(key in text_blob for key in ["404", "model_not_found", "not found"]):
+        hint = "接口或模型不存在，请检查 Base URL 是否正确，以及模型名是否与供应商文档一致。"
+    elif any(key in text_blob for key in ["timeout", "timed out"]):
+        hint = "请求超时，请检查网络连通性、代理/VPN 状态，或稍后重试。"
+
+    return {
+        "ok": False,
+        "error": str(exc) or exc.__class__.__name__,
+        "error_type": exc.__class__.__name__,
+        "root_error": str(root) or root.__class__.__name__,
+        "root_error_type": root.__class__.__name__,
+        "detail": "\n".join(parts),
+        "hint": hint,
+    }
+
+
 @router.post("/models/test")
 async def test_model(body: TestModelRequest):
     """测试模型连接：发送一个简单请求验证 API Key 和 endpoint 是否可用"""
@@ -120,28 +164,34 @@ async def test_model(body: TestModelRequest):
         )
         return {"ok": True, "response": resp.content}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        _log.exception("Model connection test failed: %s", body.model_id)
+        return _build_test_model_error(e)
 
 
 # ── Engine & Tools ────────────────────────────────────────────────────────────
 
 @router.get("")
 async def read_settings():
-    s = get_settings()
-    return {k: v for k, v in s.items() if k != "models"}
+    s = {k: v for k, v in get_settings().items() if k != "models"}
+    tools = dict(s.get("tools", {}))
+    tools["tushare_token"] = "***" if get_tushare_token() else ""
+    s["tools"] = tools
+    return s
 
 
 class EngineSettings(BaseModel):
-    max_steps: int
-    slow_think_interval: int
-    token_budget: int
-    loop_detection_threshold: int
+    max_steps: int | None = None
+    slow_think_interval: int | None = None
+    token_budget: int | None = None
+    loop_detection_threshold: int | None = None
 
 
 @router.put("/engine")
 async def update_engine(body: EngineSettings):
     s = get_settings()
-    s["engine"] = body.model_dump()
+    engine = dict(s.get("engine", {}))
+    engine.update(body.model_dump(exclude_none=True))
+    s["engine"] = engine
     save_settings(s)
     return {"success": True}
 
@@ -157,11 +207,10 @@ class SkillsSettings(BaseModel):
 @router.put("/skills")
 async def update_skills(body: SkillsSettings):
     s = get_settings()
-    s["skills"] = {
-        "directory": (body.directory or "skills").strip() or "skills",
-    }
+    directory = (body.directory or "skills").strip() or "skills"
+    s["skills"] = {"directory": directory}
     save_settings(s)
-    reload_skills()
+    init_skills_dir(resolve_skills_dir(directory))
     return {"success": True}
 
 

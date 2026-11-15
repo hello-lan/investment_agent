@@ -72,6 +72,41 @@ def _detail_budget_status(event: dict) -> dict:
     }
 
 
+def _detail_workflow_start(event: dict) -> dict:
+    return {
+        "workflow_id": event.get("workflow_id"),
+        "workflow_name": event.get("workflow_name"),
+        "node_count": event.get("node_count"),
+    }
+
+
+def _detail_workflow_node(event: dict) -> dict:
+    detail = {
+        "workflow_id": event.get("workflow_id"),
+        "workflow_name": event.get("workflow_name"),
+        "node_id": event.get("node_id"),
+        "node_type": event.get("node_type"),
+        "depends_on": event.get("depends_on"),
+        "input_from": event.get("input_from"),
+    }
+    if event.get("task") is not None:
+        detail["task"] = event.get("task")
+    if event.get("output_preview") is not None:
+        detail["output_preview"] = event.get("output_preview")
+    if event.get("message") is not None:
+        detail["message"] = event.get("message")
+    return detail
+
+
+def _detail_workflow_done(event: dict) -> dict:
+    return {
+        "workflow_id": event.get("workflow_id"),
+        "workflow_name": event.get("workflow_name"),
+        "completed_nodes": event.get("completed_nodes"),
+        "node_count": event.get("node_count"),
+    }
+
+
 # ── Dispatch table ───────────────────────────────────────────────────
 
 _DETAIL_BUILDERS: dict[str, Callable[[dict], dict]] = {
@@ -85,6 +120,12 @@ _DETAIL_BUILDERS: dict[str, Callable[[dict], dict]] = {
     "step_start": _detail_step_start,
     "context_trim": _detail_context_trim,
     "budget_status": _detail_budget_status,
+    "workflow_start": _detail_workflow_start,
+    "workflow_node_ready": _detail_workflow_node,
+    "workflow_node_start": _detail_workflow_node,
+    "workflow_node_done": _detail_workflow_node,
+    "workflow_node_error": _detail_workflow_node,
+    "workflow_done": _detail_workflow_done,
 }
 
 

@@ -5,11 +5,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from ..config import get_settings, PROJECT_ROOT
+from ..config import get_settings, ROOT_DIR
 
 
 # SQLite 数据库文件路径
-DB_PATH = (PROJECT_ROOT / get_settings().get("db", {}).get("sqlite_path", "./data/agent.db")).resolve()
+DB_PATH = (ROOT_DIR / get_settings().get("db", {}).get("sqlite_path", "./data/agent.db")).resolve()
 
 
 @asynccontextmanager
@@ -82,6 +82,16 @@ async def init_db() -> None:
                 engine_config TEXT,                   -- 引擎运行配置（JSON）
                 created_at    TEXT,                   -- 创建时间
                 updated_at    TEXT                    -- 更新时间
+            );
+
+            -- Workflow 定义（JSON / DAG）
+            CREATE TABLE IF NOT EXISTS workflows (
+                id          TEXT PRIMARY KEY,
+                name        TEXT NOT NULL,
+                description TEXT,
+                definition  TEXT NOT NULL,
+                created_at  TEXT,
+                updated_at  TEXT
             );
 
             -- 对话会话
@@ -630,6 +640,26 @@ async def init_db() -> None:
         await _ensure_columns(db, column_migrations)
 
         # ── 特殊迁移（数据回填）──────────────────────────────────────
+        # 兼容旧 pseudo-workflow：无 workflow_id 的 workflow 统一视为 plan_execute
+        async with db.execute("SELECT id, engine_config FROM agents WHERE engine_config IS NOT NULL") as cursor:
+            agent_rows = await cursor.fetchall()
+        for row in agent_rows:
+            raw = row["engine_config"]
+            if not raw:
+                continue
+            try:
+                import json
+                cfg = json.loads(raw)
+            except Exception:
+                continue
+            if cfg.get("loop_mode") == "workflow" and not cfg.get("workflow_id"):
+                cfg["loop_mode"] = "plan_execute"
+                await db.execute(
+                    "UPDATE agents SET engine_config = ? WHERE id = ?",
+                    (json.dumps(cfg, ensure_ascii=False), row["id"]),
+                )
+        await db.commit()
+
         # agents.model_id: 从旧列 model_name 回填
         cursor = await db.execute("PRAGMA table_info(agents)")
         agent_cols = {row[1] for row in await cursor.fetchall()}

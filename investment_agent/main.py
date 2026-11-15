@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -14,23 +12,25 @@ from .app.api.skills import router as skills_router
 from .app.api.files import router as files_router
 from .app.api.observability import router as observability_router
 from .app.api.tools import router as tools_router
+from .app.api.workflows import router as workflows_router
 from .app.api.stock_dashboard import router as stock_dashboard_router
 from .app.api.stock_dashboard_old import router as stock_dashboard_old_router
 from .app.api.risk_dashboard import router as risk_dashboard_router
 from .agent.skills.loader import init_skills_dir
 from .agent.tools.run_command import set_project_root
-from .config import PROJECT_ROOT, get_settings
+from .config import ROOT_DIR, resolve_skills_dir
 
-STATIC_DIR = PROJECT_ROOT / "investment_agent" / "app" / "static"
-TEMPLATE_DIR = PROJECT_ROOT / "investment_agent" / "app" / "templates"
-OUTPUT_DIR = PROJECT_ROOT / "output"
-DATA_DIR = PROJECT_ROOT / "data"
+STATIC_DIR = ROOT_DIR / "investment_agent" / "app" / "static"
+TEMPLATE_DIR = ROOT_DIR / "investment_agent" / "app" / "templates"
+OUTPUT_DIR = ROOT_DIR / "output"
+DATA_DIR = ROOT_DIR / "data"
 
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 TABS = [
     {"label": "对话", "href": "/"},
     {"label": "Agent", "href": "/agents"},
+    {"label": "Workflow", "href": "/workflows"},
     {"label": "Skills", "href": "/skills"},
     {"label": "模型", "href": "/model"},
     {"label": "文件", "href": "/files"},
@@ -40,17 +40,6 @@ TABS = [
 ]
 
 
-def _resolve_skills_dir() -> Path:
-    """解析 Skills 目录路径（支持相对路径，相对于项目根目录）"""
-    settings = get_settings()
-    skills_cfg = settings.get("skills", {}) if isinstance(settings.get("skills", {}), dict) else {}
-    raw_dir = str(skills_cfg.get("directory", "./skills")).strip() or "./skills"
-    path = Path(raw_dir)
-    if not path.is_absolute():
-        path = PROJECT_ROOT / path
-    return path
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化数据库、输出目录、Skills、全局依赖"""
@@ -58,8 +47,8 @@ async def lifespan(app: FastAPI):
     (OUTPUT_DIR / "reports").mkdir(parents=True, exist_ok=True)
     (OUTPUT_DIR / "charts").mkdir(parents=True, exist_ok=True)
     # 注入 agent 包所需的全局依赖
-    set_project_root(str(PROJECT_ROOT))
-    init_skills_dir(_resolve_skills_dir())
+    set_project_root(str(ROOT_DIR))
+    init_skills_dir(resolve_skills_dir())
     yield
 
 
@@ -74,6 +63,7 @@ app.include_router(skills_router)
 app.include_router(files_router)
 app.include_router(observability_router)
 app.include_router(tools_router)
+app.include_router(workflows_router)
 app.include_router(stock_dashboard_router)
 app.include_router(stock_dashboard_old_router)
 app.include_router(risk_dashboard_router)
@@ -91,6 +81,11 @@ async def index(request: Request):
 @app.get("/agents")
 async def agents_page(request: Request):
     return templates.TemplateResponse("agents.html", {"request": request, "tabs": TABS, "active_tab": "Agent"})
+
+
+@app.get("/workflows")
+async def workflows_page(request: Request):
+    return templates.TemplateResponse("workflows.html", {"request": request, "tabs": TABS, "active_tab": "Workflow"})
 
 
 @app.get("/skills")

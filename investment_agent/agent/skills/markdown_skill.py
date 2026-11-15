@@ -32,5 +32,5 @@ class MarkdownSkill(BaseSkill):
 
     async def run(self, **kwargs) -> str:
         if self._entry:
-            return run_skill_entry(self._skill_dir, self._entry, kwargs)
+            return await run_skill_entry(self._skill_dir, self._entry, kwargs)
         return self._body.strip()

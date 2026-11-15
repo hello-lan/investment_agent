@@ -117,6 +117,13 @@ class SqliteStorage:
                 cfg = await row.fetchone()
         return dict(cfg) if cfg else None
 
+    async def get_workflow_config(self, workflow_id: str) -> dict | None:
+        """查询 workflow 配置。"""
+        async with get_db() as db:
+            row = await db.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,))
+            result = await row.fetchone()
+            return dict(result) if result else None
+
     async def get_session_agent_id(self, session_id: str) -> str | None:
         """查询会话绑定的 agent_id。"""
         async with get_db() as db:

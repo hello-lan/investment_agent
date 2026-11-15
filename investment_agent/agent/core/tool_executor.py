@@ -14,6 +14,7 @@ from ._signals import _Value
 from ..constants import EventType, SkillType
 from .provider import ToolCall
 from .subagent import run_delegate_task
+from .subagent_runtime import prepare_subagent_request, run_subagent
 
 if TYPE_CHECKING:
     from .engine import AgentEngine
@@ -47,6 +48,7 @@ class LoopDetector:
         "get_financial_indicators": ["symbol"],
         "run_command": ["command"],
         "DelegateTask": ["task"],
+        "Subagent": ["task", "targets"],
     }
 
     def __init__(self, threshold: int, whitelist: set[str]):
@@ -247,6 +249,14 @@ class ToolExecutor:
                         result, _delegate_id = event.value
                     else:
                         yield event
+            elif tc.name == "Subagent":
+                result = None
+                _delegate_id = None
+                async for event in self._execute_subagent(engine, tc, t0):
+                    if isinstance(event, _Value):
+                        result, _delegate_id = event.value
+                    else:
+                        yield event
             else:
                 _delegate_id = None
                 handler = engine.tool_handlers.get(tc.name)
@@ -265,7 +275,7 @@ class ToolExecutor:
                 "output": result,
                 "duration_ms": duration_ms,
             }
-            if tc.name == "DelegateTask":
+            if tc.name == "DelegateTask" or tc.name == "Subagent":
                 yield {
                     "type": EventType.BUDGET_STATUS,
                     "total_used": engine.total_input_tokens + engine.total_output_tokens,
@@ -281,16 +291,13 @@ class ToolExecutor:
             })
         yield _Value(tool_results)
 
-    # ── DelegateTask 拦截执行 ───────────────────────────────────────────
+    # ── DelegateTask / Subagent 拦截执行 ────────────────────────────────
 
     @staticmethod
     async def _execute_delegate_task(
         engine: "AgentEngine", tc: ToolCall, t0: float,
     ) -> AsyncGenerator[dict, None]:
-        """拦截 DelegateTask 调用：准备 → 创建子引擎 → 执行。
-
-        将子Agent的执行事件转发给调用方，最后 yield _Value((result, delegate_id))。
-        """
+        """拦截 DelegateTask 调用：准备 → 创建子引擎 → 执行。"""
         prepared = await prepare_delegate_task(engine, tc)
         if isinstance(prepared, str):
             _log.info("[Delegate] 委派失败(prepare阶段): %s", prepared[:200])
@@ -308,13 +315,42 @@ class ToolExecutor:
             elif event["type"] == EventType._DELEGATE_ERROR:
                 result = f"子任务执行错误: {event['message']}"
             else:
-                yield event  # 转发子Agent事件到SSE流
+                yield event
 
         tokens_after = engine.total_input_tokens + engine.total_output_tokens
         _log.info(
-            "[Delegate] 执行结束: id=%s, tokens_consumed=%d, "
-            "result_len=%d, duration=%.1fs",
-            delegate_id, tokens_after - tokens_before,
-            len(result), time.monotonic() - t0,
+            "[Delegate] 执行结束: id=%s, tokens_consumed=%d, result_len=%d, duration=%.1fs",
+            delegate_id, tokens_after - tokens_before, len(result), time.monotonic() - t0,
+        )
+        yield _Value((result, delegate_id))
+
+    @staticmethod
+    async def _execute_subagent(
+        engine: "AgentEngine", tc: ToolCall, t0: float,
+    ) -> AsyncGenerator[dict, None]:
+        """拦截 Subagent 调用：准备 → 创建子Agent → 执行。"""
+        prepared = await prepare_subagent_request(engine, tc)
+        if isinstance(prepared, str):
+            _log.info("[Subagent] 执行失败(prepare阶段): %s", prepared[:200])
+            yield _Value((prepared, None))
+            return
+
+        request, delegate_id = prepared
+        tokens_before = engine.total_input_tokens + engine.total_output_tokens
+        _log.info("[Subagent] 开始执行: id=%s, targets=%d", delegate_id, len(request.targets))
+
+        result = ""
+        async for event in run_subagent(engine, request, delegate_id):
+            if event["type"] == EventType._DELEGATE_DONE:
+                result = event["result"]
+            elif event["type"] == EventType._DELEGATE_ERROR:
+                result = f"子任务执行错误: {event['message']}"
+            else:
+                yield event
+
+        tokens_after = engine.total_input_tokens + engine.total_output_tokens
+        _log.info(
+            "[Subagent] 执行结束: id=%s, tokens_consumed=%d, result_len=%d, duration=%.1fs",
+            delegate_id, tokens_after - tokens_before, len(result), time.monotonic() - t0,
         )
         yield _Value((result, delegate_id))

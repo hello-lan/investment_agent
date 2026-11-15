@@ -6,6 +6,7 @@ Agent 逻辑全部委托给 AgentRunner，本层只处理 HTTP 层面的事务�
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from pathlib import Path
@@ -73,7 +74,7 @@ async def _parse_request_payload(
             raise HTTPException(status_code=400, detail="文件过大，最大支持 10MB")
 
         try:
-            file_text = extract_file_text(filename, ext, content)
+            file_text = await asyncio.to_thread(extract_file_text, filename, ext, content)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"文件解析失败: {e}")
 
@@ -83,6 +84,18 @@ async def _parse_request_payload(
         return session_id, message, agent_id, filename, file_text
 
     raise HTTPException(status_code=415, detail="仅支持 application/json 或 multipart/form-data")
+
+
+async def _start_background_task(
+    runner: AgentRunner,
+    task_id: str,
+    config,
+    session_id: str,
+) -> dict[str, str]:
+    """统一注册后台任务并返回标准响应体。"""
+    engine = AgentRunner.get_engine(task_id)
+    await task_manager.start_task(task_id, engine, runner, config, session_id)
+    return {"task_id": task_id, "session_id": session_id}
 
 
 # ── 端点 ─────────────────────────────────────────────────────────────
@@ -103,13 +116,7 @@ async def start_chat(request: Request):
         config=config,
         message=final_message,
     )
-
-    # 在后台启动任务执行（与 SSE 连接解耦）
-    # await 确保 DB 状态更新（status='running'）在响应返回前完成
-    engine = AgentRunner.get_engine(task_id)
-    await task_manager.start_task(task_id, engine, runner, config, session_id)
-
-    return {"task_id": task_id, "session_id": session_id}
+    return await _start_background_task(runner, task_id, config, session_id)
 
 
 @router.get("/{task_id}/stream")
@@ -149,12 +156,7 @@ async def retry_chat(body: RetryRequest):
 
     runner = AgentRunner(storage=storage)
     task_id, session_id = await runner.setup(session_id, config)
-
-    # 在后台启动任务执行
-    engine = AgentRunner.get_engine(task_id)
-    await task_manager.start_task(task_id, engine, runner, config, session_id)
-
-    return {"task_id": task_id, "session_id": session_id}
+    return await _start_background_task(runner, task_id, config, session_id)
 
 
 @router.get("/{task_id}/status")

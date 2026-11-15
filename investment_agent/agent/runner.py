@@ -10,16 +10,17 @@ import shutil
 from typing import ClassVar
 
 from .config import AgentRunConfig, EngineConfig, OFFLOAD_AWARE_PROMPT
-from .constants import ProviderType
+from .constants import ProviderType, LoopMode
 from .context.context_offloader import ContextOffloader
 from .context.manager import ContextManager, ContextResult
 from .context.runtime_compressor import CompressRuntimeCompressor, NoOpRuntimeCompressor
-from .core.engine import AgentEngine
+from .core.base_loop import BaseLoopEngine
+from .core.loop_factory import create_loop_engine
 from .protocols import ExecutionLoop, LifecycleHooks, Storage
 from .registry_container import AgentRegistry
 from .skills.dependency import expand_with_dependencies
 from .tools.access_policy import AccessPolicy
-from ..config import PROJECT_ROOT
+from ..config import ROOT_DIR
 
 
 class AgentRunner:
@@ -31,7 +32,7 @@ class AgentRunner:
         context:   上下文管理策略，默认 TokenBudgetManager
     """
 
-    _engines: ClassVar[dict[str, AgentEngine]] = {}
+    _engines: ClassVar[dict[str, BaseLoopEngine]] = {}
 
     def __init__(
         self,
@@ -174,12 +175,16 @@ class AgentRunner:
         # 清理上下文卸载临时文件
         session_id = engine.session_id if engine else task_id
         shutil.rmtree(
-            os.path.join(PROJECT_ROOT, "data", ".offload", session_id),
+            os.path.join(ROOT_DIR, "data", ".offload", session_id),
+            ignore_errors=True,
+        )
+        shutil.rmtree(
+            os.path.join(ROOT_DIR, "data", "tmp", "subagents", session_id),
             ignore_errors=True,
         )
 
     @classmethod
-    def get_engine(cls, task_id: str) -> AgentEngine | None:
+    def get_engine(cls, task_id: str) -> BaseLoopEngine | None:
         """获取指定任务的引擎实例。"""
         return cls._engines.get(task_id)
 
@@ -194,16 +199,20 @@ class AgentRunner:
 
     # ── Internal helpers ──────────────────────────────────────────────────
 
-    def _create_engine(self, config: AgentRunConfig, session_id: str) -> AgentEngine:
+    def _create_engine(self, config: AgentRunConfig, session_id: str) -> BaseLoopEngine:
         """创建引擎并注册工具/技能。start() 和 setup() 共用。"""
         # 创建注册容器 + 编目默认工具
         registry = AgentRegistry()
         registry.bootstrap_default_tools()
+        main_scope = registry.get_tool("read_file").scope
 
         # 创建 offloader + trimmer
-        needs_compressor = config.context_trim_token_threshold > 0
+        needs_compressor = (
+            config.runtime_context_compression_enabled
+            and config.context_trim_token_threshold > 0
+        )
         if needs_compressor:
-            offload_dir = os.path.join(PROJECT_ROOT, "data", ".offload", session_id)
+            offload_dir = os.path.join(ROOT_DIR, "data", ".offload", session_id)
             offloader = ContextOffloader(
                 offload_dir,
                 threshold=config.offload_threshold,
@@ -220,16 +229,22 @@ class AgentRunner:
         engine_cfg = EngineConfig(
             max_steps=config.max_steps,
             slow_think_interval=config.slow_think_interval,
+            loop_mode=config.loop_mode,
             token_budget=config.token_budget,
             loop_detection_threshold=config.loop_detection_threshold,
-            context_trim_token_threshold=config.context_trim_token_threshold,
+            runtime_context_compression_enabled=config.runtime_context_compression_enabled,
+            context_trim_token_threshold=(
+                config.context_trim_token_threshold if needs_compressor else 0
+            ),
             max_subagent_depth=config.max_subagent_depth,
             offload_threshold=config.offload_threshold,
             offload_summary_strategy=config.offload_summary_strategy,
             offload_summary_chars=config.offload_summary_chars,
             planning_max_tokens=config.planning_max_tokens,
+            subagent_workspace_dir=config.subagent_workspace_dir,
+            workflow_id=config.workflow_id,
         )
-        engine = AgentEngine(
+        engine = create_loop_engine(
             session_id=session_id,
             system_prompt=config.system_prompt,
             provider=config.provider,
@@ -238,7 +253,17 @@ class AgentRunner:
             config=engine_cfg,
             runtime_compressor=runtime_compressor,
         )
+        engine.storage = self._storage
         allowed_tools = registry.auto_bound_tools | set(config.tools)
+        enable_run_command = "run_command" in allowed_tools
+        if config.loop_mode == LoopMode.REACT_SUBAGENT:
+            allowed_tools = (allowed_tools - {"DelegateTask"}) | {"Subagent"}
+        elif config.loop_mode == LoopMode.PLAN_EXECUTE:
+            allowed_tools = allowed_tools | {"DelegateTask", "Subagent"}
+        elif config.loop_mode == LoopMode.WORKFLOW:
+            allowed_tools = allowed_tools
+        else:
+            allowed_tools = allowed_tools - {"Subagent"}
 
         # 展开 orch 技能的 depends_on 依赖，供 AccessPolicy 和 prepare_delegate_task 使用
         all_skill_names = expand_with_dependencies(config.skills) if config.skills else []
@@ -250,16 +275,25 @@ class AgentRunner:
         if not config.skills:
             allowed_tools = allowed_tools - {"Skill"}
 
-        # run_command 单独注册独立实例 + AccessPolicy（每个会话独立策略）
-        allowed_tools = allowed_tools - {"run_command"}
+        engine._system_prompt += main_scope.main_agent_prompt_section()
+        if enable_run_command:
+            policy = AccessPolicy.for_agent(str(ROOT_DIR), all_skill_names)
+            engine._system_prompt += policy.prompt_section()
+        if needs_compressor:
+            engine._system_prompt += OFFLOAD_AWARE_PROMPT
+        if not enable_run_command and needs_compressor:
+            engine._system_prompt += "\n- 当前未启用 run_command 时，如需查看卸载文件，请改用 read_file 读取对应路径。"
+        if config.loop_mode == LoopMode.REACT_SUBAGENT:
+            from .config import REACT_SUBAGENT_PROMPT
+            engine._system_prompt += REACT_SUBAGENT_PROMPT
+        if enable_run_command:
+            from .tools.run_command import RunCommandTool  # 延迟导入避免循环依赖
+            run_tool = RunCommandTool()
+            run_tool.access_policy = policy
+            engine.register_tool(run_tool.schema, run_tool.run)
 
-        policy = AccessPolicy.for_agent(str(PROJECT_ROOT), all_skill_names)
-        engine._system_prompt += policy.prompt_section()
-        engine._system_prompt += OFFLOAD_AWARE_PROMPT
-        from .tools.run_command import RunCommandTool  # 延迟导入避免循环依赖
-        run_tool = RunCommandTool()
-        run_tool.access_policy = policy
-        engine.register_tool(run_tool.schema, run_tool.run)
+        # run_command 需要独立实例 + AccessPolicy（每个会话独立策略）
+        allowed_tools = allowed_tools - {"run_command"}
 
         # 通过 registry 注册其他工具
         for tool_schema in registry.get_schemas_for_names(allowed_tools):

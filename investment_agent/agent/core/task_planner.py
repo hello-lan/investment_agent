@@ -9,7 +9,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ..config import TASK_PLANNER_SYSTEM, TASK_PLANNER_PROMPT, PLANNING_MAX_TOKENS_DEFAULT
+from ..config import (
+    TASK_PLANNER_SYSTEM,
+    TASK_PLANNER_PROMPT,
+    SUBAGENT_TASK_PLANNER_SYSTEM,
+    SUBAGENT_TASK_PLANNER_PROMPT,
+    PLANNING_MAX_TOKENS_DEFAULT,
+)
 
 if TYPE_CHECKING:
     from .provider import ModelProvider
@@ -63,32 +69,61 @@ class TaskPlanner:
         skill_names: list[str],
         parent_messages: list[dict],
     ) -> str:
-        """基于父Agent对话上下文生成子Agent任务指令。
-
-        Args:
-            task: 父Agent的原始任务描述
-            skill_names: 子Agent将使用的技能列表
-            parent_messages: 父Agent的当前消息列表
-
-        Returns:
-            生成的任务指令，失败时返回原始 task
-        """
+        """基于父Agent对话上下文生成子Agent任务指令。"""
         if not parent_messages:
             return task
 
-        from ...config import PROJECT_ROOT
+        from ...config import ROOT_DIR
 
         text_messages = self._build_text_messages(parent_messages)
         skill_info = self._build_skill_info(skill_names)
         prompt = TASK_PLANNER_PROMPT.format(
-            task=task, skill_info=skill_info, project_root=PROJECT_ROOT
+            task=task, skill_info=skill_info, project_root=ROOT_DIR
         )
         text_messages.append({"role": "user", "content": prompt})
+        return await self._run_prompt(text_messages, TASK_PLANNER_SYSTEM, fallback=task)
 
+    async def generate_subagent_task(
+        self,
+        task: str,
+        targets: list[str],
+        expected_output: str | None,
+        output_path: str | None,
+        parent_messages: list[dict],
+    ) -> str:
+        """为安全文件子Agent生成聚焦任务说明。"""
+        if not parent_messages:
+            return task
+
+        from ...config import ROOT_DIR
+
+        text_messages = self._build_text_messages(parent_messages)
+        prompt = SUBAGENT_TASK_PLANNER_PROMPT.format(
+            task=task,
+            project_root=ROOT_DIR,
+            targets=", ".join(targets) or "(无)",
+            expected_output=expected_output or "(未指定)",
+            output_path=output_path or "(未指定)",
+        )
+        text_messages.append({"role": "user", "content": prompt})
+        return await self._run_prompt(
+            text_messages,
+            SUBAGENT_TASK_PLANNER_SYSTEM,
+            fallback=task,
+        )
+
+    async def _run_prompt(
+        self,
+        text_messages: list[dict],
+        system_prompt: str,
+        *,
+        fallback: str,
+    ) -> str:
+        """执行一次轻量规划调用。"""
         try:
             kwargs: dict = {
                 "messages": text_messages,
-                "system": TASK_PLANNER_SYSTEM,
+                "system": system_prompt,
             }
             if self.temperature is not None:
                 kwargs["temperature"] = self.temperature
@@ -104,7 +139,7 @@ class TaskPlanner:
         except Exception:
             _log.warning("Task instruction generation failed, using fallback", exc_info=True)
 
-        return task
+        return fallback
 
     def _build_text_messages(self, parent_messages: list[dict]) -> list[dict]:
         """构建精简纯文本消息：提取文本内容，丢弃 tool_use/tool_result blocks。

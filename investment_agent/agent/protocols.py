@@ -104,6 +104,10 @@ class Storage(Protocol):
         """查询模型配置（api_key, model, base_url 等）。默认模型时 model_id 为 None。"""
         ...
 
+    async def get_workflow_config(self, workflow_id: str) -> dict | None:
+        """查询 workflow 配置（definition 等）。"""
+        ...
+
     async def get_session_agent_id(self, session_id: str) -> str | None:
         """查询会话绑定的 agent_id。"""
         ...

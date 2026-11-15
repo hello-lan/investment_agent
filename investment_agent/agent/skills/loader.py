@@ -57,7 +57,8 @@ def reload_skills() -> None:
 
 
 def get_all_skills() -> list[BaseSkill]:
-    reload_skills()
+    if not _registry and _skills_dir:
+        reload_skills()
     return list(_registry.values())
 
 

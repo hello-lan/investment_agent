@@ -9,7 +9,7 @@ import logging
 from typing import AsyncGenerator
 
 from ..config import SUBAGENT_SYSTEM_PROMPT
-from ..constants import EventType
+from ..constants import EventType, LoopMode
 
 _log = logging.getLogger(__name__)
 
@@ -155,7 +155,7 @@ def create_child_engine(
     parent,
     skill_names: list[str],
     delegate_id: str,
-) -> "AgentEngine":
+) -> "BaseLoopEngine":
     """创建委派子引擎（共享父Agent的 token 预算）。
 
     子引擎为叶子执行器，不允许嵌套委派。
@@ -166,20 +166,20 @@ def create_child_engine(
         delegate_id: 委派 ID
 
     Returns:
-        配置好工具和技能的子 AgentEngine 实例
+        配置好工具和技能的子循环引擎实例
     """
     import os
     from ..config import EngineConfig, OFFLOAD_AWARE_PROMPT, PLANNING_MAX_TOKENS_DEFAULT
     from ..context.context_offloader import ContextOffloader
-    from ..context.runtime_compressor import CompressRuntimeCompressor
+    from ..context.runtime_compressor import CompressRuntimeCompressor, NoOpRuntimeCompressor
     from ..tools.skill_tool import SkillTool
     from ..skills.loader import _registry as skill_registry
     from ..skills.dependency import expand_with_dependencies
     from ..tools.access_policy import AccessPolicy
     from ..tools.run_command import RunCommandTool
-    from ...config import PROJECT_ROOT
-    # 延迟导入避免循环依赖
-    from .engine import AgentEngine
+    from ...config import ROOT_DIR
+    from .base_loop import BaseLoopEngine
+    from .loop_factory import create_loop_engine
 
     depth = parent.subagent_depth + 1
     session_id = f"delegate_{delegate_id}"
@@ -189,30 +189,41 @@ def create_child_engine(
         0, parent.token_budget - parent.total_input_tokens - parent.total_output_tokens
     )
 
-    # 子Agent 始终创建独立的 CompressRuntimeCompressor + offloader（不继承父Agent compressor）
-    offload_dir = os.path.join(
-        PROJECT_ROOT, "data", ".offload", parent.session_id, session_id,
+    runtime_context_compression_enabled = getattr(
+        parent,
+        "runtime_context_compression_enabled",
+        True,
     )
-    offloader = ContextOffloader(
-        offload_dir,
-        threshold=parent.offload_threshold,
-        summary_strategy=parent.offload_summary_strategy,
-        summary_chars=parent.offload_summary_chars,
-        provider=parent.provider,
-    )
-    child_compressor = CompressRuntimeCompressor(
-        keep_recent=3,
-        offloader=offloader,
-    )
+    if runtime_context_compression_enabled and parent.context_trim_token_threshold > 0:
+        offload_dir = os.path.join(
+            ROOT_DIR, "data", ".offload", parent.session_id, session_id,
+        )
+        offloader = ContextOffloader(
+            offload_dir,
+            threshold=parent.offload_threshold,
+            summary_strategy=parent.offload_summary_strategy,
+            summary_chars=parent.offload_summary_chars,
+            provider=parent.provider,
+        )
+        child_compressor = CompressRuntimeCompressor(
+            keep_recent=3,
+            offloader=offloader,
+        )
+        child_trim_threshold = parent.context_trim_token_threshold
+    else:
+        child_compressor = NoOpRuntimeCompressor()
+        child_trim_threshold = 0
 
     # 子Agent 执行繁重IO任务，保底 max_steps=60（父Agent的50可能不足以拆分大文件）
     child_max_steps = max(parent.max_steps, 60)
     child_cfg = EngineConfig(
         max_steps=child_max_steps,
         slow_think_interval=0,
+        loop_mode=LoopMode.REACT,
         token_budget=remaining_budget,
         loop_detection_threshold=parent.loop_threshold,
-        context_trim_token_threshold=parent.context_trim_token_threshold,
+        runtime_context_compression_enabled=runtime_context_compression_enabled,
+        context_trim_token_threshold=child_trim_threshold,
         max_subagent_depth=parent.max_subagent_depth,
         offload_threshold=parent.offload_threshold,
         offload_summary_strategy=parent.offload_summary_strategy,
@@ -220,11 +231,11 @@ def create_child_engine(
         planning_max_tokens=PLANNING_MAX_TOKENS_DEFAULT,  # 子Agent不委派，使用默认值即可
     )
 
-    child = AgentEngine(
+    child = create_loop_engine(
         session_id=session_id,
         system_prompt=(
-            SUBAGENT_SYSTEM_PROMPT.format(PROJECT_ROOT=PROJECT_ROOT)
-            + OFFLOAD_AWARE_PROMPT
+            SUBAGENT_SYSTEM_PROMPT.format(ROOT_DIR=ROOT_DIR)
+            + (OFFLOAD_AWARE_PROMPT if child_trim_threshold > 0 else "")
         ),
         provider=parent.provider,
         temperature=parent.temperature,
@@ -242,7 +253,7 @@ def create_child_engine(
 
     # 注册基础工具（独立实例 + AccessPolicy）
     run_tool = RunCommandTool()
-    policy = AccessPolicy.for_agent(str(PROJECT_ROOT), all_skill_names)
+    policy = AccessPolicy.for_agent(str(ROOT_DIR), all_skill_names)
     run_tool.access_policy = policy
     child._system_prompt += policy.prompt_section()
     child.register_tool(run_tool.schema, run_tool.run)
@@ -329,15 +340,6 @@ async def run_delegate_task(
             {"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}
         ],
     }]
-    # 注入当前日期到首条消息（不在 system prompt 中注入以保持 cache 命中）
-    from datetime import datetime
-    now = datetime.now()
-    date_note = (
-        f"[系统信息] 当前时间为 {now.year} 年 {now.month} 月 {now.day} 日 "
-        f"{now.hour:02d}:{now.minute:02d}。"
-        f"请以当前时间为基准判断时间相关的问题。\n\n"
-    )
-    child_messages[0]["content"][0]["text"] = date_note + child_messages[0]["content"][0]["text"]
     depth = parent.subagent_depth + 1
     prefix = "sub_" * depth
 

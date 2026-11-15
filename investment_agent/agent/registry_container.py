@@ -23,7 +23,9 @@ class AgentRegistry:
 
     tools: dict[str, "BaseTool"] = field(default_factory=dict)
     skills: dict[str, "BaseSkill"] = field(default_factory=dict)
-    auto_bound_tools: set[str] = field(default_factory=lambda: {"Skill", "run_command", "DelegateTask"})
+    auto_bound_tools: set[str] = field(default_factory=lambda: {
+        "Skill", "list_files", "read_file", "search_text", "write_file",
+    })
 
     # ── Tool registration ──────────────────────────────────────────────
 
@@ -52,12 +54,25 @@ class AgentRegistry:
 
     def bootstrap_default_tools(self) -> None:
         """导入并编目默认工具（替代 registry.py 的模块级 import）。"""
-        from .tools.run_command import RunCommandTool
         from .tools.delegate_task import DelegateTaskTool
+        from .tools.file_scope_policy import FileScopePolicy
+        from .tools.list_files import ListFilesTool
+        from .tools.read_file import ReadFileTool
+        from .tools.run_command import RunCommandTool
+        from .tools.search_text import SearchTextTool
         from .tools.skill_tool import SkillTool
+        from .tools.subagent import SubagentTool
+        from .tools.write_file import WriteFileTool
+
+        main_scope = FileScopePolicy.for_main_agent()
         self.register_tool(SkillTool())
         self.register_tool(RunCommandTool())
         self.register_tool(DelegateTaskTool())
+        self.register_tool(SubagentTool())
+        self.register_tool(ListFilesTool(main_scope))
+        self.register_tool(ReadFileTool(main_scope))
+        self.register_tool(SearchTextTool(main_scope))
+        self.register_tool(WriteFileTool(main_scope))
 
     # ── Skill registration ─────────────────────────────────────────────
 

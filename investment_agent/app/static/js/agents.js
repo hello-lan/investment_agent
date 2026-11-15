@@ -3,6 +3,7 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 let availableModels = [];
 let availableSkills = [];
 let availableTools = [];
+let availableWorkflows = [];
 
 function modelNameById(id) {
   const m = availableModels.find(x => x.id === id);
@@ -25,8 +26,17 @@ async function loadToolsCatalog() {
   return availableTools;
 }
 
+async function loadWorkflowsCatalog() {
+  try {
+    availableWorkflows = await fetch('/api/workflows').then(r => r.json());
+  } catch {
+    availableWorkflows = [];
+  }
+  return availableWorkflows;
+}
+
 async function loadAgents(){
-  await Promise.all([loadModels(), loadSkillsCatalog(), loadToolsCatalog()]);
+  await Promise.all([loadModels(), loadSkillsCatalog(), loadToolsCatalog(), loadWorkflowsCatalog()]);
   const agents = await fetch('/api/agents').then(r => r.json());
   const grid = document.getElementById('agentGrid');
   if(!agents.length){
@@ -80,6 +90,16 @@ function renderSkillOptions(selected = []) {
   }).join('');
 }
 
+function renderWorkflowOptions(selectedId = '') {
+  const select = document.getElementById('agentWorkflowSelect');
+  if (!select) return;
+  const options = ['<option value="">请选择 Workflow</option>'];
+  (availableWorkflows || []).forEach(w => {
+    options.push(`<option value="${esc(w.id)}" ${w.id === selectedId ? 'selected' : ''}>${esc(w.name)}</option>`);
+  });
+  select.innerHTML = options.join('');
+}
+
 function renderToolOptions(selected = []) {
   const box = document.getElementById('agentTools');
   if (!availableTools.length) {
@@ -95,10 +115,11 @@ function renderToolOptions(selected = []) {
     } else if (selectedSet.has(t.name)) {
       cls += ' selected';
     }
+    const badge = isAuto ? '<span class="skill-type-tag orch">默认</span>' : '';
     return `<div class="${cls}" data-skill="${esc(t.name)}" data-auto="${isAuto ? '1' : '0'}">
       <span class="skill-mark">&#10003;</span>
       <div class="skill-item-text">
-        <span>${esc(t.name)}</span>
+        <span>${badge}${esc(t.name)}</span>
         <span class="skill-deps">${esc(t.description)}</span>
       </div>
     </div>`;
@@ -180,17 +201,43 @@ function fillContextFields(cfg) {
   elCtxSysBudget.value = budget.system_max_tokens ?? '';
 }
 
+function updateRuntimeCompressionUI() {
+  const toggle = document.getElementById('agentRuntimeCompressionEnabled');
+  const fields = document.getElementById('runtimeCompressionFields');
+  if (!toggle || !fields) return;
+  fields.classList.toggle('hidden', !toggle.checked);
+}
+
+function updateLoopModeUI() {
+  const mode = document.getElementById('agentLoopMode').value || 'dual_loop';
+  const slowThinkRow = document.getElementById('agentSlowThinkRow');
+  const slowThink = document.getElementById('agentSlowThink');
+  const workflowRow = document.getElementById('agentWorkflowRow');
+  const workflowSelect = document.getElementById('agentWorkflowSelect');
+  const enabledModes = new Set(['dual_loop', 'plan_execute']);
+  const disabled = !enabledModes.has(mode);
+  slowThink.disabled = disabled;
+  slowThinkRow.style.opacity = disabled ? '0.55' : '1';
+  if (workflowRow) workflowRow.style.display = mode === 'workflow' ? '' : 'none';
+  if (workflowSelect) workflowSelect.disabled = mode !== 'workflow';
+}
+
 function fillEngineFields(cfg) {
   const maxSteps = document.getElementById('agentMaxSteps');
   const slowThink = document.getElementById('agentSlowThink');
+  const loopMode = document.getElementById('agentLoopMode');
   const tokenBudget = document.getElementById('agentTokenBudget');
   const loopThreshold = document.getElementById('agentLoopThreshold');
   const maxSubagentDepth = document.getElementById('agentMaxSubagentDepth');
+  const workflowSelect = document.getElementById('agentWorkflowSelect');
+
+  const runtimeCompressionToggle = document.getElementById('agentRuntimeCompressionEnabled');
 
   if (!cfg) {
     maxSteps.value = 30;
     document.getElementById('agentMaxStepsVal').textContent = '30';
     slowThink.value = 3;
+    loopMode.value = 'dual_loop';
     document.getElementById('agentSlowThinkVal').textContent = '3';
     tokenBudget.value = '';
     loopThreshold.value = 3;
@@ -201,12 +248,18 @@ function fillEngineFields(cfg) {
     document.getElementById('agentOffloadThreshold').value = '';
     document.getElementById('agentOffloadStrategy').value = 'truncate';
     document.getElementById('agentOffloadSummaryChars').value = '';
+    document.getElementById('agentTrimTokenThreshold').value = '';
+    if (runtimeCompressionToggle) runtimeCompressionToggle.checked = false;
+    if (workflowSelect) workflowSelect.value = '';
+    updateRuntimeCompressionUI();
+    updateLoopModeUI();
     return;
   }
 
   maxSteps.value = cfg.max_steps ?? 30;
   document.getElementById('agentMaxStepsVal').textContent = cfg.max_steps ?? 30;
   slowThink.value = cfg.slow_think_interval ?? 3;
+  loopMode.value = cfg.loop_mode || 'dual_loop';
   document.getElementById('agentSlowThinkVal').textContent = cfg.slow_think_interval ?? 3;
   tokenBudget.value = cfg.token_budget ?? '';
   loopThreshold.value = cfg.loop_detection_threshold ?? 3;
@@ -218,6 +271,12 @@ function fillEngineFields(cfg) {
   document.getElementById('agentOffloadStrategy').value = cfg.offload_summary_strategy || 'truncate';
   document.getElementById('agentOffloadSummaryChars').value = cfg.offload_summary_chars ?? '';
   document.getElementById('agentTrimTokenThreshold').value = cfg.context_trim_token_threshold ?? '';
+  if (runtimeCompressionToggle) {
+    runtimeCompressionToggle.checked = cfg.runtime_context_compression_enabled !== false;
+  }
+  if (workflowSelect) workflowSelect.value = cfg.workflow_id || '';
+  updateRuntimeCompressionUI();
+  updateLoopModeUI();
 }
 
 function openModal(agent){
@@ -231,6 +290,7 @@ function openModal(agent){
   document.getElementById('agentModel').innerHTML = buildModelOptions(agent?.model_id || '');
   document.getElementById('agentTemp').value = agent?.temperature ?? 0.7;
   document.getElementById('agentMaxTokens').value = agent?.max_tokens || 4096;
+  renderWorkflowOptions(engineConfig?.workflow_id || '');
   fillContextFields(compressConfig);
   fillEngineFields(engineConfig);
   renderSkillOptions(agent?.skills || []);
@@ -279,6 +339,7 @@ async function saveAgent(){
 
   const engineMaxSteps = parseInt(document.getElementById('agentMaxSteps').value) || 30;
   const engineSlowThink = parseInt(document.getElementById('agentSlowThink').value) || 3;
+  const engineLoopMode = document.getElementById('agentLoopMode').value || 'dual_loop';
   const engineTokenBudget = toNullableInt(document.getElementById('agentTokenBudget').value);
   const engineLoopThreshold = parseInt(document.getElementById('agentLoopThreshold').value) || 3;
   const maxSubagentDepth = parseInt(document.getElementById('agentMaxSubagentDepth').value) || 3;
@@ -288,12 +349,18 @@ async function saveAgent(){
   const offloadStrategy = document.getElementById('agentOffloadStrategy').value;
   const offloadSummaryChars = toNullableInt(document.getElementById('agentOffloadSummaryChars').value);
   const trimTokenThreshold = toNullableInt(document.getElementById('agentTrimTokenThreshold').value);
+  const runtimeCompressionEnabled = document.getElementById('agentRuntimeCompressionEnabled').checked;
+
+  const workflowId = (document.getElementById('agentWorkflowSelect')?.value || '').trim();
 
   const engineConfig = {
     max_steps: engineMaxSteps,
     slow_think_interval: engineSlowThink,
+    loop_mode: engineLoopMode,
+    workflow_id: workflowId || null,
     token_budget: engineTokenBudget,
     loop_detection_threshold: engineLoopThreshold,
+    runtime_context_compression_enabled: runtimeCompressionEnabled,
     context_trim_token_threshold: trimTokenThreshold,
     max_subagent_depth: maxSubagentDepth,
     planning_max_tokens: planningMaxTokens,
@@ -301,6 +368,11 @@ async function saveAgent(){
     offload_summary_strategy: offloadStrategy,
     offload_summary_chars: offloadSummaryChars,
   };
+
+  if (engineLoopMode === 'workflow' && !workflowId) {
+    alert('Workflow 模式下请选择一个 Workflow');
+    return;
+  }
 
   const body = {
     name,
@@ -322,4 +394,15 @@ async function saveAgent(){
   loadAgents();
 }
 
-window.addEventListener('DOMContentLoaded', loadAgents);
+window.addEventListener('DOMContentLoaded', () => {
+  const loopMode = document.getElementById('agentLoopMode');
+  if (loopMode) {
+    loopMode.addEventListener('change', updateLoopModeUI);
+  }
+  const runtimeCompressionToggle = document.getElementById('agentRuntimeCompressionEnabled');
+  if (runtimeCompressionToggle) {
+    runtimeCompressionToggle.addEventListener('change', updateRuntimeCompressionUI);
+  }
+  updateRuntimeCompressionUI();
+  loadAgents();
+});

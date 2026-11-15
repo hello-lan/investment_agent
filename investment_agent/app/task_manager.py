@@ -13,7 +13,7 @@ import logging
 from typing import Any, AsyncGenerator
 
 from ..agent.runner import AgentRunner
-from ..agent.core.engine import AgentEngine
+from ..agent.core.base_loop import BaseLoopEngine
 from ..agent.core.events import build_trace_detail
 from .observability.hooks_impl import ObservabilityHooks
 from .observability.cost_tracker import _estimate_cost_usd
@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 _RENDER_EVENTS = frozenset({
     "text_delta", "tool_call", "tool_result",
     "slow_think", "done", "error", "interrupted",
+    "workflow_start", "workflow_node_ready", "workflow_node_start",
+    "workflow_node_done", "workflow_node_error", "workflow_done",
 })
 
 # 任务完成后缓冲保留时间（秒）
@@ -44,7 +46,7 @@ class _TaskState:
         self,
         task_id: str,
         session_id: str,
-        engine: AgentEngine,
+        engine: BaseLoopEngine,
         runner: AgentRunner,
         config: Any,
     ):
@@ -72,7 +74,7 @@ class TaskManager:
     async def start_task(
         self,
         task_id: str,
-        engine: AgentEngine,
+        engine: BaseLoopEngine,
         runner: AgentRunner,
         config: Any,
         session_id: str,
@@ -117,7 +119,7 @@ class TaskManager:
             await self._broadcast(state, {"type": "error", "message": str(e)})
             state.status = "error"
         finally:
-            await self._finalize_task(state)
+            await self._finalize_task(state, hooks)
 
     async def _execute_engine_loop(
         self, state: _TaskState, hooks: ObservabilityHooks,
@@ -169,11 +171,17 @@ class TaskManager:
             elif event_type in ("done", "interrupted"):
                 state.status = "done"
 
-    async def _finalize_task(self, state: _TaskState) -> None:
+    async def _finalize_task(self, state: _TaskState, hooks: ObservabilityHooks) -> None:
         """任务收尾：保存回复、清理引擎、恢复会话状态、调度延迟清理。"""
         state.done = True
         task_id = state.task_id
         session_id = state.session_id
+
+        # 先冲刷 trace，避免任务结束后缓冲中的事件丢失
+        try:
+            await hooks.flush_traces()
+        except Exception:
+            logger.exception("Failed to flush trace buffer for task %s", task_id)
 
         # 保存 assistant 回复 —— 必须在 cleanup 之前执行
         try:
@@ -236,7 +244,7 @@ class TaskManager:
     async def _fire_terminal_hooks(
         self,
         hooks: ObservabilityHooks,
-        engine: AgentEngine,
+        engine: BaseLoopEngine,
         last_step: int,
         event: dict,
     ) -> None:

@@ -13,6 +13,8 @@
   var searchTimer = null;
   var pollTimer = null;
   var dropdownIndex = -1;
+  var navObserver = null;
+  var navBound = false;
 
   var C = {
     text: "#8b9cb3", axis: "#2d3a4f", blue: "#3b82f6", green: "#10b981",
@@ -168,6 +170,7 @@
 
   function renderAll(data) {
     disposeCharts();
+    disposeNavObserver();
     var s = data.sections || {};
     var stock = data.stock || {};
     var snap = s.snapshot || {};
@@ -187,7 +190,7 @@
     html += renderEight();
 
     dashContent.innerHTML = html;
-    setTimeout(function () { initCharts(s); }, 80);
+    requestAnimationFrame(function () { initCharts(s); });
     bindNav();
   }
 
@@ -216,13 +219,13 @@
       '<div class="stock-name">' + esc(name) + ' ' + esc(stock.code || "") + '</div>' +
       '<div class="stock-meta">' + esc(meta || "—") + '</div>' +
       '<div class="kpi-row">' +
-      kpi("营业收入", fmtYi(snap.revenue)) +
-      kpi("归母净利润", fmtYi(snap.net_profit)) +
+      kpi("营业收入", fmtYi(snap.revenue) + " 亿") +
+      kpi("归母净利润", fmtYi(snap.net_profit) + " 亿") +
       kpi("净利率", fmtPct(snap.net_margin)) +
       kpi("毛利率", fmtPct(snap.gross_margin)) +
       kpi("ROE", fmtPct(snap.roe), snap.roe > 20 ? "good" : "") +
       kpi("经营现金流/净利润", snap.cfnp != null ? fmtNum(snap.cfnp, 2) : "—") +
-      kpi("自由现金流", snap.fcf != null ? (snap.fcf_positive ? "正向" : fmtYi(snap.fcf)) : "—",
+      kpi("自由现金流", snap.fcf != null ? (snap.fcf_positive ? "正向" : fmtYi(snap.fcf) + " 亿") : "—",
         snap.fcf_positive ? "good" : "") +
       '</div>' +
       '<p class="snapshot-guide">' +
@@ -765,23 +768,32 @@
     charts = [];
   }
 
-  // ── 导航 ──
+  function disposeNavObserver() {
+    if (navObserver) {
+      navObserver.disconnect();
+      navObserver = null;
+    }
+  }
 
   function bindNav() {
-    sideNav.addEventListener("click", function (e) {
-      var a = e.target.closest("a");
-      if (!a) return;
-      e.preventDefault();
-      var target = document.querySelector(a.getAttribute("href"));
-      if (target && dashContent) {
-        var top = target.getBoundingClientRect().top
-          - dashContent.getBoundingClientRect().top
-          + dashContent.scrollTop - 12;
-        dashContent.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-      }
-    });
+    if (!navBound) {
+      sideNav.addEventListener("click", function (e) {
+        var a = e.target.closest("a");
+        if (!a) return;
+        e.preventDefault();
+        var target = document.querySelector(a.getAttribute("href"));
+        if (target && dashContent) {
+          var top = target.getBoundingClientRect().top
+            - dashContent.getBoundingClientRect().top
+            + dashContent.scrollTop - 12;
+          dashContent.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+        }
+      });
+      navBound = true;
+    }
 
-    var observer = new IntersectionObserver(function (entries) {
+    disposeNavObserver();
+    navObserver = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
         if (entry.isIntersecting) {
           var id = entry.target.id;
@@ -794,11 +806,11 @@
 
     ["snapshot", "step1", "step2", "step3", "step4", "step5", "step6", "step7", "eight"].forEach(function (id) {
       var el = document.getElementById(id);
-      if (el) observer.observe(el);
+      if (el) navObserver.observe(el);
     });
   }
 
-  // ── 工具 ──
+  // ── 导航 ──
 
   function section(id, title, body) {
     return '<section id="' + id + '" class="dash-section">' +

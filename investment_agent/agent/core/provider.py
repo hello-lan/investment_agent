@@ -17,6 +17,20 @@ from .types import LLMResponse, ToolCall
 _log = logging.getLogger(__name__)
 
 
+def _build_anthropic_http_client():
+    """构造忽略系统代理环境变量的 Anthropic HTTP client。"""
+    from anthropic import DefaultAsyncHttpxClient
+
+    return DefaultAsyncHttpxClient(trust_env=False)
+
+
+def _build_openai_http_client():
+    """构造忽略系统代理环境变量的 OpenAI HTTP client。"""
+    from openai import DefaultAsyncHttpxClient
+
+    return DefaultAsyncHttpxClient(trust_env=False)
+
+
 # ── Provider 基类 ───────────────────────────────────────────────────────────
 
 class ModelProvider(ABC):
@@ -61,7 +75,10 @@ class ClaudeProvider(ModelProvider):
 
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-6"):
         import anthropic
-        self.client = anthropic.AsyncAnthropic(api_key=api_key or None)
+        self.client = anthropic.AsyncAnthropic(
+            api_key=api_key or None,
+            http_client=_build_anthropic_http_client(),
+        )
         self.model = model
 
     async def chat(self, messages, system="", tools=None, max_tokens=4096, temperature=0.7) -> LLMResponse:
@@ -136,7 +153,11 @@ class OpenAICompatProvider(ModelProvider):
 
     def __init__(self, api_key: str, model: str, base_url: str = "https://api.openai.com/v1"):
         from openai import AsyncOpenAI
-        self.client = AsyncOpenAI(api_key=api_key or None, base_url=base_url)
+        self.client = AsyncOpenAI(
+            api_key=api_key or None,
+            base_url=base_url,
+            http_client=_build_openai_http_client(),
+        )
         self.model = model
 
     def convert_messages(self, messages: list[dict]) -> list[dict]:
