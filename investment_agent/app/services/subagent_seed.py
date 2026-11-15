@@ -84,10 +84,28 @@ def discover_default_subagents(directory: Path) -> list[Path]:
     return files
 
 
+def _needs_refresh(existing: dict, parsed: dict) -> bool:
+    """本地 Markdown 与 DB 记录是否不一致（默认 Subagent 以 md 为准刷新）。"""
+    fields = (
+        ("description", parsed.get("description") or ""),
+        ("system_prompt", parsed.get("system_prompt") or ""),
+    )
+    for key, want in fields:
+        if (existing.get(key) or "") != want:
+            return True
+    want_tools = parsed.get("tools") or []
+    want_skills = parsed.get("skills") or []
+    if list(existing.get("tools") or []) != list(want_tools):
+        return True
+    if list(existing.get("skills") or []) != list(want_skills):
+        return True
+    return False
+
+
 async def seed_default_subagents(directory: Path | None = None) -> dict:
-    """启动时导入默认 Subagent：同名已存在则跳过。"""
+    """启动时导入默认 Subagent：同名不存在则创建；已存在但与 md 不一致则刷新。"""
     base = directory or resolve_subagents_dir()
-    stats = {"imported": 0, "skipped": 0, "failed": 0}
+    stats = {"imported": 0, "updated": 0, "skipped": 0, "failed": 0}
 
     if not base.exists():
         base.mkdir(parents=True, exist_ok=True)
@@ -109,8 +127,21 @@ async def seed_default_subagents(directory: Path | None = None) -> dict:
 
             existing = await SubagentService.get_by_name(name)
             if existing:
-                stats["skipped"] += 1
-                logger.debug("跳过已存在 Subagent: %s (%s)", name, path.name)
+                if not _needs_refresh(existing, parsed):
+                    stats["skipped"] += 1
+                    logger.debug("跳过已同步 Subagent: %s (%s)", name, path.name)
+                    continue
+                await SubagentService.update_subagent(
+                    existing["id"],
+                    name=name,
+                    description=parsed["description"],
+                    system_prompt=parsed["system_prompt"],
+                    model_id=parsed.get("model_id") or existing.get("model_id") or "",
+                    tools=parsed.get("tools") or [],
+                    skills=parsed.get("skills") or [],
+                )
+                stats["updated"] += 1
+                logger.info("已刷新默认 Subagent: %s (%s)", name, path.name)
                 continue
 
             await SubagentService.create_subagent(
@@ -128,8 +159,9 @@ async def seed_default_subagents(directory: Path | None = None) -> dict:
             logger.warning("导入默认 Subagent 失败 %s: %s", path.name, exc)
 
     logger.info(
-        "默认 Subagent 导入完成: imported=%s skipped=%s failed=%s",
+        "默认 Subagent 导入完成: imported=%s updated=%s skipped=%s failed=%s",
         stats["imported"],
+        stats["updated"],
         stats["skipped"],
         stats["failed"],
     )

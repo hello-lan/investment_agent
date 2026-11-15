@@ -250,8 +250,10 @@ class TaskManager:
     ) -> None:
         """触发 on_cost 和 on_cache_metrics hooks。"""
         usage = event.get("usage", {})
-        input_tokens = usage.get("input_tokens", engine.total_input_tokens)
-        output_tokens = usage.get("output_tokens", engine.total_output_tokens)
+        own_in = engine.total_input_tokens + getattr(engine, "billed_input_tokens", 0)
+        own_out = engine.total_output_tokens + getattr(engine, "billed_output_tokens", 0)
+        input_tokens = usage.get("input_tokens", own_in)
+        output_tokens = usage.get("output_tokens", own_out)
         cache_read = engine.total_cache_read_tokens
         cache_create = engine.total_cache_creation_tokens
 
@@ -292,8 +294,11 @@ class TaskManager:
     async def _update_session_usage(self, state: _TaskState, event: dict) -> dict | None:
         """将本次任务的 token 用量累加到 sessions 表。返回 cost 信息用于注入前端事件。"""
         usage = event.get("usage", {})
-        input_tokens = usage.get("input_tokens", state.engine.total_input_tokens)
-        output_tokens = usage.get("output_tokens", state.engine.total_output_tokens)
+        engine = state.engine
+        own_in = engine.total_input_tokens + getattr(engine, "billed_input_tokens", 0)
+        own_out = engine.total_output_tokens + getattr(engine, "billed_output_tokens", 0)
+        input_tokens = usage.get("input_tokens", own_in)
+        output_tokens = usage.get("output_tokens", own_out)
         if not input_tokens and not output_tokens:
             return None
 

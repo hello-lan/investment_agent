@@ -31,10 +31,12 @@ class FileScopePolicy:
         targets: list[str | Path],
         workspace_root: str | Path,
         output_path: str | None = None,
+        skill_names: list[str] | None = None,
     ):
         self.project_root = Path(project_root).resolve()
         self.data_root = self.project_root / "data"
         self.default_write_root = self.data_root / "tmp"
+        self._skill_names: list[str] = list(skill_names or [])
         self.workspace_root = self._resolve_within_data(workspace_root, default_to_tmp=False)
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.default_write_root.mkdir(parents=True, exist_ok=True)
@@ -52,21 +54,35 @@ class FileScopePolicy:
         ]
 
     @classmethod
-    def for_main_agent(cls, project_root: str | Path = ROOT_DIR) -> "FileScopePolicy":
-        """创建主 Agent 的宽范围文件作用域。"""
+    def for_main_agent(
+        cls,
+        project_root: str | Path = ROOT_DIR,
+        skill_names: list[str] | None = None,
+    ) -> "FileScopePolicy":
+        """创建主 Agent 的宽范围文件作用域。
+
+        已启用技能目录 `extensions/skills/{name}/` 会加入只读 targets，
+        与 AccessPolicy 对 run_command 的放行规则对齐。
+        """
         project_root = Path(project_root).resolve()
         data_root = project_root / "data"
         data_root.mkdir(parents=True, exist_ok=True)
 
-        targets = ["data"]
+        names = list(skill_names or [])
+        targets: list[str | Path] = ["data"]
         for rel in cls._MAIN_AGENT_OPTIONAL_TARGETS:
             if (project_root / rel).exists():
                 targets.append(rel)
+        for name in names:
+            skill_dir = project_root / "extensions" / "skills" / name
+            if skill_dir.is_dir():
+                targets.append(skill_dir)
 
         return cls(
             project_root=project_root,
             targets=targets,
             workspace_root="data/tmp/main-agent",
+            skill_names=names,
         )
 
     @classmethod
@@ -77,6 +93,7 @@ class FileScopePolicy:
         targets: list[str],
         workspace_root: str | Path,
         output_path: str | None = None,
+        skill_names: list[str] | None = None,
     ) -> "FileScopePolicy":
         """创建子 Agent 的任务级窄作用域。"""
         return cls(
@@ -84,6 +101,7 @@ class FileScopePolicy:
             targets=targets,
             workspace_root=workspace_root,
             output_path=output_path,
+            skill_names=skill_names,
         )
 
     def prompt_section(self) -> str:
@@ -106,7 +124,7 @@ class FileScopePolicy:
         lines.append("")
         lines.append("### 禁止访问")
         lines.append("- `investment_agent/` 项目源码")
-        lines.append("- `extensions/` 技能目录")
+        lines.append("- `extensions/` 中未启用的技能目录")
         lines.append("- `.git/`、`.claude/`、虚拟环境目录、数据库文件")
         lines.append("- 任何未列入 targets 的读取路径")
         return "\n".join(lines)
@@ -130,7 +148,7 @@ class FileScopePolicy:
         lines.append("")
         lines.append("### 禁止访问")
         lines.append("- `investment_agent/` 项目源码")
-        lines.append("- `extensions/` 技能目录")
+        lines.append("- `extensions/` 中未启用的技能目录")
         lines.append("- `.git/`、`.claude/`、虚拟环境目录、数据库文件")
         lines.append("- 任何未列入可读取范围的路径")
         return "\n".join(lines)
@@ -188,12 +206,26 @@ class FileScopePolicy:
         self._reject_forbidden(path)
         return path
 
+    def _is_enabled_skill_path(self, rel: str) -> bool:
+        """extensions/skills/{已启用技能}/... 只读白名单。"""
+        if not self._skill_names:
+            return False
+        parts = rel.split("/")
+        return (
+            len(parts) >= 3
+            and parts[0] == "extensions"
+            and parts[1] == "skills"
+            and parts[2] in self._skill_names
+        )
+
     def _reject_forbidden(self, path: Path) -> None:
         rel = self._to_rel(path)
         if rel == ".":
             return
         top = rel.split("/", 1)[0]
         if top in self._FORBIDDEN_TOP_DIRS:
+            if top == "extensions" and self._is_enabled_skill_path(rel):
+                return
             raise ValueError(f"禁止访问敏感目录: {rel}")
         if rel in self._FORBIDDEN_PATHS:
             raise ValueError(f"禁止访问敏感文件: {rel}")

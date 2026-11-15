@@ -106,6 +106,9 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
         ),
         "workflow_id": workflow_id,
         "token_budget": _resolve_preferring_agent(agent_cfg, global_cfg, "token_budget", 100000),
+        "subagent_token_budget": _resolve_preferring_agent(
+            agent_cfg, global_cfg, "subagent_token_budget", 100000,
+        ),
         "loop_detection_threshold": _resolve_preferring_agent(agent_cfg, global_cfg, "loop_detection_threshold", 3),
         "runtime_context_compression_enabled": runtime_context_compression_enabled,
         "context_trim_token_threshold": context_trim_token_threshold,
@@ -235,6 +238,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         slow_think_interval=engine_params["slow_think_interval"],
         loop_mode=engine_params["loop_mode"],
         token_budget=engine_params["token_budget"],
+        subagent_token_budget=engine_params["subagent_token_budget"],
         loop_detection_threshold=engine_params["loop_detection_threshold"],
         context_trim_token_threshold=engine_params["context_trim_token_threshold"],
         runtime_context_compression_enabled=engine_params["runtime_context_compression_enabled"],

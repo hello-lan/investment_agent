@@ -18,7 +18,7 @@ from ...config import ROOT_DIR
 
 _log = logging.getLogger(__name__)
 _SUBAGENT_TYPE = "subagent"
-_SUBAGENT_MIN_REMAINING = 20_000
+_DEFAULT_SUBAGENT_TOKEN_BUDGET = 100_000
 
 
 @dataclass
@@ -75,8 +75,12 @@ def _forward_event(event: dict, subagent_id: str, depth: int) -> dict | str | No
 
 
 def _sync_tokens_from(target, source) -> None:
-    target.total_input_tokens += source.total_input_tokens
-    target.total_output_tokens += source.total_output_tokens
+    """将子引擎用量记入父引擎的 billed_*（费用统计），不占用父 token_budget。"""
+    target.billed_input_tokens = getattr(target, "billed_input_tokens", 0) + source.total_input_tokens
+    target.billed_output_tokens = getattr(target, "billed_output_tokens", 0) + source.total_output_tokens
+    # 子引擎自身也可能带有再委派的 billed_*
+    target.billed_input_tokens += getattr(source, "billed_input_tokens", 0)
+    target.billed_output_tokens += getattr(source, "billed_output_tokens", 0)
     target.total_cache_read_tokens += source.total_cache_read_tokens
     target.total_cache_creation_tokens += source.total_cache_creation_tokens
 
@@ -103,14 +107,15 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
     from ..tools.write_file import WriteFileTool
 
     definition = request.definition
-    remaining_budget = max(
-        0, parent.token_budget - parent.total_input_tokens - parent.total_output_tokens,
+    child_budget = (
+        getattr(parent, "subagent_token_budget", None) or _DEFAULT_SUBAGENT_TOKEN_BUDGET
     )
     child_cfg = EngineConfig(
         max_steps=max(min(parent.max_steps, 40), 20),
         slow_think_interval=0,
         loop_mode=LoopMode.REACT,
-        token_budget=remaining_budget,
+        token_budget=child_budget,
+        subagent_token_budget=child_budget,
         loop_detection_threshold=parent.loop_threshold,
         runtime_context_compression_enabled=False,
         context_trim_token_threshold=0,
@@ -151,7 +156,8 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
     tool_names -= {"DelegateTask", "Subagent"}
     tool_names |= {"list_files", "read_file", "search_text", "write_file"}
 
-    scope = FileScopePolicy.for_main_agent()
+    scope = FileScopePolicy.for_main_agent(skill_names=all_skill_names)
+    child._system_prompt += scope.main_agent_prompt_section()
     for tool in (
         ListFilesTool(scope),
         ReadFileTool(scope),
@@ -180,13 +186,23 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
             if skill:
                 child.register_skill(skill)
                 if skill.body:
-                    body_excerpt = skill.body[:3000]
+                    # 优先保留文首 Quick start / 推荐命令，避免子 Agent 再通读脚本烧 token
+                    body_excerpt = skill.body[:4500]
                     child._system_prompt += (
                         f"\n\n---\n\n# 技能 {name} 快速参考\n\n{body_excerpt}\n\n"
+                        "执行约定：命令已在项目根（Windows/Linux）；"
+                        "用相对路径+`/`直接跑脚本；不要 `cd`；不要通读 scripts/*.py。\n"
+                        "已注入快速参考：第一步直接 `run_command` 跑脚本；"
+                        "禁止先调 Skill / 禁止用 grep·read 扫年报替代脚本；"
+                        "上游 task 的简化 schema 一律忽略，以脚本 Output contract 为准。\n"
                     )
-                    if len(skill.body) > 3000:
+                    if len(skill.body) > 4500:
                         child._system_prompt += (
-                            f"> 以上为摘要。完整说明请调用 Skill(name=\"{name}\")\n"
+                            f"> 以上为摘要。仅当脚本失败时再调用 Skill(name=\"{name}\")\n"
+                        )
+                    else:
+                        child._system_prompt += (
+                            f"> 完整说明已注入。不要再调用 Skill(name=\"{name}\")。\n"
                         )
 
     # 忽略剩余未知工具名
@@ -213,11 +229,16 @@ async def prepare_defined_subagent(
             f"错误：已达到最大委派深度 {engine.max_subagent_depth}，无法创建子Agent"
         )
 
-    remaining = engine.token_budget - engine.total_input_tokens - engine.total_output_tokens
-    if remaining < _SUBAGENT_MIN_REMAINING:
+    parent_used = engine.total_input_tokens + engine.total_output_tokens
+    if parent_used >= engine.token_budget:
         return (
-            f"错误：剩余 token 预算不足 ({remaining}/{engine.token_budget})，无法委派执行子任务"
+            f"错误：父 Agent token 预算已耗尽 ({parent_used}/{engine.token_budget})，"
+            f"无法委派执行子任务"
         )
+
+    child_budget = getattr(engine, "subagent_token_budget", None) or _DEFAULT_SUBAGENT_TOKEN_BUDGET
+    if child_budget <= 0:
+        return "错误：子Agent Token 预算未配置或为 0，无法委派执行子任务"
 
     task = (tc_input.get("task") or "").strip()
     if not task:
@@ -230,8 +251,8 @@ async def prepare_defined_subagent(
     )
     subagent_id = f"subagent_{uuid.uuid4().hex[:8]}"
     _log.info(
-        "[Subagent] 准备完成: id=%s name=%s remaining=%d/%d depth=%d task=%s",
-        subagent_id, tool_name, remaining, engine.token_budget,
+        "[Subagent] 准备完成: id=%s name=%s child_budget=%d parent_used=%d/%d depth=%d task=%s",
+        subagent_id, tool_name, child_budget, parent_used, engine.token_budget,
         engine.subagent_depth + 1, task[:100],
     )
     return request, subagent_id

@@ -66,6 +66,18 @@ class AccessPolicy:
             for name in self._skill_names:
                 lines.append(f"- `extensions/skills/{name}/` — 只读")
         lines.append("- 其他目录不受限制")
+        lines.append("")
+        lines.append("### 命令执行约定（Windows / Linux 通用）")
+        lines.append("- `run_command` **已在项目根目录执行**，禁止再 `cd`")
+        lines.append(
+            "- 路径一律使用相对项目根的相对路径，分隔符用 `/`"
+            "（如 `data/reports/...`、`extensions/skills/...`）"
+        )
+        lines.append(
+            "- Windows 上禁止盘符绝对路径（`D:\\...`）和 Git Bash 盘符路径（`/d/...`）；"
+            "Linux 上也请优先相对路径，不要依赖本机绝对路径"
+        )
+        lines.append("- 不要用单独的 `\\` 做行续写；命令写成单行或用 `&&` 连接")
         lines.append(
             "\n**不要尝试访问被禁止的目录**，否则会收到权限拒绝错误并浪费执行步骤。"
         )
@@ -113,20 +125,16 @@ class AccessPolicy:
             ):
                 continue
 
-            resolved = os.path.normpath(
-                os.path.join(self.project_root, token)
-            )
+            resolved = self._resolve_path_token(token)
 
             # 防止路径逃逸：resolved 必须是 project_root 本身或其子目录
-            if (
-                resolved != self.project_root
-                and not resolved.startswith(self.project_root + os.sep)
-            ):
+            root = os.path.normpath(self.project_root)
+            if not self._is_within_project(resolved, root):
                 return f"权限拒绝: 路径 '{token}' 逃逸出项目目录"
 
-            rel = os.path.relpath(resolved, self.project_root)
+            rel = os.path.relpath(resolved, root)
 
-            # 项目根目录引用（cd /project/root, ls . 等）视为 no-op，放行
+            # 项目根目录引用（cd 项目根, ls . 等）视为 no-op，放行
             if rel == ".":
                 continue
 
@@ -172,6 +180,62 @@ class AccessPolicy:
 
         return None  # 不在禁止目录中，放行
 
+    # ── 路径解析 ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _normalize_git_bash_path(token: str) -> str | None:
+        """仅在 Windows 上将 Git Bash 盘符路径转为本机绝对路径。
+
+        例：`/d/project/foo` → `D:\\project\\foo`
+
+        Linux/macOS 上不得调用：`/etc`、`/home`、`/tmp` 等真实 Unix 路径
+        会被误判成盘符路径。无法识别则返回 None。
+        """
+        if os.name != "nt":
+            return None
+        unified = token.replace("\\", "/")
+        # Git Bash: /d/foo 或 /d
+        m = re.match(r"^/([A-Za-z])(?:/(.*))?$", unified)
+        if not m:
+            return None
+        drive = m.group(1).upper()
+        rest = (m.group(2) or "").replace("/", "\\")
+        if rest:
+            return f"{drive}:\\{rest}"
+        return f"{drive}:\\"
+
+    def _resolve_path_token(self, token: str) -> str:
+        """将命令中的路径 token 解析为规范化绝对路径。"""
+        # Windows + Git Bash 盘符路径（/d/...）
+        git_bash = self._normalize_git_bash_path(token)
+        if git_bash is not None:
+            return os.path.normpath(git_bash)
+
+        # 本机绝对路径：Linux/macOS 的 /home/...，或 Windows 的 D:\...
+        if os.path.isabs(token):
+            return os.path.normpath(token)
+
+        # 相对路径：统一按项目根拼接；Windows 上容忍混合分隔符
+        rel = token.replace("\\", os.sep).replace("/", os.sep) if os.name == "nt" else token
+        return os.path.normpath(os.path.join(self.project_root, rel))
+
+    @staticmethod
+    def _is_within_project(resolved: str, project_root: str) -> bool:
+        """判断 resolved 是否为 project_root 本身或其子目录。
+
+        Windows 忽略大小写；比较时强制带目录分隔符前缀，避免
+        `/proj` 误匹配 `/project`。
+        """
+        resolved_cmp = os.path.normpath(resolved)
+        root_cmp = os.path.normpath(project_root)
+        if os.name == "nt":
+            resolved_cmp = os.path.normcase(resolved_cmp)
+            root_cmp = os.path.normcase(root_cmp)
+        if resolved_cmp == root_cmp:
+            return True
+        prefix = root_cmp if root_cmp.endswith(os.sep) else root_cmp + os.sep
+        return resolved_cmp.startswith(prefix)
+
     # ── 启发式判断 ────────────────────────────────────────────────────
 
     def _is_path_like(self, token: str) -> bool:
@@ -179,8 +243,8 @@ class AccessPolicy:
         if token.startswith("-"):
             return False
 
-        # 裸 "/" 不是合法路径引用（通常是文本中的除号或字符串片段）
-        if token == "/":
+        # 裸 "/" / "\" 不是合法路径引用（除号、cmd 行续写残留等）
+        if token in {"/", "\\"}:
             return False
 
         # ── 快速过滤：明显不是路径的 token ──

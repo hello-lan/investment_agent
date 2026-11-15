@@ -201,9 +201,12 @@ class AgentRunner:
 
     def _create_engine(self, config: AgentRunConfig, session_id: str) -> BaseLoopEngine:
         """创建引擎并注册工具/技能。start() 和 setup() 共用。"""
-        # 创建注册容器 + 编目默认工具
+        # 展开 orch 技能依赖，供文件作用域 / AccessPolicy / 委派使用
+        all_skill_names = expand_with_dependencies(config.skills) if config.skills else []
+
+        # 创建注册容器 + 编目默认工具（已启用技能目录可被 list/read）
         registry = AgentRegistry()
-        registry.bootstrap_default_tools()
+        registry.bootstrap_default_tools(skill_names=all_skill_names)
         main_scope = registry.get_tool("read_file").scope
 
         # 创建 offloader + trimmer
@@ -231,6 +234,7 @@ class AgentRunner:
             slow_think_interval=config.slow_think_interval,
             loop_mode=config.loop_mode,
             token_budget=config.token_budget,
+            subagent_token_budget=getattr(config, "subagent_token_budget", 100_000),
             loop_detection_threshold=config.loop_detection_threshold,
             runtime_context_compression_enabled=config.runtime_context_compression_enabled,
             context_trim_token_threshold=(
@@ -261,9 +265,6 @@ class AgentRunner:
         enable_run_command = "run_command" in allowed_tools
         if config.loop_mode == LoopMode.PLAN_EXECUTE:
             allowed_tools = allowed_tools | {"DelegateTask"}
-
-        # 展开 orch 技能的 depends_on 依赖，供 AccessPolicy 和 prepare_delegate_task 使用
-        all_skill_names = expand_with_dependencies(config.skills) if config.skills else []
 
         # 设置允许的技能名称集合（含依赖，供 prepare_delegate_task 委派到依赖技能）
         engine._allowed_skill_names = set(all_skill_names)

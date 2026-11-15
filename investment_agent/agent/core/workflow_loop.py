@@ -30,7 +30,6 @@ class WorkflowLoopEngine(BaseLoopEngine):
 
     WORKFLOW_RESULT_MAX_CHARS = 4000
     WORKFLOW_SUMMARY_MAX_CHARS = 500
-    DELEGATE_MIN_REMAINING = 50_000
 
     async def run(self, messages: list[dict]) -> AsyncGenerator[dict, None]:
         """执行 workflow：加载定义 → 拓扑排序 → 串行执行节点 → 输出最终结果。"""
@@ -323,9 +322,15 @@ class WorkflowLoopEngine(BaseLoopEngine):
         if self.subagent_depth >= self.max_subagent_depth:
             raise ValueError(f"已达到最大委派深度 {self.max_subagent_depth}，无法创建子Agent")
 
-        remaining = self.token_budget - self.total_input_tokens - self.total_output_tokens
-        if remaining < self.DELEGATE_MIN_REMAINING:
-            raise ValueError(f"剩余 token 预算不足 ({remaining}/{self.token_budget})，无法委派执行子任务")
+        parent_used = self.total_input_tokens + self.total_output_tokens
+        if parent_used >= self.token_budget:
+            raise ValueError(
+                f"父 Agent token 预算已耗尽 ({parent_used}/{self.token_budget})，无法委派执行子任务"
+            )
+
+        child_budget = getattr(self, "subagent_token_budget", None) or 100_000
+        if child_budget <= 0:
+            raise ValueError("子Agent Token 预算未配置或为 0，无法委派执行子任务")
 
         from ..skills.loader import _registry as skill_registry
 

@@ -41,9 +41,10 @@ SUBAGENT_SYSTEM_PROMPT = """你是一个专业的子Agent，负责执行父Agent
 
 ## 项目目录结构
 - 项目根目录: {ROOT_DIR}
-- 技能脚本路径: {ROOT_DIR}/extensions/skills/<skill_name>/scripts/
-  - 运行脚本时使用绝对路径，不要 `cd` 后再执行
-- 数据目录: {ROOT_DIR}/data/reports/<股票代码>/
+- 技能脚本路径: extensions/skills/<skill_name>/scripts/
+  - `run_command` 已在项目根执行（Windows / Linux 皆然）：路径用相对项目根的相对路径，分隔符用 `/`，**禁止**再 `cd`
+  - Windows 上禁止 `D:\\\\...` 与 Git Bash 的 `/d/...`；Linux 上也优先相对路径，勿写死本机绝对路径
+- 数据目录: data/reports/<股票代码>/
   - 1_pdf/ → 下载的PDF年报
   - 2_markdown/ → PDF转换后的Markdown文件
   - 3_split/ → 按章节目录切割后的文件
@@ -62,7 +63,7 @@ TASK_PLANNER_PROMPT = (
     "{skill_info}\n\n"
     "要求：\n"
     "1. 从对话上下文中提取子Agent执行所需的关键信息（股票代码、文件路径、年份、输入输出目录等）\n"
-    "2. **所有路径必须使用以 {project_root} 开头的绝对路径**，禁止使用相对路径，禁止自行猜测路径前缀\n"
+    "2. **所有路径使用相对项目根的相对路径**（正斜杠，如 data/reports/...）；Windows/Linux 均禁止再 `cd`；Windows 上禁止 `/d/...`、`D:\\\\...` 盘符路径\n"
     "3. 明确说明操作步骤和期望输出格式\n"
     "4. 确保指令完整自包含——子Agent仅凭此指令即可执行，无需额外询问\n"
     "5. 如果指定了技能，必须在指令开头明确要求：\"首先调用 Skill(name='技能名') 加载技能说明，按说明中的 CLI 模板执行\"\n"
@@ -151,6 +152,7 @@ class EngineConfig:
     slow_think_interval: int = 3
     loop_mode: str = LoopMode.DUAL_LOOP
     token_budget: int = 100_000
+    subagent_token_budget: int = 100_000  # 每次委派的独立额度，不占用父预算
     loop_detection_threshold: int = 3
     runtime_context_compression_enabled: bool = True
     context_trim_token_threshold: int = 0  # input_tokens 超过此阈值时触发安全压缩（0=禁用）
@@ -191,6 +193,7 @@ class AgentRunConfig:
     slow_think_interval: int = 3
     loop_mode: str = LoopMode.DUAL_LOOP
     token_budget: int = 100000
+    subagent_token_budget: int = 100000  # 每次委派的独立额度，不占用父预算
     loop_detection_threshold: int = 3
     runtime_context_compression_enabled: bool = True
     context_trim_token_threshold: int = 0

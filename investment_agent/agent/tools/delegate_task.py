@@ -1,6 +1,6 @@
 """DelegateTask 工具：将独立子任务委派给子Agent执行。
 
-引擎在 ToolExecutor 中拦截此工具的调用，启动隔离子Agent（共享预算）完成任务。
+引擎在 ToolExecutor 中拦截此工具的调用，启动隔离子Agent（独立 token 预算）完成任务。
 工具的 run() 方法仅作为 fallback，正常流程不会执行到。
 """
 
@@ -12,15 +12,16 @@ from .registry import register_tool
 class DelegateTaskTool(BaseTool):
     """将独立子任务委派给子Agent在隔离环境中执行。
 
-    子Agent拥有独立的上下文和消息列表，共享父Agent的 token 预算，
-    完成后仅将文本结果返回给父Agent。子Agent为叶子执行器，不可再次委派。
+    子Agent拥有独立的上下文、消息列表和 token 预算（由父 Agent 的
+    subagent_token_budget 配置），完成后仅将文本结果返回给父Agent。
+    子Agent为叶子执行器，不可再次委派。
     可指定子Agent需要使用的技能（skill_names），子Agent会自动加载这些技能的完整说明。
     """
 
     name = "DelegateTask"
     description = (
         "将独立子任务委派给子Agent在隔离环境中执行。子Agent拥有独立的上下文和消息列表，"
-        "共享父Agent的 token 预算，完成后仅返回文本执行结果。适用于需要多步骤执行、"
+        "以及独立的 token 预算，完成后仅返回文本执行结果。适用于需要多步骤执行、"
         "工具调用密集的独立子任务，如下载财报、PDF转换、文件切割、专项分析等。"
         "支持任意已注册的非编排技能委派。\n\n"
         "【何时主动委派】分析当前任务结构，满足以下任一条件时应考虑使用本工具：\n"

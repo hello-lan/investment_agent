@@ -108,4 +108,17 @@ class PromptBuilder:
             "\n调用时传入 `task`（可选 `expected_output`）；"
             "子 Agent 看不到主对话历史，仅返回最终摘要。"
         )
+        lines.append(
+            "\n委派约定：`task` 只写清输入路径、可选输出路径、股票代码/年份；"
+            "**不要**在 task 里自拟 JSON schema、章节规则或手工扫描步骤"
+            "（子 Agent 按挂载 skill/脚本执行，自拟格式易导致其空转超预算）。"
+        )
+        names = {sa.get("name", "") for sa in self._mounted_subagents}
+        if "build_annual_report_index" in names:
+            lines.append(
+                "\n`build_annual_report_index` 示例 task：\n"
+                "为 data/reports/md/002415/002415_2025年年度报告_2025.md 构建章节索引，"
+                "输出到 data/reports/index/002415_2025年年度报告_index.json。"
+                "expected_output 仅写「索引已写入上述路径 + 一级/二级章节数量摘要」。"
+            )
         return "\n".join(lines)

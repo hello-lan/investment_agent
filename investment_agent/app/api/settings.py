@@ -183,6 +183,7 @@ class EngineSettings(BaseModel):
     max_steps: int | None = None
     slow_think_interval: int | None = None
     token_budget: int | None = None
+    subagent_token_budget: int | None = None
     loop_detection_threshold: int | None = None
 
 

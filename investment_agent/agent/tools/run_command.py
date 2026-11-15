@@ -31,7 +31,7 @@ def _resolve_shell() -> tuple[str, str | None]:
     Returns:
         (mode, bash_path):
           - ("bash", path)  — 通过 Git Bash / bash -lc 执行（Unix 语法）
-          - ("shell", None) — 使用 create_subprocess_shell（Linux/macOS 的 sh，或 Windows 回退 cmd）
+          - ("shell", None) — 使用 shell=True（Linux/macOS 的 sh，或 Windows 回退 cmd）
     """
     if sys.platform != "win32":
         return ("shell", None)
@@ -64,7 +64,7 @@ def _resolve_shell() -> tuple[str, str | None]:
     return ("shell", None)
 
 
-def _decode_output(data: bytes) -> str:
+def _decode_output(data: bytes | None) -> str:
     """解码子进程输出：优先 UTF-8，失败则回退系统首选编码 / GBK。"""
     if not data:
         return ""
@@ -80,36 +80,87 @@ def _decode_output(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-async def _kill_process_tree(proc: asyncio.subprocess.Process) -> None:
-    """超时后终止进程；Windows 上用 taskkill /T 清理子进程树。"""
-    if proc.returncode is not None:
+def _format_exception(exc: BaseException) -> str:
+    """格式化异常，避免 NotImplementedError() 等空消息丢失类型信息。"""
+    msg = str(exc).strip()
+    if msg:
+        return f"{type(exc).__name__}: {msg}"
+    return repr(exc)
+
+
+def _kill_process_tree_sync(pid: int | None) -> None:
+    """超时后尽量清理进程树（Windows 用 taskkill /T）。"""
+    if not pid:
         return
-    if sys.platform == "win32" and proc.pid:
+    if sys.platform == "win32":
         try:
-            kill_proc = await asyncio.create_subprocess_exec(
-                "taskkill",
-                "/F",
-                "/T",
-                "/PID",
-                str(proc.pid),
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True,
+                timeout=10,
+                check=False,
             )
-            await kill_proc.wait()
         except Exception:
-            try:
-                proc.kill()
-            except ProcessLookupError:
-                pass
-    else:
-        try:
-            proc.kill()
-        except ProcessLookupError:
             pass
+        return
     try:
-        await proc.communicate()
-    except Exception:
+        os.kill(pid, 9)
+    except OSError:
         pass
+
+
+def _subprocess_env() -> dict[str, str]:
+    """子进程环境：Windows 下默认 UTF-8，避免 Python print emoji 触发 GBK UnicodeEncodeError。"""
+    env = os.environ.copy()
+    if sys.platform == "win32":
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        env.setdefault("PYTHONUTF8", "1")
+    return env
+
+
+def _run_command_sync(
+    command: str,
+    *,
+    cwd: str,
+    shell_mode: str,
+    bash_path: str | None,
+) -> str:
+    """在工作线程中同步执行命令，避免 Windows SelectorEventLoop 不支持 asyncio subprocess。"""
+    kwargs: dict = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "cwd": cwd,
+        "env": _subprocess_env(),
+    }
+    if sys.platform == "win32":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+
+    proc: subprocess.Popen[bytes] | None = None
+    try:
+        if shell_mode == "bash" and bash_path:
+            proc = subprocess.Popen([bash_path, "-lc", command], **kwargs)
+        else:
+            proc = subprocess.Popen(command, shell=True, **kwargs)
+
+        try:
+            stdout, stderr = proc.communicate(timeout=_COMMAND_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            _kill_process_tree_sync(proc.pid)
+            try:
+                proc.communicate(timeout=5)
+            except Exception:
+                pass
+            return f"命令执行超时 ({_COMMAND_TIMEOUT}s)"
+    except Exception as e:
+        if proc is not None and proc.poll() is None:
+            _kill_process_tree_sync(proc.pid)
+        return f"命令执行失败: {_format_exception(e)}"
+
+    result = _decode_output(stdout)
+    err_text = _decode_output(stderr)
+    if err_text:
+        result = f"{result}\n{err_text}" if result else err_text
+    return result.strip() or "(no output)"
 
 
 def _shell_description(mode: str, bash_path: str | None) -> str:
@@ -174,45 +225,13 @@ class RunCommandTool(BaseTool):
                 return f"❌ {error}\n当前Agent权限: {mode}"
 
         cwd = _project_root or "."
-        proc: asyncio.subprocess.Process | None = None
         try:
-            if self._shell_mode == "bash" and self._bash_path:
-                # Git Bash：-lc 以 login shell 加载 PATH（含 git 自带的 Unix 工具）
-                kwargs: dict = {
-                    "stdout": asyncio.subprocess.PIPE,
-                    "stderr": asyncio.subprocess.PIPE,
-                    "cwd": cwd,
-                }
-                if sys.platform == "win32":
-                    kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-                proc = await asyncio.create_subprocess_exec(
-                    self._bash_path,
-                    "-lc",
-                    command,
-                    **kwargs,
-                )
-            else:
-                kwargs = {
-                    "stdout": asyncio.subprocess.PIPE,
-                    "stderr": asyncio.subprocess.PIPE,
-                    "cwd": cwd,
-                }
-                if sys.platform == "win32":
-                    kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-                proc = await asyncio.create_subprocess_shell(command, **kwargs)
-
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=_COMMAND_TIMEOUT
+            return await asyncio.to_thread(
+                _run_command_sync,
+                command,
+                cwd=cwd,
+                shell_mode=self._shell_mode,
+                bash_path=self._bash_path,
             )
-            result = _decode_output(stdout)
-            if stderr:
-                err_text = _decode_output(stderr)
-                if err_text:
-                    result = f"{result}\n{err_text}" if result else err_text
-            return result.strip() or "(no output)"
-        except asyncio.TimeoutError:
-            if proc is not None:
-                await _kill_process_tree(proc)
-            return f"命令执行超时 ({_COMMAND_TIMEOUT}s)"
         except Exception as e:
-            return f"命令执行失败: {e}"
+            return f"命令执行失败: {_format_exception(e)}"

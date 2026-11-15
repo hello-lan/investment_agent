@@ -1,6 +1,6 @@
 """子Agent执行模块：子引擎创建、事件转发、委派任务执行。
 
-仅保留共享预算的委派模式（原 clone 模式），子引擎为叶子执行器，不允许嵌套委派。
+仅保留独立预算的委派模式（原 clone 模式），子引擎为叶子执行器，不允许嵌套委派。
 """
 
 from __future__ import annotations
@@ -156,7 +156,7 @@ def create_child_engine(
     skill_names: list[str],
     delegate_id: str,
 ) -> "BaseLoopEngine":
-    """创建委派子引擎（共享父Agent的 token 预算）。
+    """创建委派子引擎（使用独立的 subagent_token_budget）。
 
     子引擎为叶子执行器，不允许嵌套委派。
 
@@ -184,10 +184,8 @@ def create_child_engine(
     depth = parent.subagent_depth + 1
     session_id = f"delegate_{delegate_id}"
 
-    # 子Agent 继承父Agent 的剩余预算，而非全量预算
-    remaining_budget = max(
-        0, parent.token_budget - parent.total_input_tokens - parent.total_output_tokens
-    )
+    # 子Agent 使用独立 token 预算，不占用父剩余额度
+    child_budget = getattr(parent, "subagent_token_budget", None) or 100_000
 
     runtime_context_compression_enabled = getattr(
         parent,
@@ -220,7 +218,8 @@ def create_child_engine(
         max_steps=child_max_steps,
         slow_think_interval=0,
         loop_mode=LoopMode.REACT,
-        token_budget=remaining_budget,
+        token_budget=child_budget,
+        subagent_token_budget=child_budget,
         loop_detection_threshold=parent.loop_threshold,
         runtime_context_compression_enabled=runtime_context_compression_enabled,
         context_trim_token_threshold=child_trim_threshold,
@@ -282,18 +281,26 @@ def create_child_engine(
             child.register_skill(skill)
 
     # 自动注入技能体摘要到子Agent system prompt，减少一次 Skill 工具调用
-    # 截断长度与 engine.py SKILL_BODY_MAX_CHARS (3000) 保持一致
     for name in skill_names:
         skill = skill_registry.get(name)
         if skill and skill.body:
-            body_excerpt = skill.body[:3000]
+            body_excerpt = skill.body[:4500]
             child._system_prompt += (
                 f"\n\n---\n\n# 技能 {name} 快速参考\n\n"
                 f"{body_excerpt}\n\n"
+                "执行约定：命令已在项目根（Windows/Linux）；"
+                "用相对路径+`/`直接跑脚本；不要 `cd`；不要通读 scripts/*.py。\n"
+                "已注入快速参考：第一步直接 `run_command` 跑脚本；"
+                "禁止先调 Skill / 禁止用 grep·read 扫年报替代脚本；"
+                "上游 task 的简化 schema 一律忽略，以脚本 Output contract 为准。\n"
             )
-            if len(skill.body) > 3000:
+            if len(skill.body) > 4500:
                 child._system_prompt += (
-                    f"> 以上为摘要。完整说明请调用 Skill(name=\"{name}\")\n"
+                    f"> 以上为摘要。仅当脚本失败时再调用 Skill(name=\"{name}\")\n"
+                )
+            else:
+                child._system_prompt += (
+                    f"> 完整说明已注入。不要再调用 Skill(name=\"{name}\")。\n"
                 )
 
     _log.info(
@@ -310,9 +317,11 @@ def create_child_engine(
 
 
 def sync_tokens_from(target, source) -> None:
-    """将 source 引擎的 token 消耗累加到 target（共享预算模式）。"""
-    target.total_input_tokens += source.total_input_tokens
-    target.total_output_tokens += source.total_output_tokens
+    """将子引擎用量记入父引擎的 billed_*（费用统计），不占用父 token_budget。"""
+    target.billed_input_tokens = getattr(target, "billed_input_tokens", 0) + source.total_input_tokens
+    target.billed_output_tokens = getattr(target, "billed_output_tokens", 0) + source.total_output_tokens
+    target.billed_input_tokens += getattr(source, "billed_input_tokens", 0)
+    target.billed_output_tokens += getattr(source, "billed_output_tokens", 0)
     target.total_cache_read_tokens += source.total_cache_read_tokens
     target.total_cache_creation_tokens += source.total_cache_creation_tokens
 
@@ -326,13 +335,13 @@ async def run_delegate_task(
     prompt: str,
     delegate_id: str,
 ) -> AsyncGenerator[dict, None]:
-    """委派任务执行：共享父Agent token 预算的隔离子引擎。
+    """委派任务执行：使用独立 token 预算的隔离子引擎。
 
     特性：
-    - 共享父 Agent 的 token_budget（不创建独立预算）
+    - 使用父 Agent 配置的 subagent_token_budget（独立预算，不占用父额度）
     - 共享父 Agent 的中断信号
     - 直接 yield 事件（不走 queue）
-    - Token 消耗在执行后显式回写父引擎
+    - Token 消耗回写为 billed_*（费用统计），不影响父预算
     - 子引擎为叶子执行器，不允许嵌套委派
     """
     child = create_child_engine(parent, skill_names, delegate_id)
@@ -348,8 +357,8 @@ async def run_delegate_task(
     prefix = "sub_" * depth
 
     _log.info(
-        "[Delegate:%s] 开始运行: skills=%s, prompt_len=%d, budget=%d",
-        delegate_id, skill_names, len(prompt), parent.token_budget,
+        "[Delegate:%s] 开始运行: skills=%s, prompt_len=%d, child_budget=%d",
+        delegate_id, skill_names, len(prompt), child.token_budget,
     )
 
     result_text = ""

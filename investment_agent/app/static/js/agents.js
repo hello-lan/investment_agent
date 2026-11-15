@@ -329,6 +329,7 @@ function fillEngineFields(cfg) {
   const slowThink = document.getElementById('agentSlowThink');
   const loopMode = document.getElementById('agentLoopMode');
   const tokenBudget = document.getElementById('agentTokenBudget');
+  const subagentTokenBudget = document.getElementById('agentSubagentTokenBudget');
   const loopThreshold = document.getElementById('agentLoopThreshold');
   const maxSubagentDepth = document.getElementById('agentMaxSubagentDepth');
   const maxParallel = document.getElementById('agentMaxParallelSubagents');
@@ -342,6 +343,7 @@ function fillEngineFields(cfg) {
     loopMode.value = 'dual_loop';
     document.getElementById('agentSlowThinkVal').textContent = '3';
     tokenBudget.value = '';
+    if (subagentTokenBudget) subagentTokenBudget.value = '';
     loopThreshold.value = 3;
     document.getElementById('agentLoopVal').textContent = '3';
     maxSubagentDepth.value = 3;
@@ -371,6 +373,7 @@ function fillEngineFields(cfg) {
   loopMode.value = mode;
   document.getElementById('agentSlowThinkVal').textContent = cfg.slow_think_interval ?? 3;
   tokenBudget.value = cfg.token_budget ?? '';
+  if (subagentTokenBudget) subagentTokenBudget.value = cfg.subagent_token_budget ?? '';
   loopThreshold.value = cfg.loop_detection_threshold ?? 3;
   document.getElementById('agentLoopVal').textContent = cfg.loop_detection_threshold ?? 3;
   maxSubagentDepth.value = cfg.max_subagent_depth ?? 3;
@@ -448,6 +451,7 @@ async function saveAgent(){
   const engineSlowThink = parseInt(document.getElementById('agentSlowThink').value) || 3;
   const engineLoopMode = document.getElementById('agentLoopMode').value || 'dual_loop';
   const engineTokenBudget = toNullableInt(document.getElementById('agentTokenBudget').value);
+  const engineSubagentTokenBudget = toNullableInt(document.getElementById('agentSubagentTokenBudget').value);
   const engineLoopThreshold = parseInt(document.getElementById('agentLoopThreshold').value) || 3;
   const maxSubagentDepth = parseInt(document.getElementById('agentMaxSubagentDepth').value) || 3;
   const maxParallelSubagents = parseInt(document.getElementById('agentMaxParallelSubagents').value) || 3;
@@ -467,6 +471,7 @@ async function saveAgent(){
     loop_mode: engineLoopMode,
     workflow_id: workflowId || null,
     token_budget: engineTokenBudget,
+    subagent_token_budget: engineSubagentTokenBudget,
     loop_detection_threshold: engineLoopThreshold,
     runtime_context_compression_enabled: runtimeCompressionEnabled,
     context_trim_token_threshold: trimTokenThreshold,

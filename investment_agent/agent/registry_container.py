@@ -52,8 +52,12 @@ class AgentRegistry:
         """返回指定名称的工具 Anthropic tool schema。"""
         return [t.schema for t in self.tools.values() if t.name in names]
 
-    def bootstrap_default_tools(self) -> None:
-        """导入并编目默认工具（替代 registry.py 的模块级 import）。"""
+    def bootstrap_default_tools(self, skill_names: list[str] | None = None) -> None:
+        """导入并编目默认工具（替代 registry.py 的模块级 import）。
+
+        Args:
+            skill_names: 已启用技能名；会加入文件工具只读 targets（extensions/skills/{name}/）。
+        """
         from .tools.delegate_task import DelegateTaskTool
         from .tools.file_scope_policy import FileScopePolicy
         from .tools.list_files import ListFilesTool
@@ -63,7 +67,7 @@ class AgentRegistry:
         from .tools.skill_tool import SkillTool
         from .tools.write_file import WriteFileTool
 
-        main_scope = FileScopePolicy.for_main_agent()
+        main_scope = FileScopePolicy.for_main_agent(skill_names=skill_names)
         self.register_tool(SkillTool())
         self.register_tool(RunCommandTool())
         self.register_tool(DelegateTaskTool())

@@ -63,6 +63,7 @@ class BaseLoopEngine:
         self.slow_think_interval = config.slow_think_interval
         self.loop_mode = config.loop_mode
         self.token_budget = config.token_budget
+        self.subagent_token_budget = getattr(config, "subagent_token_budget", 100_000)
         self.loop_threshold = config.loop_detection_threshold
         self.runtime_context_compression_enabled = getattr(
             config,
@@ -83,6 +84,9 @@ class BaseLoopEngine:
 
         self.total_input_tokens = 0
         self.total_output_tokens = 0
+        # 子 Agent 用量：仅用于费用统计，不计入本引擎 token_budget
+        self.billed_input_tokens = 0
+        self.billed_output_tokens = 0
         self.total_cache_read_tokens = 0
         self.total_cache_creation_tokens = 0
         self._last_input_tokens = 0       # 上一次 LLM 调用的 input_tokens（非累计，用于阈值判断）
@@ -226,11 +230,15 @@ class BaseLoopEngine:
 
     def build_done_event(self) -> dict:
         """构造 done 事件。"""
+        billed_in = getattr(self, "billed_input_tokens", 0)
+        billed_out = getattr(self, "billed_output_tokens", 0)
+        total_in = self.total_input_tokens + billed_in
+        total_out = self.total_output_tokens + billed_out
         return {
             "type": EventType.DONE,
             "usage": {
-                "input_tokens": self.total_input_tokens,
-                "output_tokens": self.total_output_tokens,
+                "input_tokens": total_in,
+                "output_tokens": total_out,
                 "cache_read_tokens": self.total_cache_read_tokens,
                 "cache_creation_tokens": self.total_cache_creation_tokens,
             },
@@ -238,10 +246,10 @@ class BaseLoopEngine:
                 "llm_calls": self._llm_call_count,
                 "tool_calls": self._tool_call_count,
                 "cache_hit_ratio": round(
-                    self.total_cache_read_tokens / max(self.total_input_tokens, 1) * 100, 1
+                    self.total_cache_read_tokens / max(total_in, 1) * 100, 1
                 ),
                 "avg_tokens_per_call": (
-                    (self.total_input_tokens + self.total_output_tokens) // max(self._llm_call_count, 1)
+                    (total_in + total_out) // max(self._llm_call_count, 1)
                 ),
             },
         }

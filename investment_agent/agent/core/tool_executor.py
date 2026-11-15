@@ -1,6 +1,6 @@
 """工具执行器 + 死循环检测。
 
-委派任务使用共享预算的子引擎执行（原 clone 模式）。
+委派任务使用独立 token 预算的子引擎执行。
 用户定义 Subagent 按挂载名拦截，支持同 turn 多个（串行执行）。
 """
 
@@ -25,7 +25,7 @@ _log = logging.getLogger(__name__)
 
 # ── 常量 ──────────────────────────────────────────────────────────────
 
-DELEGATE_MIN_REMAINING = 50_000    # 委派模式最低剩余 token
+_DEFAULT_SUBAGENT_TOKEN_BUDGET = 100_000
 
 
 # ── 死循环检测 ────────────────────────────────────────────────────────
@@ -43,6 +43,11 @@ class LoopDetector:
         "get_financial_indicators": ["symbol"],
         "run_command": ["command"],
         "DelegateTask": ["task"],
+        "Skill": ["name"],
+        "list_files": ["path", "pattern", "recursive"],
+        "read_file": ["path", "start_line"],
+        "search_text": ["query", "path", "pattern"],
+        "write_file": ["path"],
     }
 
     def __init__(self, threshold: int, whitelist: set[str]):
@@ -88,14 +93,20 @@ class LoopDetector:
                 self._detected_reason = "repeat"
                 return True
 
-        if len(self._recent) >= 6:
-            tools = [n for n in self._recent if n not in self._whitelist]
-            if len(tools) >= 4:
-                last4 = tools[-4:]
-                if last4[0] == last4[2] and last4[1] == last4[3] and last4[0] != last4[1]:
-                    self._detected_tool = f"{last4[0]} ↔ {last4[1]}"
-                    self._detected_reason = "oscillation"
-                    return True
+        # 振荡检测按「工具名+关键参数」判断，避免多 skill 流水线误杀：
+        # Skill(A)→list_files(A)→Skill(B)→list_files(B) 是正常编排，不是死循环。
+        if len(candidates) >= 4:
+            last4 = candidates[-4:]
+            if (
+                last4[0] == last4[2]
+                and last4[1] == last4[3]
+                and last4[0] != last4[1]
+            ):
+                a = last4[0].split(":")[0]
+                b = last4[1].split(":")[0]
+                self._detected_tool = f"{a} ↔ {b}"
+                self._detected_reason = "oscillation"
+                return True
 
         return False
 
@@ -138,16 +149,23 @@ async def prepare_delegate_task(
             f"无法创建子Agent"
         )
 
-    remaining = engine.token_budget - engine.total_input_tokens - engine.total_output_tokens
-    if remaining < DELEGATE_MIN_REMAINING:
+    parent_used = engine.total_input_tokens + engine.total_output_tokens
+    if parent_used >= engine.token_budget:
         _log.warning(
-            "[Delegate] 拒绝委派: 预算不足 remaining=%d/%d, task=%s",
-            remaining, engine.token_budget, task_desc,
+            "[Delegate] 拒绝委派: 父预算已耗尽 used=%d/%d, task=%s",
+            parent_used, engine.token_budget, task_desc,
         )
         return (
-            f"错误：剩余 token 预算不足 ({remaining}/{engine.token_budget})，"
+            f"错误：父 Agent token 预算已耗尽 ({parent_used}/{engine.token_budget})，"
             f"无法委派执行子任务"
         )
+
+    child_budget = (
+        getattr(engine, "subagent_token_budget", None) or _DEFAULT_SUBAGENT_TOKEN_BUDGET
+    )
+    if child_budget <= 0:
+        _log.warning("[Delegate] 拒绝委派: 子预算未配置, task=%s", task_desc)
+        return "错误：子Agent Token 预算未配置或为 0，无法委派执行子任务"
 
     raw_skill_names = tc.input.get("skill_names", []) or []
     from ..skills.loader import _registry as skill_registry
@@ -193,9 +211,10 @@ async def prepare_delegate_task(
     delegate_id = f"delegate_{uuid.uuid4().hex[:8]}"
 
     _log.info(
-        "[Delegate] 委派就绪: id=%s, skills=%s, budget_remaining=%d/%d, "
-        "depth=%d, task=%s",
-        delegate_id, skill_names, remaining, engine.token_budget,
+        "[Delegate] 委派就绪: id=%s, skills=%s, child_budget=%d, "
+        "parent_used=%d/%d, depth=%d, task=%s",
+        delegate_id, skill_names, child_budget,
+        parent_used, engine.token_budget,
         engine.subagent_depth + 1, tc.input.get("task", "")[:100],
     )
     _log.debug("[Delegate] %s prompt: %s", delegate_id, prompt[:500])
@@ -294,7 +313,10 @@ class ToolExecutor:
             return
 
         skill_names, prompt, delegate_id = prepared
-        tokens_before = engine.total_input_tokens + engine.total_output_tokens
+        billed_before = (
+            getattr(engine, "billed_input_tokens", 0)
+            + getattr(engine, "billed_output_tokens", 0)
+        )
         _log.info("[Delegate] 开始执行: id=%s, skills=%s", delegate_id, skill_names)
 
         result = ""
@@ -306,10 +328,13 @@ class ToolExecutor:
             else:
                 yield event
 
-        tokens_after = engine.total_input_tokens + engine.total_output_tokens
+        billed_after = (
+            getattr(engine, "billed_input_tokens", 0)
+            + getattr(engine, "billed_output_tokens", 0)
+        )
         _log.info(
             "[Delegate] 执行结束: id=%s, tokens_consumed=%d, result_len=%d, duration=%.1fs",
-            delegate_id, tokens_after - tokens_before, len(result), time.monotonic() - t0,
+            delegate_id, billed_after - billed_before, len(result), time.monotonic() - t0,
         )
         yield _Value((result, delegate_id))
 
@@ -324,7 +349,10 @@ class ToolExecutor:
             return
 
         request, delegate_id = prepared
-        tokens_before = engine.total_input_tokens + engine.total_output_tokens
+        billed_before = (
+            getattr(engine, "billed_input_tokens", 0)
+            + getattr(engine, "billed_output_tokens", 0)
+        )
         _log.info(
             "[Subagent] 开始执行: id=%s name=%s",
             delegate_id, request.definition.get("name"),
@@ -339,9 +367,12 @@ class ToolExecutor:
             else:
                 yield event
 
-        tokens_after = engine.total_input_tokens + engine.total_output_tokens
+        billed_after = (
+            getattr(engine, "billed_input_tokens", 0)
+            + getattr(engine, "billed_output_tokens", 0)
+        )
         _log.info(
             "[Subagent] 执行结束: id=%s, tokens_consumed=%d, result_len=%d, duration=%.1fs",
-            delegate_id, tokens_after - tokens_before, len(result), time.monotonic() - t0,
+            delegate_id, billed_after - billed_before, len(result), time.monotonic() - t0,
         )
         yield _Value((result, delegate_id))
