@@ -15,6 +15,7 @@ class SubagentEntry(BaseModel):
     model_id: str = ""
     tools: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
+    runtime_config: dict | None = None
 
 
 @router.get("")
@@ -32,6 +33,7 @@ async def create_subagent(body: SubagentEntry):
             model_id=body.model_id,
             tools=body.tools,
             skills=body.skills,
+            runtime_config=body.runtime_config,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -57,6 +59,7 @@ async def update_subagent(subagent_id: str, body: SubagentEntry):
             model_id=body.model_id,
             tools=body.tools,
             skills=body.skills,
+            runtime_config=body.runtime_config,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

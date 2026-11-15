@@ -95,6 +95,7 @@ async def init_db() -> None:
                 model_id      TEXT,                   -- 可空=继承主 Agent 模型
                 tools         TEXT DEFAULT '[]',      -- 工具列表（JSON）
                 skills        TEXT DEFAULT '[]',      -- 技能列表（JSON）
+                runtime_config TEXT,                  -- 子运行时覆盖（JSON，可空=跟随主 Agent）
                 created_at    TEXT,
                 updated_at    TEXT
             );
@@ -652,6 +653,7 @@ async def init_db() -> None:
             ("models", "enable_cache", "INTEGER DEFAULT 1"),
             ("models", "cache_read_price", "REAL"),
             ("models", "cache_creation_price", "REAL"),
+            ("subagents", "runtime_config", "TEXT"),
         ]
         await _ensure_columns(db, column_migrations)
 

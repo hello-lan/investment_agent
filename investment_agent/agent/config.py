@@ -152,7 +152,8 @@ class EngineConfig:
     slow_think_interval: int = 3
     loop_mode: str = LoopMode.DUAL_LOOP
     token_budget: int = 100_000
-    subagent_token_budget: int = 100_000  # 每次委派的独立额度，不占用父预算
+    subagent_token_budget: int = 100_000  # 每次委派的独立额度，不占用父预算（兼容旧扁平键）
+    subagent: dict = field(default_factory=dict)  # 子运行时默认块（L1）
     loop_detection_threshold: int = 3
     runtime_context_compression_enabled: bool = True
     context_trim_token_threshold: int = 0  # input_tokens 超过此阈值时触发安全压缩（0=禁用）
@@ -193,7 +194,8 @@ class AgentRunConfig:
     slow_think_interval: int = 3
     loop_mode: str = LoopMode.DUAL_LOOP
     token_budget: int = 100000
-    subagent_token_budget: int = 100000  # 每次委派的独立额度，不占用父预算
+    subagent_token_budget: int = 100000  # 每次委派的独立额度，不占用父预算（兼容旧扁平键）
+    subagent: dict = field(default_factory=dict)  # 子运行时默认块（L1）
     loop_detection_threshold: int = 3
     runtime_context_compression_enabled: bool = True
     context_trim_token_threshold: int = 0

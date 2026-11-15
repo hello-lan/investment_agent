@@ -64,6 +64,8 @@ class BaseLoopEngine:
         self.loop_mode = config.loop_mode
         self.token_budget = config.token_budget
         self.subagent_token_budget = getattr(config, "subagent_token_budget", 100_000)
+        # L1 子运行时默认（供 resolve_subagent_runtime_config 读取）
+        self.subagent_runtime_defaults = dict(getattr(config, "subagent", None) or {})
         self.loop_threshold = config.loop_detection_threshold
         self.runtime_context_compression_enabled = getattr(
             config,

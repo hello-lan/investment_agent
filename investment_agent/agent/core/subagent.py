@@ -168,10 +168,7 @@ def create_child_engine(
     Returns:
         配置好工具和技能的子循环引擎实例
     """
-    import os
     from ..config import EngineConfig, OFFLOAD_AWARE_PROMPT, PLANNING_MAX_TOKENS_DEFAULT
-    from ..context.context_offloader import ContextOffloader
-    from ..context.runtime_compressor import CompressRuntimeCompressor, NoOpRuntimeCompressor
     from ..tools.skill_tool import SkillTool
     from ..skills.loader import _registry as skill_registry
     from ..skills.dependency import expand_with_dependencies
@@ -186,54 +183,37 @@ def create_child_engine(
     from ...config import ROOT_DIR
     from .base_loop import BaseLoopEngine
     from .loop_factory import create_loop_engine
+    from .subagent_config import (
+        build_child_runtime_compressor,
+        resolve_subagent_runtime_config,
+    )
 
     depth = parent.subagent_depth + 1
     session_id = f"delegate_{delegate_id}"
 
-    # 子Agent 使用独立 token 预算，不占用父剩余额度
-    child_budget = getattr(parent, "subagent_token_budget", None) or 100_000
-
-    runtime_context_compression_enabled = getattr(
+    # DelegateTask 无 L2 定义覆盖；走 L1/L0/父继承
+    resolved = resolve_subagent_runtime_config(parent, definition=None)
+    child_compressor = build_child_runtime_compressor(
         parent,
-        "runtime_context_compression_enabled",
-        True,
+        resolved,
+        parent_session_id=parent.session_id,
+        child_session_id=session_id,
     )
-    if runtime_context_compression_enabled and parent.context_trim_token_threshold > 0:
-        offload_dir = os.path.join(
-            ROOT_DIR, "data", ".offload", parent.session_id, session_id,
-        )
-        offloader = ContextOffloader(
-            offload_dir,
-            threshold=parent.offload_threshold,
-            summary_strategy=parent.offload_summary_strategy,
-            summary_chars=parent.offload_summary_chars,
-            provider=parent.provider,
-        )
-        child_compressor = CompressRuntimeCompressor(
-            keep_recent=3,
-            offloader=offloader,
-        )
-        child_trim_threshold = parent.context_trim_token_threshold
-    else:
-        child_compressor = NoOpRuntimeCompressor()
-        child_trim_threshold = 0
-
-    # 子Agent 执行繁重IO任务，保底 max_steps=60（父Agent的50可能不足以拆分大文件）
-    child_max_steps = max(parent.max_steps, 60)
     child_cfg = EngineConfig(
-        max_steps=child_max_steps,
+        max_steps=parent.max_steps,
         slow_think_interval=0,
         loop_mode=LoopMode.REACT,
-        token_budget=child_budget,
-        subagent_token_budget=child_budget,
+        token_budget=resolved.token_budget,
+        subagent_token_budget=resolved.token_budget,
+        subagent=dict(getattr(parent, "subagent_runtime_defaults", None) or {}),
         loop_detection_threshold=parent.loop_threshold,
-        runtime_context_compression_enabled=runtime_context_compression_enabled,
-        context_trim_token_threshold=child_trim_threshold,
+        runtime_context_compression_enabled=resolved.runtime_context_compression_enabled,
+        context_trim_token_threshold=resolved.context_trim_token_threshold,
         max_subagent_depth=parent.max_subagent_depth,
         max_parallel_subagents=getattr(parent, "max_parallel_subagents", 3),
-        offload_threshold=parent.offload_threshold,
-        offload_summary_strategy=parent.offload_summary_strategy,
-        offload_summary_chars=parent.offload_summary_chars,
+        offload_threshold=resolved.offload_threshold,
+        offload_summary_strategy=resolved.offload_summary_strategy,
+        offload_summary_chars=resolved.offload_summary_chars,
         planning_max_tokens=PLANNING_MAX_TOKENS_DEFAULT,  # 子Agent不委派，使用默认值即可
     )
 
@@ -241,11 +221,11 @@ def create_child_engine(
         session_id=session_id,
         system_prompt=(
             SUBAGENT_SYSTEM_PROMPT.format(ROOT_DIR=ROOT_DIR)
-            + (OFFLOAD_AWARE_PROMPT if child_trim_threshold > 0 else "")
+            + (OFFLOAD_AWARE_PROMPT if resolved.compression_active else "")
         ),
         provider=parent.provider,
         temperature=parent.temperature,
-        max_tokens=parent.max_tokens,
+        max_tokens=resolved.max_single_turn_output_tokens,
         config=child_cfg,
         runtime_compressor=child_compressor,
         subagent_depth=depth,

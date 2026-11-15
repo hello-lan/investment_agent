@@ -277,6 +277,114 @@ function toNullableInt(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function toNullableBoolSelect(value) {
+  if (value === '' || value == null) return null;
+  if (value === true || value === 'true') return true;
+  if (value === false || value === 'false') return false;
+  return null;
+}
+
+function boolSelectValue(value) {
+  if (value === true) return 'true';
+  if (value === false) return 'false';
+  return '';
+}
+
+function collectSubagentBlockFromAgentForm() {
+  const block = {};
+  const tokenBudget = toNullableInt(document.getElementById('agentSubagentTokenBudget')?.value);
+  const maxSingleTurn = toNullableInt(document.getElementById('agentSubagentMaxSingleTurnOutputTokens')?.value);
+  const compression = toNullableBoolSelect(document.getElementById('agentSubagentCompression')?.value);
+  const trimThreshold = toNullableInt(document.getElementById('agentSubagentTrimThreshold')?.value);
+  if (tokenBudget !== null) block.token_budget = tokenBudget;
+  if (maxSingleTurn !== null) block.max_single_turn_output_tokens = maxSingleTurn;
+  if (compression !== null) block.runtime_context_compression_enabled = compression;
+  if (trimThreshold !== null) block.context_trim_token_threshold = trimThreshold;
+  return block;
+}
+
+function fillAgentSubagentBlock(cfg) {
+  const sub = (cfg && typeof cfg.subagent === 'object' && cfg.subagent) ? cfg.subagent : {};
+  const tokenEl = document.getElementById('agentSubagentTokenBudget');
+  const maxSingleTurnEl = document.getElementById('agentSubagentMaxSingleTurnOutputTokens');
+  const compressionEl = document.getElementById('agentSubagentCompression');
+  const trimEl = document.getElementById('agentSubagentTrimThreshold');
+  if (tokenEl) {
+    tokenEl.value = sub.token_budget ?? cfg?.subagent_token_budget ?? '';
+  }
+  if (maxSingleTurnEl) {
+    maxSingleTurnEl.value = sub.max_single_turn_output_tokens
+      ?? sub.max_output_tokens
+      ?? sub.max_tokens
+      ?? '';
+  }
+  if (compressionEl) {
+    compressionEl.value = boolSelectValue(sub.runtime_context_compression_enabled);
+  }
+  if (trimEl) trimEl.value = sub.context_trim_token_threshold ?? '';
+  updateAgentSubagentCompressionUI();
+}
+
+function collectSaRuntimeConfig() {
+  const cfg = {};
+  const tokenBudget = toNullableInt(document.getElementById('saRuntimeTokenBudget')?.value);
+  const maxSingleTurn = toNullableInt(document.getElementById('saRuntimeMaxSingleTurnOutputTokens')?.value);
+  const compression = toNullableBoolSelect(document.getElementById('saRuntimeCompression')?.value);
+  const trimThreshold = toNullableInt(document.getElementById('saRuntimeTrimThreshold')?.value);
+  const offloadThreshold = toNullableInt(document.getElementById('saRuntimeOffloadThreshold')?.value);
+  const offloadStrategy = (document.getElementById('saRuntimeOffloadStrategy')?.value || '').trim();
+  const offloadSummaryChars = toNullableInt(document.getElementById('saRuntimeOffloadSummaryChars')?.value);
+  if (tokenBudget !== null) cfg.token_budget = tokenBudget;
+  if (maxSingleTurn !== null) cfg.max_single_turn_output_tokens = maxSingleTurn;
+  if (compression !== null) cfg.runtime_context_compression_enabled = compression;
+  if (trimThreshold !== null) cfg.context_trim_token_threshold = trimThreshold;
+  if (offloadThreshold !== null) cfg.offload_threshold = offloadThreshold;
+  if (offloadStrategy) cfg.offload_summary_strategy = offloadStrategy;
+  if (offloadSummaryChars !== null) cfg.offload_summary_chars = offloadSummaryChars;
+  return cfg;
+}
+
+function fillSaRuntimeConfig(runtimeConfig) {
+  const cfg = runtimeConfig && typeof runtimeConfig === 'object' ? runtimeConfig : {};
+  const set = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = value ?? '';
+  };
+  set('saRuntimeTokenBudget', cfg.token_budget);
+  set(
+    'saRuntimeMaxSingleTurnOutputTokens',
+    cfg.max_single_turn_output_tokens ?? cfg.max_output_tokens ?? cfg.max_tokens,
+  );
+  const compressionEl = document.getElementById('saRuntimeCompression');
+  if (compressionEl) compressionEl.value = boolSelectValue(cfg.runtime_context_compression_enabled);
+  set('saRuntimeTrimThreshold', cfg.context_trim_token_threshold);
+  set('saRuntimeOffloadThreshold', cfg.offload_threshold);
+  set('saRuntimeOffloadStrategy', cfg.offload_summary_strategy || '');
+  set('saRuntimeOffloadSummaryChars', cfg.offload_summary_chars);
+  updateSaRuntimeCompressionUI();
+}
+
+function extractRuntimeConfigFromFields(fields) {
+  const cfg = {};
+  const tokenBudget = toNullableInt(fields.token_budget ?? fields.subagent_token_budget);
+  const maxSingleTurn = toNullableInt(
+    fields.max_single_turn_output_tokens ?? fields.max_output_tokens ?? fields.max_tokens,
+  );
+  const compression = toNullableBoolSelect(fields.runtime_context_compression_enabled);
+  const trimThreshold = toNullableInt(fields.context_trim_token_threshold);
+  const offloadThreshold = toNullableInt(fields.offload_threshold);
+  const offloadStrategy = String(fields.offload_summary_strategy || '').trim();
+  const offloadSummaryChars = toNullableInt(fields.offload_summary_chars);
+  if (tokenBudget !== null) cfg.token_budget = tokenBudget;
+  if (maxSingleTurn !== null) cfg.max_single_turn_output_tokens = maxSingleTurn;
+  if (compression !== null) cfg.runtime_context_compression_enabled = compression;
+  if (trimThreshold !== null) cfg.context_trim_token_threshold = trimThreshold;
+  if (offloadThreshold !== null) cfg.offload_threshold = offloadThreshold;
+  if (offloadStrategy) cfg.offload_summary_strategy = offloadStrategy;
+  if (offloadSummaryChars !== null) cfg.offload_summary_chars = offloadSummaryChars;
+  return cfg;
+}
+
 function normalizeCompressConfig(raw) {
   if (!raw) return null;
   if (typeof raw === 'string') {
@@ -306,8 +414,48 @@ function fillContextFields(cfg) {
 function updateRuntimeCompressionUI() {
   const toggle = document.getElementById('agentRuntimeCompressionEnabled');
   const fields = document.getElementById('runtimeCompressionFields');
+  const offload = document.getElementById('offloadOptions');
   if (!toggle || !fields) return;
-  fields.classList.toggle('hidden', !toggle.checked);
+  const compressionOn = !!toggle.checked;
+  fields.classList.toggle('hidden', !compressionOn);
+  if (offload) {
+    // trim=0 时压缩实际不生效，卸载配置无意义
+    const trimVal = toNullableInt(document.getElementById('agentTrimTokenThreshold')?.value);
+    const offloadUseful = compressionOn && trimVal !== 0;
+    offload.classList.toggle('hidden', !offloadUseful);
+  }
+}
+
+function updateAgentSubagentCompressionUI() {
+  const compressionEl = document.getElementById('agentSubagentCompression');
+  const trimRow = document.getElementById('agentSubagentTrimRow');
+  if (!compressionEl || !trimRow) return;
+  // 强制关闭压缩时，安全阈值无效
+  trimRow.classList.toggle('hidden', compressionEl.value === 'false');
+}
+
+function updateAgentSubagentDepthUI() {
+  const depthEl = document.getElementById('agentMaxSubagentDepth');
+  const activeFields = document.getElementById('agentSubagentActiveFields');
+  if (!depthEl || !activeFields) return;
+  const depth = parseInt(depthEl.value, 10) || 0;
+  activeFields.classList.toggle('hidden', depth <= 0);
+  if (depth > 0) updateAgentSubagentCompressionUI();
+}
+
+function updateSaRuntimeCompressionUI() {
+  const compressionEl = document.getElementById('saRuntimeCompression');
+  const dependent = document.getElementById('saCompressionDependentFields');
+  const offload = document.getElementById('saOffloadFields');
+  if (!compressionEl || !dependent) return;
+  const compressionOff = compressionEl.value === 'false';
+  dependent.classList.toggle('hidden', compressionOff);
+  if (offload && !compressionOff) {
+    const trimVal = toNullableInt(document.getElementById('saRuntimeTrimThreshold')?.value);
+    offload.classList.toggle('hidden', trimVal === 0);
+  } else if (offload) {
+    offload.classList.add('hidden');
+  }
 }
 
 function updateLoopModeUI() {
@@ -317,9 +465,12 @@ function updateLoopModeUI() {
   const workflowRow = document.getElementById('agentWorkflowRow');
   const workflowSelect = document.getElementById('agentWorkflowSelect');
   const enabledModes = new Set(['dual_loop', 'plan_execute']);
-  const disabled = !enabledModes.has(mode);
-  slowThink.disabled = disabled;
-  slowThinkRow.style.opacity = disabled ? '0.55' : '1';
+  const slowThinkUseful = enabledModes.has(mode);
+  if (slowThink) slowThink.disabled = !slowThinkUseful;
+  if (slowThinkRow) {
+    slowThinkRow.classList.toggle('hidden', !slowThinkUseful);
+    slowThinkRow.style.opacity = '1';
+  }
   if (workflowRow) workflowRow.style.display = mode === 'workflow' ? '' : 'none';
   if (workflowSelect) workflowSelect.disabled = mode !== 'workflow';
 }
@@ -329,7 +480,6 @@ function fillEngineFields(cfg) {
   const slowThink = document.getElementById('agentSlowThink');
   const loopMode = document.getElementById('agentLoopMode');
   const tokenBudget = document.getElementById('agentTokenBudget');
-  const subagentTokenBudget = document.getElementById('agentSubagentTokenBudget');
   const loopThreshold = document.getElementById('agentLoopThreshold');
   const maxSubagentDepth = document.getElementById('agentMaxSubagentDepth');
   const maxParallel = document.getElementById('agentMaxParallelSubagents');
@@ -343,7 +493,7 @@ function fillEngineFields(cfg) {
     loopMode.value = 'dual_loop';
     document.getElementById('agentSlowThinkVal').textContent = '3';
     tokenBudget.value = '';
-    if (subagentTokenBudget) subagentTokenBudget.value = '';
+    fillAgentSubagentBlock(null);
     loopThreshold.value = 3;
     document.getElementById('agentLoopVal').textContent = '3';
     maxSubagentDepth.value = 3;
@@ -361,6 +511,7 @@ function fillEngineFields(cfg) {
     if (workflowSelect) workflowSelect.value = '';
     updateRuntimeCompressionUI();
     updateLoopModeUI();
+    updateAgentSubagentDepthUI();
     return;
   }
 
@@ -373,7 +524,7 @@ function fillEngineFields(cfg) {
   loopMode.value = mode;
   document.getElementById('agentSlowThinkVal').textContent = cfg.slow_think_interval ?? 3;
   tokenBudget.value = cfg.token_budget ?? '';
-  if (subagentTokenBudget) subagentTokenBudget.value = cfg.subagent_token_budget ?? '';
+  fillAgentSubagentBlock(cfg);
   loopThreshold.value = cfg.loop_detection_threshold ?? 3;
   document.getElementById('agentLoopVal').textContent = cfg.loop_detection_threshold ?? 3;
   maxSubagentDepth.value = cfg.max_subagent_depth ?? 3;
@@ -393,6 +544,7 @@ function fillEngineFields(cfg) {
   if (workflowSelect) workflowSelect.value = cfg.workflow_id || '';
   updateRuntimeCompressionUI();
   updateLoopModeUI();
+  updateAgentSubagentDepthUI();
 }
 
 function openModal(agent){
@@ -451,7 +603,8 @@ async function saveAgent(){
   const engineSlowThink = parseInt(document.getElementById('agentSlowThink').value) || 3;
   const engineLoopMode = document.getElementById('agentLoopMode').value || 'dual_loop';
   const engineTokenBudget = toNullableInt(document.getElementById('agentTokenBudget').value);
-  const engineSubagentTokenBudget = toNullableInt(document.getElementById('agentSubagentTokenBudget').value);
+  const subagentBlock = collectSubagentBlockFromAgentForm();
+  const engineSubagentTokenBudget = subagentBlock.token_budget ?? null;
   const engineLoopThreshold = parseInt(document.getElementById('agentLoopThreshold').value) || 3;
   const maxSubagentDepth = parseInt(document.getElementById('agentMaxSubagentDepth').value) || 3;
   const maxParallelSubagents = parseInt(document.getElementById('agentMaxParallelSubagents').value) || 3;
@@ -472,6 +625,7 @@ async function saveAgent(){
     workflow_id: workflowId || null,
     token_budget: engineTokenBudget,
     subagent_token_budget: engineSubagentTokenBudget,
+    subagent: Object.keys(subagentBlock).length ? subagentBlock : null,
     loop_detection_threshold: engineLoopThreshold,
     runtime_context_compression_enabled: runtimeCompressionEnabled,
     context_trim_token_threshold: trimTokenThreshold,
@@ -547,6 +701,7 @@ function collectSubagentForm() {
     model_id: document.getElementById('subagentModel').value || '',
     tools: selectedSaTools(),
     skills: selectedSaSkills(),
+    runtime_config: collectSaRuntimeConfig(),
   };
 }
 
@@ -555,16 +710,34 @@ function formatSubagentMarkdown(item) {
   const skills = normalizeList(item?.skills).join(', ');
   const model = modelIdToMarkdownValue(item?.model_id || '');
   const body = (item?.system_prompt || '').replace(/^\n+/, '');
-  return [
+  const lines = [
     '---',
     `name: ${yamlEscape(item?.name || '')}`,
     `description: ${yamlEscape(item?.description || '')}`,
     `tools: ${tools}`,
     `skills: ${skills}`,
     `model: ${model}`,
-    '---',
-    body,
-  ].join('\n');
+  ];
+  const rc = item?.runtime_config && typeof item.runtime_config === 'object' ? item.runtime_config : {};
+  if (rc.token_budget != null) lines.push(`token_budget: ${rc.token_budget}`);
+  if (rc.max_single_turn_output_tokens != null) {
+    lines.push(`max_single_turn_output_tokens: ${rc.max_single_turn_output_tokens}`);
+  }
+  if (rc.runtime_context_compression_enabled != null) {
+    lines.push(`runtime_context_compression_enabled: ${rc.runtime_context_compression_enabled}`);
+  }
+  if (rc.context_trim_token_threshold != null) {
+    lines.push(`context_trim_token_threshold: ${rc.context_trim_token_threshold}`);
+  }
+  if (rc.offload_threshold != null) lines.push(`offload_threshold: ${rc.offload_threshold}`);
+  if (rc.offload_summary_strategy) {
+    lines.push(`offload_summary_strategy: ${rc.offload_summary_strategy}`);
+  }
+  if (rc.offload_summary_chars != null) {
+    lines.push(`offload_summary_chars: ${rc.offload_summary_chars}`);
+  }
+  lines.push('---', body);
+  return lines.join('\n');
 }
 
 function parseCsvList(raw) {
@@ -608,6 +781,7 @@ function parseSubagentMarkdown(md) {
     tools: parseCsvList(fields.tools),
     skills: parseCsvList(fields.skills),
     model_id: resolveModelIdFromMarkdown(fields.model || fields.model_id || ''),
+    runtime_config: extractRuntimeConfigFromFields(fields),
     system_prompt: body,
   };
 }
@@ -620,6 +794,7 @@ function applySubagentForm(item) {
   document.getElementById('subagentModel').innerHTML = buildModelOptions(item?.model_id || '', {allowInherit: true});
   renderToolOptions(normalizeList(item?.tools), 'subagentTools', {forSubagent: true});
   renderSkillOptions(normalizeList(item?.skills), 'subagentSkills');
+  fillSaRuntimeConfig(item?.runtime_config || {});
   switchSaTab('tools');
 }
 
@@ -723,6 +898,7 @@ async function saveSubagent() {
     model_id: data.model_id || '',
     tools: data.tools,
     skills: data.skills,
+    runtime_config: data.runtime_config || {},
   };
 
   const url = data.id ? `/api/subagents/${data.id}` : '/api/subagents';
@@ -751,6 +927,20 @@ window.addEventListener('DOMContentLoaded', () => {
   if (runtimeCompressionToggle) {
     runtimeCompressionToggle.addEventListener('change', updateRuntimeCompressionUI);
   }
+  const trimThreshold = document.getElementById('agentTrimTokenThreshold');
+  if (trimThreshold) {
+    trimThreshold.addEventListener('input', updateRuntimeCompressionUI);
+  }
+  const subagentCompression = document.getElementById('agentSubagentCompression');
+  if (subagentCompression) {
+    subagentCompression.addEventListener('change', updateAgentSubagentCompressionUI);
+  }
+  const maxSubagentDepth = document.getElementById('agentMaxSubagentDepth');
+  if (maxSubagentDepth) {
+    maxSubagentDepth.addEventListener('input', updateAgentSubagentDepthUI);
+  }
   updateRuntimeCompressionUI();
+  updateAgentSubagentDepthUI();
+  updateSaRuntimeCompressionUI();
   loadAgents();
 });

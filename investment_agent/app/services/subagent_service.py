@@ -7,6 +7,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 
+from ...agent.core.subagent_config import normalize_subagent_runtime_dict
 from ..db import get_db
 
 # 合法工具名：字母开头，字母数字下划线，2-64 字符
@@ -48,11 +49,33 @@ def _parse_json_list(raw) -> list:
         return []
 
 
+def _parse_runtime_config(raw) -> dict:
+    if raw is None or raw == "":
+        return {}
+    if isinstance(raw, dict):
+        return normalize_subagent_runtime_dict(raw)
+    if isinstance(raw, str):
+        try:
+            value = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            return {}
+        return normalize_subagent_runtime_dict(value)
+    return {}
+
+
+def _serialize_runtime_config(runtime_config: dict | None) -> str | None:
+    normalized = normalize_subagent_runtime_dict(runtime_config)
+    if not normalized:
+        return None
+    return json.dumps(normalized, ensure_ascii=False)
+
+
 def _row_to_dict(row) -> dict:
     d = dict(row)
     d["tools"] = _parse_json_list(d.get("tools"))
     d["skills"] = _parse_json_list(d.get("skills"))
     d["model_id"] = d.get("model_id") or ""
+    d["runtime_config"] = _parse_runtime_config(d.get("runtime_config"))
     return d
 
 
@@ -94,6 +117,10 @@ class SubagentService:
             seen.add(name)
             result.append(name)
         return result
+
+    @staticmethod
+    def sanitize_runtime_config(runtime_config: dict | None) -> dict:
+        return normalize_subagent_runtime_dict(runtime_config)
 
     @staticmethod
     async def list_subagents() -> list[dict]:
@@ -150,6 +177,7 @@ class SubagentService:
         model_id: str = "",
         tools: list[str] | None = None,
         skills: list[str] | None = None,
+        runtime_config: dict | None = None,
     ) -> str:
         err = SubagentService.validate_name(name)
         if err:
@@ -162,11 +190,14 @@ class SubagentService:
 
         subagent_id = str(uuid.uuid4())[:8]
         now = _now()
+        runtime_json = _serialize_runtime_config(
+            SubagentService.sanitize_runtime_config(runtime_config)
+        )
         async with get_db() as db:
             await db.execute(
                 "INSERT INTO subagents (id, name, description, system_prompt, "
-                "model_id, tools, skills, created_at, updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
+                "model_id, tools, skills, runtime_config, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
                     subagent_id,
                     name,
@@ -175,6 +206,7 @@ class SubagentService:
                     model_id or "",
                     json.dumps(SubagentService.sanitize_tools(tools)),
                     json.dumps(SubagentService.sanitize_skills(skills)),
+                    runtime_json,
                     now,
                     now,
                 ),
@@ -191,12 +223,16 @@ class SubagentService:
         model_id: str = "",
         tools: list[str] | None = None,
         skills: list[str] | None = None,
+        runtime_config: dict | None = None,
     ) -> bool:
         err = SubagentService.validate_name(name)
         if err:
             raise ValueError(err)
 
         name = name.strip()
+        runtime_json = _serialize_runtime_config(
+            SubagentService.sanitize_runtime_config(runtime_config)
+        )
         async with get_db() as db:
             cursor = await db.execute(
                 "SELECT id FROM subagents WHERE id = ?", (subagent_id,)
@@ -213,7 +249,7 @@ class SubagentService:
 
             await db.execute(
                 "UPDATE subagents SET name=?, description=?, system_prompt=?, "
-                "model_id=?, tools=?, skills=?, updated_at=? WHERE id=?",
+                "model_id=?, tools=?, skills=?, runtime_config=?, updated_at=? WHERE id=?",
                 (
                     name,
                     description or "",
@@ -221,6 +257,7 @@ class SubagentService:
                     model_id or "",
                     json.dumps(SubagentService.sanitize_tools(tools)),
                     json.dumps(SubagentService.sanitize_skills(skills)),
+                    runtime_json,
                     _now(),
                     subagent_id,
                 ),

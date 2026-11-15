@@ -6,6 +6,7 @@ import logging
 import re
 from pathlib import Path
 
+from ...agent.core.subagent_config import extract_runtime_config_from_frontmatter
 from ...config import resolve_subagents_dir
 from .subagent_service import SubagentService
 
@@ -67,6 +68,7 @@ def parse_subagent_markdown(text: str) -> dict:
         "tools": _parse_csv_list(fields.get("tools")),
         "skills": _parse_csv_list(fields.get("skills")),
         "model_id": (fields.get("model") or fields.get("model_id") or "").strip(),
+        "runtime_config": extract_runtime_config_from_frontmatter(fields),
         "system_prompt": body.lstrip("\r\n"),
     }
 
@@ -98,6 +100,10 @@ def _needs_refresh(existing: dict, parsed: dict) -> bool:
     if list(existing.get("tools") or []) != list(want_tools):
         return True
     if list(existing.get("skills") or []) != list(want_skills):
+        return True
+    want_runtime = parsed.get("runtime_config") or {}
+    have_runtime = existing.get("runtime_config") or {}
+    if dict(have_runtime) != dict(want_runtime):
         return True
     return False
 
@@ -139,6 +145,7 @@ async def seed_default_subagents(directory: Path | None = None) -> dict:
                     model_id=parsed.get("model_id") or existing.get("model_id") or "",
                     tools=parsed.get("tools") or [],
                     skills=parsed.get("skills") or [],
+                    runtime_config=parsed.get("runtime_config") or {},
                 )
                 stats["updated"] += 1
                 logger.info("已刷新默认 Subagent: %s (%s)", name, path.name)
@@ -151,6 +158,7 @@ async def seed_default_subagents(directory: Path | None = None) -> dict:
                 model_id=parsed.get("model_id") or "",
                 tools=parsed.get("tools") or [],
                 skills=parsed.get("skills") or [],
+                runtime_config=parsed.get("runtime_config") or {},
             )
             stats["imported"] += 1
             logger.info("已导入默认 Subagent: %s (%s)", name, path.name)

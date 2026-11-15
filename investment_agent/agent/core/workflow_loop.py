@@ -328,7 +328,9 @@ class WorkflowLoopEngine(BaseLoopEngine):
                 f"父 Agent token 预算已耗尽 ({parent_used}/{self.token_budget})，无法委派执行子任务"
             )
 
-        child_budget = getattr(self, "subagent_token_budget", None) or 100_000
+        from .subagent_config import resolve_subagent_runtime_config
+
+        child_budget = resolve_subagent_runtime_config(self, definition=None).token_budget
         if child_budget <= 0:
             raise ValueError("子Agent Token 预算未配置或为 0，无法委派执行子任务")
 

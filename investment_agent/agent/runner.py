@@ -229,12 +229,19 @@ class AgentRunner:
         else:
             runtime_compressor = NoOpRuntimeCompressor()
 
+        subagent_defaults = dict(getattr(config, "subagent", None) or {})
+        flat_sub_budget = getattr(config, "subagent_token_budget", 100_000)
+        if "token_budget" not in subagent_defaults and flat_sub_budget is not None:
+            subagent_defaults["token_budget"] = flat_sub_budget
+        resolved_sub_budget = subagent_defaults.get("token_budget", flat_sub_budget)
+
         engine_cfg = EngineConfig(
             max_steps=config.max_steps,
             slow_think_interval=config.slow_think_interval,
             loop_mode=config.loop_mode,
             token_budget=config.token_budget,
-            subagent_token_budget=getattr(config, "subagent_token_budget", 100_000),
+            subagent_token_budget=resolved_sub_budget,
+            subagent=subagent_defaults,
             loop_detection_threshold=config.loop_detection_threshold,
             runtime_context_compression_enabled=config.runtime_context_compression_enabled,
             context_trim_token_threshold=(

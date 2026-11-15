@@ -11,14 +11,16 @@ import uuid
 from dataclasses import dataclass
 from typing import AsyncGenerator
 
-from ..config import EngineConfig
+from ..config import OFFLOAD_AWARE_PROMPT, EngineConfig, PLANNING_MAX_TOKENS_DEFAULT
 from ..constants import EventType, LoopMode
-from ..context.runtime_compressor import NoOpRuntimeCompressor
 from ...config import ROOT_DIR
+from .subagent_config import (
+    build_child_runtime_compressor,
+    resolve_subagent_runtime_config,
+)
 
 _log = logging.getLogger(__name__)
 _SUBAGENT_TYPE = "subagent"
-_DEFAULT_SUBAGENT_TOKEN_BUDGET = 100_000
 
 
 @dataclass
@@ -108,24 +110,30 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
     from ..tools.write_file import WriteFileTool
 
     definition = request.definition
-    child_budget = (
-        getattr(parent, "subagent_token_budget", None) or _DEFAULT_SUBAGENT_TOKEN_BUDGET
+    session_id = f"subagent_{subagent_id}"
+    resolved = resolve_subagent_runtime_config(parent, definition)
+    child_compressor = build_child_runtime_compressor(
+        parent,
+        resolved,
+        parent_session_id=parent.session_id,
+        child_session_id=session_id,
     )
     child_cfg = EngineConfig(
-        max_steps=max(min(parent.max_steps, 40), 20),
+        max_steps=parent.max_steps,
         slow_think_interval=0,
         loop_mode=LoopMode.REACT,
-        token_budget=child_budget,
-        subagent_token_budget=child_budget,
+        token_budget=resolved.token_budget,
+        subagent_token_budget=resolved.token_budget,
+        subagent=dict(getattr(parent, "subagent_runtime_defaults", None) or {}),
         loop_detection_threshold=parent.loop_threshold,
-        runtime_context_compression_enabled=False,
-        context_trim_token_threshold=0,
+        runtime_context_compression_enabled=resolved.runtime_context_compression_enabled,
+        context_trim_token_threshold=resolved.context_trim_token_threshold,
         max_subagent_depth=parent.max_subagent_depth,
         max_parallel_subagents=getattr(parent, "max_parallel_subagents", 3),
-        offload_threshold=parent.offload_threshold,
-        offload_summary_strategy=parent.offload_summary_strategy,
-        offload_summary_chars=parent.offload_summary_chars,
-        planning_max_tokens=parent.planning_max_tokens,
+        offload_threshold=resolved.offload_threshold,
+        offload_summary_strategy=resolved.offload_summary_strategy,
+        offload_summary_chars=resolved.offload_summary_chars,
+        planning_max_tokens=PLANNING_MAX_TOKENS_DEFAULT,
         subagent_workspace_dir=parent.subagent_workspace_dir,
     )
 
@@ -135,16 +143,18 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
         f"ROOT_DIR = {ROOT_DIR}\n"
         f"你是叶子执行者：不要尝试再次委派或调用 DelegateTask。\n"
     )
+    if resolved.compression_active:
+        system_prompt += OFFLOAD_AWARE_PROMPT
 
     child_provider = definition.get("_provider") or parent.provider
     child = create_loop_engine(
-        session_id=f"subagent_{subagent_id}",
+        session_id=session_id,
         system_prompt=system_prompt,
         provider=child_provider,
         temperature=parent.temperature,
-        max_tokens=parent.max_tokens,
+        max_tokens=resolved.max_single_turn_output_tokens,
         config=child_cfg,
-        runtime_compressor=NoOpRuntimeCompressor(),
+        runtime_compressor=child_compressor,
         subagent_depth=parent.subagent_depth + 1,
     )
     child._interrupt = parent._interrupt
@@ -248,8 +258,8 @@ async def prepare_defined_subagent(
             f"无法委派执行子任务"
         )
 
-    child_budget = getattr(engine, "subagent_token_budget", None) or _DEFAULT_SUBAGENT_TOKEN_BUDGET
-    if child_budget <= 0:
+    resolved = resolve_subagent_runtime_config(engine, definition)
+    if resolved.token_budget <= 0:
         return "错误：子Agent Token 预算未配置或为 0，无法委派执行子任务"
 
     task = (tc_input.get("task") or "").strip()
@@ -263,8 +273,12 @@ async def prepare_defined_subagent(
     )
     subagent_id = f"subagent_{uuid.uuid4().hex[:8]}"
     _log.info(
-        "[Subagent] 准备完成: id=%s name=%s child_budget=%d parent_used=%d/%d depth=%d task=%s",
-        subagent_id, tool_name, child_budget, parent_used, engine.token_budget,
+        "[Subagent] 准备完成: id=%s name=%s child_budget=%d compress=%s trim=%d "
+        "parent_used=%d/%d depth=%d task=%s",
+        subagent_id, tool_name, resolved.token_budget,
+        resolved.runtime_context_compression_enabled,
+        resolved.context_trim_token_threshold,
+        parent_used, engine.token_budget,
         engine.subagent_depth + 1, task[:100],
     )
     return request, subagent_id

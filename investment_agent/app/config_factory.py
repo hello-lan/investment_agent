@@ -97,6 +97,24 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
     if runtime_context_compression_enabled is False:
         context_trim_token_threshold = 0
 
+    from ..agent.core.subagent_config import merge_engine_subagent_block
+
+    # L1：主 Agent 的子运行时默认；兼容旧扁平 subagent_token_budget
+    flat_sub_budget = _resolve_preferring_agent(
+        agent_cfg, global_cfg, "subagent_token_budget", 100000,
+    )
+    subagent_block = merge_engine_subagent_block(
+        agent_cfg,
+        flat_token_budget=flat_sub_budget,
+    )
+    # 全局 engine.subagent 补缺（仅填 agent 未设字段）
+    global_sub = merge_engine_subagent_block(global_cfg, flat_token_budget=flat_sub_budget)
+    for key, value in global_sub.items():
+        subagent_block.setdefault(key, value)
+    if "token_budget" not in subagent_block and flat_sub_budget is not None:
+        subagent_block["token_budget"] = flat_sub_budget
+    resolved_sub_budget = subagent_block.get("token_budget", flat_sub_budget)
+
     return {
         "max_steps": _resolve_preferring_agent(agent_cfg, global_cfg, "max_steps", 30),
         "slow_think_interval": _resolve_preferring_agent(agent_cfg, global_cfg, "slow_think_interval", 3),
@@ -106,9 +124,8 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
         ),
         "workflow_id": workflow_id,
         "token_budget": _resolve_preferring_agent(agent_cfg, global_cfg, "token_budget", 100000),
-        "subagent_token_budget": _resolve_preferring_agent(
-            agent_cfg, global_cfg, "subagent_token_budget", 100000,
-        ),
+        "subagent_token_budget": resolved_sub_budget,
+        "subagent": subagent_block,
         "loop_detection_threshold": _resolve_preferring_agent(agent_cfg, global_cfg, "loop_detection_threshold", 3),
         "runtime_context_compression_enabled": runtime_context_compression_enabled,
         "context_trim_token_threshold": context_trim_token_threshold,
@@ -239,6 +256,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         loop_mode=engine_params["loop_mode"],
         token_budget=engine_params["token_budget"],
         subagent_token_budget=engine_params["subagent_token_budget"],
+        subagent=engine_params.get("subagent") or {},
         loop_detection_threshold=engine_params["loop_detection_threshold"],
         context_trim_token_threshold=engine_params["context_trim_token_threshold"],
         runtime_context_compression_enabled=engine_params["runtime_context_compression_enabled"],

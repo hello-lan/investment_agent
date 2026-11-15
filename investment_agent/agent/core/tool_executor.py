@@ -25,8 +25,6 @@ _log = logging.getLogger(__name__)
 
 # ── 常量 ──────────────────────────────────────────────────────────────
 
-_DEFAULT_SUBAGENT_TOKEN_BUDGET = 100_000
-
 
 # ── 死循环检测 ────────────────────────────────────────────────────────
 
@@ -161,9 +159,9 @@ async def prepare_delegate_task(
             f"无法委派执行子任务"
         )
 
-    child_budget = (
-        getattr(engine, "subagent_token_budget", None) or _DEFAULT_SUBAGENT_TOKEN_BUDGET
-    )
+    from .subagent_config import resolve_subagent_runtime_config
+
+    child_budget = resolve_subagent_runtime_config(engine, definition=None).token_budget
     if child_budget <= 0:
         _log.warning("[Delegate] 拒绝委派: 子预算未配置, task=%s", task_desc)
         return "错误：子Agent Token 预算未配置或为 0，无法委派执行子任务"
