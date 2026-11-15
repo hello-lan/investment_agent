@@ -1,6 +1,9 @@
+import json
 import time
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Query, HTTPException
+from fastapi.responses import Response
 
 from ..db import get_db
 
@@ -136,6 +139,136 @@ async def get_trace_detail(trace_id: str):
     if not row:
         raise HTTPException(status_code=404, detail="trace not found")
     return dict(row)
+
+
+# ── /export/traces（按会话导出完整链路日志 JSON） ───────────────────────────
+
+# llm_request / sub_llm_request 的 detail.messages 逐步累积，导出时只保留最全一条
+_CUMULATIVE_REQUEST_TYPES = frozenset({"llm_request", "sub_llm_request"})
+
+
+def _parse_detail_json(detail: str | None):
+    """尽量把 detail 解析为 JSON 对象，失败则保留原字符串。"""
+    if detail is None or detail == "":
+        return None
+    try:
+        return json.loads(detail)
+    except (TypeError, json.JSONDecodeError):
+        return detail
+
+
+def _request_stream_key(item: dict) -> tuple:
+    """同一对话流的去重键：父 Agent 按 task；子 Agent 再按 delegate_id。"""
+    detail = item.get("detail")
+    delegate_id = ""
+    if isinstance(detail, dict):
+        delegate_id = detail.get("delegate_id") or ""
+    return (
+        item.get("event_type") or "",
+        item.get("task_id") or "",
+        item.get("agent_name") or "",
+        delegate_id,
+    )
+
+
+def _dedupe_cumulative_requests(traces: list[dict]) -> tuple[list[dict], int]:
+    """对累积型 request 事件，每条对话流只保留 detail 最大的一条。
+
+    Returns:
+        (去重后的 traces, 被丢弃的 request 条数)
+    """
+    best: dict[tuple, tuple[int, dict]] = {}
+    others: list[dict] = []
+    cumulative_count = 0
+
+    for item in traces:
+        et = item.get("event_type") or ""
+        if et not in _CUMULATIVE_REQUEST_TYPES:
+            others.append(item)
+            continue
+        cumulative_count += 1
+        size = int(item.get("detail_size") or 0)
+        key = _request_stream_key(item)
+        prev = best.get(key)
+        if prev is None or size >= prev[0]:
+            best[key] = (size, item)
+
+    kept_requests = [v[1] for v in best.values()]
+    merged = others + kept_requests
+    merged.sort(key=lambda x: (x.get("created_at") or "", x.get("id") or ""))
+    dropped = cumulative_count - len(kept_requests)
+    return merged, dropped
+
+
+@router.get("/export/traces")
+async def export_traces(
+    session_id: str = Query(..., description="要导出的会话 ID"),
+):
+    """导出指定会话的链路日志为 JSON（detail 不截断）。
+
+    llm_request / sub_llm_request 的 messages 每步累积重叠，导出时每条对话流
+    只保留 detail 最大的一条；其余事件（tool_call/response 等）原样保留。
+    成本信息单独放在 costs 字段，避免 JOIN 到每条 trace 造成冗余。
+    """
+    trace_sql = """SELECT
+        t.id, t.session_id, t.task_id, t.agent_name, t.step,
+        t.event_type, t.detail,
+        COALESCE(t.detail_size, LENGTH(t.detail)) AS detail_size,
+        t.created_at
+    FROM trace_log t
+    WHERE t.session_id = ?
+    ORDER BY t.created_at ASC"""
+
+    cost_sql = """SELECT
+        id, session_id, task_id, agent_name, model,
+        input_tokens, output_tokens, cost_usd, currency, created_at
+    FROM cost_log
+    WHERE session_id = ?
+    ORDER BY created_at ASC"""
+
+    async with get_db() as db:
+        cursor = await db.execute(trace_sql, (session_id,))
+        rows = await cursor.fetchall()
+        cost_cursor = await db.execute(cost_sql, (session_id,))
+        cost_rows = await cost_cursor.fetchall()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="该会话暂无链路日志")
+
+    raw_traces = []
+    for r in rows:
+        item = dict(r)
+        item["detail"] = _parse_detail_json(item.get("detail"))
+        raw_traces.append(item)
+
+    traces, dropped_requests = _dedupe_cumulative_requests(raw_traces)
+    costs = [dict(r) for r in cost_rows]
+
+    payload = {
+        "session_id": session_id,
+        "exported_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "count": len(traces),
+        "count_before_dedupe": len(raw_traces),
+        "dropped_cumulative_requests": dropped_requests,
+        "dedupe_note": (
+            "llm_request/sub_llm_request 的 messages 逐步累积，"
+            "每条对话流仅保留 detail 最全的一条；分析用最终上下文即可"
+        ),
+        "costs": costs,
+        "traces": traces,
+    }
+    content = json.dumps(payload, ensure_ascii=False, indent=2)
+    safe_id = "".join(c if c.isalnum() or c in "-_" else "_" for c in session_id)[:48]
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"trace_{safe_id}_{stamp}.json"
+
+    return Response(
+        content=content.encode("utf-8"),
+        media_type="application/json; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
 
 
 # ── /trace-sessions（链路日志的会话列表，分页） ─────────────────────────────

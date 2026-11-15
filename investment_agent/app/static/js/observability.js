@@ -270,7 +270,10 @@ function renderSessionList() {
   _sessionListData.forEach(function(s) {
     var isActive = s.session_id === _selectedSessionId;
     html += '<div class="obs-session-item' + (isActive ? ' active' : '') + '" data-sid="' + esc(s.session_id) + '">';
+    html += '<div class="obs-si-top">';
     html += '<span class="obs-si-id" title="' + esc(s.session_id) + '">' + esc(s.session_id) + '</span>';
+    html += '<button type="button" class="obs-si-export" title="导出该会话链路日志 (JSON)" data-export-sid="' + esc(s.session_id) + '">⬇</button>';
+    html += '</div>';
     html += '<div class="obs-si-meta">';
     if (s.agent_name) html += '<span class="obs-badge" style="background:#f0fdf4;color:#166534;">' + esc(s.agent_name) + '</span>';
     html += '<span>📋 ' + s.task_count + '</span>';
@@ -279,6 +282,43 @@ function renderSessionList() {
     html += '</div></div>';
   });
   elList.innerHTML = html;
+}
+
+async function exportSessionTraces(sessionId, btn) {
+  if (!sessionId) return;
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add('loading');
+  }
+  try {
+    var url = '/api/observability/export/traces?session_id=' + encodeURIComponent(sessionId);
+    var resp = await fetch(url);
+    if (!resp.ok) {
+      var errBody = {};
+      try { errBody = await resp.json(); } catch (e) {}
+      throw new Error(errBody.detail || ('HTTP ' + resp.status));
+    }
+    var blob = await resp.blob();
+    var disposition = resp.headers.get('Content-Disposition') || '';
+    var filename = 'trace_' + sessionId.slice(0, 8) + '.json';
+    var m = /filename="?([^";]+)"?/i.exec(disposition);
+    if (m) filename = m[1];
+
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function() { URL.revokeObjectURL(a.href); }, 1000);
+  } catch (e) {
+    alert('导出失败：' + (e.message || e));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove('loading');
+    }
+  }
 }
 
 function renderPagination() {
@@ -1468,6 +1508,13 @@ function init() {
     document.getElementById('traceContent').addEventListener('click', handleTraceClick);
     // 会话列表点击事件（委托）
     document.getElementById('sessionList').addEventListener('click', function(e) {
+      var exportBtn = e.target.closest('.obs-si-export');
+      if (exportBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        exportSessionTraces(exportBtn.dataset.exportSid, exportBtn);
+        return;
+      }
       var item = e.target.closest('.obs-session-item');
       if (item && item.dataset.sid) {
         selectSession(item.dataset.sid);
