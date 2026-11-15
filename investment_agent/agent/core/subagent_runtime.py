@@ -193,7 +193,7 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
                         "执行约定：命令已在项目根（Windows/Linux）；"
                         "用相对路径+`/`直接跑脚本；不要 `cd`；不要通读 scripts/*.py。\n"
                         "已注入快速参考：第一步直接 `run_command` 跑脚本；"
-                        "禁止先调 Skill / 禁止用 grep·read 扫年报替代脚本；"
+                        "禁止先调 Skill / 禁止用 grep/read 扫全文替代脚本；"
                         "上游 task 的简化 schema 一律忽略，以脚本 Output contract 为准。\n"
                     )
                     if len(skill.body) > 4500:
