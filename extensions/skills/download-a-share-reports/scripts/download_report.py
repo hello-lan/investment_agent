@@ -12,7 +12,20 @@ from typing import List, Dict, Optional
 
 DEFAULT_SAVE_DIR = str(Path(tempfile.gettempdir()) / "financial_reports")
 
+# scripts/ -> skill/ -> skills/ -> extensions/ -> 项目根
+_PROJECT_ROOT = Path(__file__).resolve().parents[4]
+
 from sources import CninfoSpider, EastmoneySpider, SinaSpider, SOURCE_PRIORITY
+
+
+def resolve_save_dir(save_dir: str | None) -> str:
+    """相对路径一律相对项目根解析，避免 cd 进 scripts 后写到错误位置。"""
+    if not save_dir:
+        return DEFAULT_SAVE_DIR
+    path = Path(save_dir)
+    if not path.is_absolute():
+        path = _PROJECT_ROOT / path
+    return str(path.resolve())
 
 
 # ==================== 股票名称映射表 ====================
@@ -147,7 +160,7 @@ def download_single_stock(
             continue
 
         try:
-            print(f"\n  🔍 尝试数据源 [{source_name}]: {stock_code}")
+            print(f"\n  [*] 尝试数据源 [{source_name}]: {stock_code}")
             reports = spider.get_reports(
                 stock_code=stock_code,
                 start_year=start_year,
@@ -155,15 +168,15 @@ def download_single_stock(
                 categories=categories,
             )
             if reports:
-                print(f"  ✅ [{source_name}] 成功下载 {len(reports)} 个文件")
+                print(f"  [OK] [{source_name}] 成功下载 {len(reports)} 个文件")
                 return reports, source_name
             else:
-                print(f"  ⚠️  [{source_name}] 返回 0 条结果，切换下一数据源")
+                print(f"  [WARN] [{source_name}] 返回 0 条结果，切换下一数据源")
         except Exception as e:
-            print(f"  ✗ [{source_name}] 异常: {str(e)[:80]}，切换下一数据源")
+            print(f"  [ERR] [{source_name}] 异常: {str(e)[:80]}，切换下一数据源")
             continue
 
-    print(f"  ❌ 所有数据源均失败: {stock_code}")
+    print(f"  [FAIL] 所有数据源均失败: {stock_code}")
     return [], None
 
 
@@ -212,7 +225,7 @@ def batch_download(
 
     # 打印统计
     print(f"\n{'='*50}")
-    print("📊 数据源使用统计:")
+    print("数据源使用统计:")
     for src, count in sorted(source_stats.items(), key=lambda x: -x[1]):
         print(f"   {src}: {count} 只股票")
     print(f"{'='*50}")
@@ -220,10 +233,24 @@ def batch_download(
     return results
 
 
+def _ensure_utf8_stdio() -> None:
+    """Windows GBK 控制台无法打印部分 Unicode，强制 stdout/stderr 用 UTF-8。"""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream is None:
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 # ==================== CLI 入口 ====================
 
 def main():
     import argparse
+
+    _ensure_utf8_stdio()
 
     parser = argparse.ArgumentParser(
         description="A股上市公司财报下载工具（多数据源自动切换）",
@@ -273,11 +300,14 @@ def main():
     start_year = args.start if args.start else current_year - 5
     end_year = args.end if args.end else current_year
 
-    print(f"📊 准备下载财报")
+    save_dir = resolve_save_dir(args.save_dir)
+
+    print("准备下载财报")
     print(f"   股票代码: {', '.join(codes)}")
     print(f"   报告类型: {args.category}")
     print(f"   年份范围: {start_year} ~ {end_year}")
-    print(f"   保存目录: {args.save_dir}")
+    print(f"   保存目录: {save_dir}")
+    print(f"   项目根目录: {_PROJECT_ROOT}")
     if args.source:
         print(f"   指定数据源: {args.source}")
     else:
@@ -285,7 +315,7 @@ def main():
 
     results = batch_download(
         stock_codes=codes,
-        save_dir=args.save_dir,
+        save_dir=save_dir,
         start_year=start_year,
         end_year=end_year,
         categories=[args.category],
@@ -299,16 +329,20 @@ def main():
             results[code] = results[code][:args.max_results]
 
     total = sum(len(v) for v in results.values())
-    print(f"\n📈 下载完成: {len(codes)} 只股票, 共 {total} 个文件")
+    print(f"\n下载完成: {len(codes)} 只股票, 共 {total} 个文件")
 
     for code, reports in results.items():
         if reports:
             years = sorted(set(r.get("year") for r in reports if r.get("year")))
             sources = set(r.get("source", "?") for r in reports)
             print(f"   {code}: {len(reports)} 个文件, 年份: {years}, 来源: {', '.join(sources)}")
+            for report in reports:
+                file_path = report.get("file_path")
+                if file_path:
+                    print(f"   文件: {file_path}")
 
     if total == 0:
-        print("\n⚠️  未下载到任何文件，可能原因：")
+        print("\n[WARN] 未下载到任何文件，可能原因：")
         print("   1. 年份范围内无对应报告")
         print("   2. 所有数据源均无法访问（网络问题或反爬限制）")
         print("   3. 建议稍后重试，或通过 --source 指定特定数据源")

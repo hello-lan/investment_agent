@@ -54,29 +54,27 @@ description: 从巨潮资讯网、东方财富、新浪财经等多数据源下�
 
 ## CLI 调用模板
 
-所有命令的 working directory 为 `SKILL.md` 所在目录：
+**必须在项目根目录（ROOT_DIR）执行**，使用 `python`（不要用 `python3`，Windows 上常无输出）。  
+**不要 `cd` 进 `scripts/`**；相对 `--save-dir` 会按项目根解析。
 
 ```bash
-# ⚠️ --save-dir 为必填项，指向项目 data/reports/pdf/ 目录
+SCRIPT="extensions/skills/download-a-share-reports/scripts/download_report.py"
 SAVE_DIR="data/reports/pdf"
 
 # 单个股票（代码）— 多数据源自动切换
-cd scripts && python download_report.py --stock 600519 --start 2020 --end 2024 --category 年报 --save-dir "$SAVE_DIR"
+python "$SCRIPT" --stock 600519 --start 2020 --end 2024 --category 年报 --save-dir "$SAVE_DIR"
 
 # 单个股票（名称）
-cd scripts && python download_report.py --name 茅台 --start 2020 --end 2024 --save-dir "$SAVE_DIR"
+python "$SCRIPT" --name 茅台 --start 2020 --end 2024 --save-dir "$SAVE_DIR"
 
 # 批量下载
-cd scripts && python download_report.py --names 茅台,五粮液,宁德时代 --start 2020 --end 2024 --category 年报 --save-dir "$SAVE_DIR"
+python "$SCRIPT" --names 茅台,五粮液,宁德时代 --start 2020 --end 2024 --category 年报 --save-dir "$SAVE_DIR"
 
 # 强制使用指定数据源
-cd scripts && python download_report.py --name 茅台 --source eastmoney --save-dir "$SAVE_DIR"
-
-# 独立运行某个数据源（同样需要 --save-dir）
-cd scripts && python sources/cninfo_spider.py --stock 600519 --start 2020 --end 2024 --save-dir "$SAVE_DIR"
-cd scripts && python sources/eastmoney_spider.py --stock 600519 --start 2020 --end 2024 --save-dir "$SAVE_DIR"
-cd scripts && python sources/sina_spider.py --stock 600519 --start 2020 --end 2024 --save-dir "$SAVE_DIR"
+python "$SCRIPT" --name 茅台 --source eastmoney --save-dir "$SAVE_DIR"
 ```
+
+下载成功后直接使用脚本打印的绝对路径，**不要再 `find` / 全量 `list_files` 探路**。
 
 ## 常见股票代码速查
 
@@ -101,16 +99,16 @@ cd scripts && python sources/sina_spider.py --stock 600519 --start 2020 --end 20
 
 1. 从用户输入提取：股票名称/代码、年份范围、报告类型、结果保存目录
 2. 如果用户使用股票名称，先查速查表确认代码；如果是未知名称，仍传入 CLI 尝试模糊匹配
-3. 构造 CLI 命令并执行（working directory = SKILL.md 所在目录）
+3. 在项目根目录构造并执行 CLI（见上方模板）
 4. **多数据源自动切换**：按优先级尝试 cninfo → eastmoney → sina，成功即停止
-5. 将下载进度、使用的数据源和结果汇报给用户
+5. 将下载进度、使用的数据源和**输出绝对路径**汇报给用户
 6. 如果全部数据源均失败，提示用户检查网络或稍后重试
 
 ## 输出位置
 
-**在 investment_agent 项目中，必须通过 `--save-dir` 指定保存路径**，与项目文件输出规范保持一致：
+**必须通过 `--save-dir` 指定保存路径**（推荐 `data/reports/pdf`）：
 
-PDF 文件将保存到 `{save_dir}/{stock_code}/` 目录下（如 `data/reports/pdf/600519/`）。
+PDF 保存到 `{项目根}/{save_dir}/{stock_code}/`（如 `data/reports/pdf/600519/`）。
 
 ## 限制说明
 

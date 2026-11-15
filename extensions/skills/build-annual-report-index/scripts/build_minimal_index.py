@@ -239,6 +239,22 @@ def chapter_order_from_prefix(prefix: str) -> int:
     return chinese_numeral_to_int(match.group(1)) or 0
 
 
+_TOC_DOTTED_PAGE_RE = re.compile(r"[.．·…\s]{4,}\d+\s*$")
+
+
+def _looks_like_toc_entry(line: str) -> re.Match[str] | None:
+    """目录行通常是「第X节 标题 …… 页码」；正文标题一般没有长串点号+页码。"""
+    stripped = line.strip()
+    if not stripped:
+        return None
+    match = TOP_LEVEL_TOC_PATTERN.match(stripped)
+    if not match:
+        return None
+    if _TOC_DOTTED_PAGE_RE.search(stripped):
+        return match
+    return None
+
+
 def detect_toc(lines: list[str], chunk_size: int = 200, max_chunks: int = 10) -> tuple[int, int, list[dict]]:
     toc_start = 0
     toc_end = 0
@@ -255,18 +271,41 @@ def detect_toc(lines: list[str], chunk_size: int = 200, max_chunks: int = 10) ->
                 if raw.strip() == "目录":
                     toc_start = idx
                     break
+            # 无独立「目录」标题时：用带点号页码的「第X节」簇作为目录起点
+            if not toc_start:
+                dotted_hits = [
+                    idx
+                    for idx, raw in enumerate(chunk_lines, start=1)
+                    if _looks_like_toc_entry(raw)
+                ]
+                if len(dotted_hits) >= 3:
+                    toc_start = dotted_hits[0]
 
         if not toc_start:
             continue
 
+        entries = []
+        seen_titles = set()
+        toc_end = 0
+        has_toc_heading = lines[toc_start - 1].strip() == "目录"
         for idx, raw in enumerate(chunk_lines[toc_start - 1 :], start=toc_start):
             stripped = raw.strip()
             if not stripped:
                 continue
-            match = TOP_LEVEL_TOC_PATTERN.match(stripped)
+            # 有「目录」标题时兼容无点号行；无标题时只收点号页码行，避免正文标题混入
+            match = (
+                TOP_LEVEL_TOC_PATTERN.match(stripped)
+                if has_toc_heading
+                else _looks_like_toc_entry(stripped)
+            )
             if not match:
                 continue
-            full_title = f"{match.group(1)}{match.group(2)}"
+            name = match.group(2).strip()
+            # 去掉标题尾部残留的点号/页码
+            name = _TOC_DOTTED_PAGE_RE.sub("", name).strip(" .．·…")
+            if not name:
+                continue
+            full_title = f"{match.group(1)} {name}".strip()
             normalized_title = normalize(full_title)
             if normalized_title in seen_titles:
                 continue
@@ -275,7 +314,7 @@ def detect_toc(lines: list[str], chunk_size: int = 200, max_chunks: int = 10) ->
                 {
                     "line": idx,
                     "prefix": match.group(1),
-                    "name": match.group(2).strip(),
+                    "name": name,
                     "title": full_title,
                     "order": chapter_order_from_prefix(match.group(1)),
                 }
@@ -680,6 +719,8 @@ def extract_chapter_children(parent: LocatedNode, lines: list[str]) -> list[Chap
 def locate_note_children(lines: list[str], notes_start: int, search_end: int) -> tuple[list[ChapterNode], int]:
     children: list[ChapterNode] = []
     stop_line = search_end
+    seen_titles: set[str] = set()
+    used_ids: set[str] = set()
 
     for index in range(notes_start + 1, min(len(lines), search_end) + 1):
         stripped = lines[index - 1].strip()
@@ -694,9 +735,18 @@ def locate_note_children(lines: list[str], notes_start: int, search_end: int) ->
         item_no, normalized_title, display_title = parsed
         if children and children[-1].line_start == index:
             continue
+        # 页眉/续页会重复同一科目标题；同标题只保留首次
+        title_key = normalize(normalized_title)
+        if title_key in seen_titles:
+            continue
+        seen_titles.add(title_key)
+        chapter_id = f"financial_report_notes_item_{item_no}"
+        if chapter_id in used_ids:
+            chapter_id = f"financial_report_notes_item_{item_no}_L{index}"
+        used_ids.add(chapter_id)
         children.append(
             ChapterNode(
-                chapter_id=f"financial_report_notes_item_{item_no}",
+                chapter_id=chapter_id,
                 title=display_title,
                 line_start=index,
                 line_end=0,

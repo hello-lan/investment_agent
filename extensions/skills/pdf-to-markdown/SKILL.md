@@ -16,7 +16,7 @@ description: 将 PDF 文件转换为 Markdown 格式。默认使用 pdfplumber�
 
 ## 模式选择规则
 
-检测用户输入中的关键词来决定使用哪种模式：
+检测用户输入中的质量关键词来决定使用哪种模式：
 
 | 用户说（关键词） | 触发模式 |
 |--------|--------|
@@ -35,28 +35,35 @@ description: 将 PDF 文件转换为 Markdown 格式。默认使用 pdfplumber�
 
 ## CLI 调用模板
 
-所有命令的 working directory 为 `SKILL.md` 所在目录。
+**必须在项目根目录（ROOT_DIR）执行**，使用 `python`（不要用 `python3`）。  
+输入/输出路径一律写相对项目根的路径，**不要 `cd` 进 skill 目录后再用 `../..`**。
 
 **快速模式（默认）：**
 
 ```bash
-python3 scripts/pdf2markdown_fast.py <输入.pdf> -o <输出.md>
+python extensions/skills/pdf-to-markdown/scripts/pdf2markdown_fast.py \
+  data/reports/pdf/002415/002415_2025年年度报告_2025.pdf \
+  -o data/reports/md/002415/002415_2025年年度报告_2025.md
 ```
 
 **高质量模式：**
 
 ```bash
-python3 scripts/pdf2markdown_quality.py <输入.pdf> -o <输出.md>
+python extensions/skills/pdf-to-markdown/scripts/pdf2markdown_quality.py \
+  data/reports/pdf/002415/002415_2025年年度报告_2025.pdf \
+  -o data/reports/md/002415/002415_2025年年度报告_2025.md
 ```
 
 若省略 `-o`，输出文件自动命名为 `<输入文件名>.md`（与 PDF 同目录）。
+
+转换成功后直接进入下一步（分割/建索引），**不要再 `find` / 全量 `list_files` 探路**。
 
 ## 执行流程
 
 1. 从用户输入提取 PDF 文件路径和输出路径（可选）
 2. 检测用户输入中的质量关键词，选择对应脚本
 3. 若未指定输出路径，默认与 PDF 同目录，文件名为 `{原文件名}.md`
-4. 构造 CLI 命令并执行（**脚本自动创建输出目录，无需先 `mkdir`**）
+4. 在项目根目录构造 CLI 并执行（**脚本自动创建输出目录，无需先 `mkdir`**）
 5. 脚本输出包含行数和字符数，**无需额外 `wc -l` 验证**
 
 ## 输出格式
@@ -82,4 +89,4 @@ python3 scripts/pdf2markdown_quality.py <输入.pdf> -o <输出.md>
 
 ## 配合其他 Skill 使用
 
-本 skill 通常作为前置步骤，转换后的 markdown 可交给 `split-financial-report` 进行章节切割。
+本 skill 通常作为前置步骤，转换后的 markdown 可交给 `split-financial-report` / `build_annual_report_index` 进行章节切割与索引。
