@@ -754,6 +754,108 @@ async function reconnectToTask(sessionId, taskId){
   loadSessions();
 }
 
+/* ====== 快捷命令 ====== */
+
+const SLASH_COMMANDS = [
+  { name: '/clear', desc: '新建对话', run: () => newSession() },
+];
+
+let _slashMatches = [];
+let _slashIndex = 0;
+let _slashOpen = false;
+
+function hideSlashMenu(){
+  _slashOpen = false;
+  _slashMatches = [];
+  _slashIndex = 0;
+  const menu = document.getElementById('slashMenu');
+  if (menu){ menu.style.display = 'none'; menu.innerHTML = ''; }
+}
+
+function _slashQueryFromInput(value, cursorPos){
+  if (!value || value[0] !== '/') return null;
+  const spaceIdx = value.search(/\s/);
+  if (spaceIdx >= 0) return null;
+  if (typeof cursorPos === 'number' && cursorPos > value.length) return null;
+  if (typeof cursorPos === 'number' && cursorPos < 1) return null;
+  return value;
+}
+
+function _getSlashMatches(query){
+  if (query == null) return [];
+  return SLASH_COMMANDS.filter(c => c.name.startsWith(query));
+}
+
+function updateSlashMenu(){
+  const input = document.getElementById('inputBox');
+  const menu = document.getElementById('slashMenu');
+  if (!input || !menu) return;
+
+  const query = _slashQueryFromInput(input.value, input.selectionStart);
+  const matches = _getSlashMatches(query);
+  if (!matches.length){
+    hideSlashMenu();
+    return;
+  }
+
+  if (_slashMatches.length !== matches.length ||
+      _slashMatches.some((m, i) => m.name !== matches[i].name)) {
+    _slashIndex = 0;
+  } else {
+    _slashIndex = Math.max(0, Math.min(_slashIndex, matches.length - 1));
+  }
+  _slashMatches = matches;
+  _slashOpen = true;
+
+  menu.innerHTML = matches.map((c, i) =>
+    `<div class="slash-item${i === _slashIndex ? ' active' : ''}" role="option" data-idx="${i}"` +
+    ` onclick="selectSlashItem(${i})">` +
+    `<span class="slash-item-name">${escapeHtml(c.name)}</span>` +
+    `<span class="slash-item-desc">${escapeHtml(c.desc)}</span></div>`
+  ).join('');
+  menu.style.display = '';
+}
+
+function selectSlashItem(idx){
+  if (idx < 0 || idx >= _slashMatches.length) return;
+  _slashIndex = idx;
+  completeSlashCommand();
+}
+
+function completeSlashCommand(){
+  const input = document.getElementById('inputBox');
+  if (!input || !_slashMatches.length) return;
+  const cmd = _slashMatches[_slashIndex] || _slashMatches[0];
+  input.value = cmd.name;
+  autoResize(input);
+  hideSlashMenu();
+  input.focus();
+  const len = input.value.length;
+  input.setSelectionRange(len, len);
+}
+
+function executeSlashCommand(cmd){
+  const input = document.getElementById('inputBox');
+  if (input){ input.value = ''; autoResize(input); }
+  hideSlashMenu();
+  cmd.run();
+}
+
+function onInputBoxInput(el){
+  autoResize(el);
+  updateSlashMenu();
+}
+
+function _moveSlashSelection(delta){
+  if (!_slashOpen || !_slashMatches.length) return;
+  _slashIndex = (_slashIndex + delta + _slashMatches.length) % _slashMatches.length;
+  const menu = document.getElementById('slashMenu');
+  if (!menu) return;
+  menu.querySelectorAll('.slash-item').forEach((el, i) => {
+    el.classList.toggle('active', i === _slashIndex);
+  });
+}
+
 /* ====== 发送消息 ====== */
 
 async function sendMessage(){
@@ -761,12 +863,19 @@ async function sendMessage(){
   const text = input.value.trim();
   if (!text && !currentFile) return;
 
+  const slashCmd = SLASH_COMMANDS.find(c => c.name === text);
+  if (slashCmd){
+    executeSlashCommand(slashCmd);
+    return;
+  }
+
   userScrolledUp = false;
   hasNewContentSinceScroll = false;
   _updateScrollButton();
 
   const displayText = currentFile ? (text || '(无文本问题)') + '\n\n[已上传文件] ' + currentFile.name : text;
   input.value = ''; autoResize(input);
+  hideSlashMenu();
   appendUserMsg(displayText);
   showThinking(); setRunning(true);
 
@@ -810,12 +919,26 @@ async function sendMessage(){
   loadSessions();
 }
 
-function handleKey(e){ if (e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); } }
+function handleKey(e){
+  if (_slashOpen){
+    if (e.key === 'ArrowDown'){ e.preventDefault(); _moveSlashSelection(1); return; }
+    if (e.key === 'ArrowUp'){ e.preventDefault(); _moveSlashSelection(-1); return; }
+    if (e.key === 'Tab'){ e.preventDefault(); completeSlashCommand(); return; }
+    if (e.key === 'Escape'){ e.preventDefault(); hideSlashMenu(); return; }
+    if (e.key === 'Enter' && !e.shiftKey){
+      e.preventDefault();
+      const cmd = _slashMatches[_slashIndex] || _slashMatches[0];
+      if (cmd){ executeSlashCommand(cmd); }
+      return;
+    }
+  }
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); }
+}
 function autoResize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight, 120) + 'px'; }
 
 function fillExample(text){
   const input = document.getElementById('inputBox');
-  if (input){ input.value = text; autoResize(input); input.focus(); }
+  if (input){ input.value = text; autoResize(input); hideSlashMenu(); input.focus(); }
 }
 
 /* ====== 自动滚动控制 ====== */
