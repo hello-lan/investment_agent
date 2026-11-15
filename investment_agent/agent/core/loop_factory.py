@@ -29,7 +29,7 @@ def create_loop_engine(
     system_prompt: str = "",
     provider: ModelProvider | None = None,
     temperature: float | None = None,
-    max_tokens: int | None = None,
+    max_single_turn_output_tokens: int | None = None,
     runtime_compressor: RuntimeCompressor | None = None,
     subagent_depth: int = 0,
 ) -> BaseLoopEngine:
@@ -50,7 +50,7 @@ def create_loop_engine(
         system_prompt=system_prompt,
         provider=provider,
         temperature=temperature,
-        max_tokens=max_tokens,
+        max_single_turn_output_tokens=max_single_turn_output_tokens,
         runtime_compressor=runtime_compressor,
         subagent_depth=subagent_depth,
     )

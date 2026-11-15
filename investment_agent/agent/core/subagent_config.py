@@ -106,26 +106,19 @@ def normalize_subagent_runtime_dict(raw: Any) -> dict[str, Any]:
     if "runtime_config" in raw and isinstance(raw.get("runtime_config"), dict):
         nested = dict(raw["runtime_config"])
         # 扁平键优先覆盖嵌套（便于 Markdown 扁平写法与对象并存）
-        # 含历史别名，便于 frontmatter / 旧配置迁移
-        for key in SUBAGENT_RUNTIME_FIELD_NAMES + ("max_output_tokens", "max_tokens"):
+        for key in SUBAGENT_RUNTIME_FIELD_NAMES:
             if key in raw and raw[key] is not None and raw[key] != "":
                 nested[key] = raw[key]
         raw = nested
 
     out: dict[str, Any] = {}
-    # 兼容旧扁平别名
+    # 兼容旧扁平别名 subagent_token_budget
     token = raw.get("token_budget", raw.get("subagent_token_budget"))
     parsed_token = _as_optional_int(token)
     if parsed_token is not None:
         out["token_budget"] = parsed_token
 
-    # max_single_turn_output_tokens；兼容 max_output_tokens / max_tokens
-    parsed_out = _as_optional_int(
-        raw.get(
-            "max_single_turn_output_tokens",
-            raw.get("max_output_tokens", raw.get("max_tokens")),
-        )
-    )
+    parsed_out = _as_optional_int(raw.get("max_single_turn_output_tokens"))
     if parsed_out is not None:
         out["max_single_turn_output_tokens"] = parsed_out
 
@@ -246,7 +239,7 @@ def resolve_subagent_runtime_config(
         or OffloadSummaryStrategy.TRUNCATE
     )
     parent_offload_chars = int(getattr(parent, "offload_summary_chars", 200) or 200)
-    parent_single_turn_output = getattr(parent, "max_tokens", None)
+    parent_single_turn_output = getattr(parent, "max_single_turn_output_tokens", None)
 
     token_budget = int(
         _pick(

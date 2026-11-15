@@ -8,7 +8,7 @@ from typing import Any
 from .constants import OffloadSummaryStrategy, LoopMode
 
 # ── 默认值常量（全局单一来源，避免多文件硬编码）──────────────────────────
-PLANNING_MAX_TOKENS_DEFAULT = 1024  # 委派任务指令生成 max_tokens 默认值
+PLANNING_MAX_TOKENS_DEFAULT = 1024  # 委派任务指令生成的单轮输出上限默认值
 SUBAGENT_WORKSPACE_DIR_DEFAULT = "data/tmp/subagents"
 MAX_PARALLEL_SUBAGENTS_DEFAULT = 3
 
@@ -162,7 +162,7 @@ class EngineConfig:
     offload_threshold: int = 800
     offload_summary_strategy: str = OffloadSummaryStrategy.TRUNCATE
     offload_summary_chars: int = 200
-    planning_max_tokens: int = PLANNING_MAX_TOKENS_DEFAULT  # 任务指令生成 max_tokens（委派给子Agent时的指令长度上限）
+    planning_max_tokens: int = PLANNING_MAX_TOKENS_DEFAULT  # 任务指令生成单轮输出上限
     subagent_workspace_dir: str = SUBAGENT_WORKSPACE_DIR_DEFAULT
     workflow_id: str | None = None
 
@@ -187,7 +187,7 @@ class AgentRunConfig:
 
     # ── LLM 参数 ──
     temperature: float | None = None
-    max_tokens: int | None = None
+    max_single_turn_output_tokens: int | None = None  # 单轮 LLM 回复的最大输出 token；传给 API 的 max_tokens
 
     # ── 引擎参数 ──
     max_steps: int = 60
@@ -199,7 +199,7 @@ class AgentRunConfig:
     loop_detection_threshold: int = 3
     runtime_context_compression_enabled: bool = True
     context_trim_token_threshold: int = 0
-    planning_max_tokens: int = PLANNING_MAX_TOKENS_DEFAULT  # 任务指令生成 max_tokens（委派给子Agent时的指令长度上限）
+    planning_max_tokens: int = PLANNING_MAX_TOKENS_DEFAULT  # 任务指令生成单轮输出上限
 
     # ── 上下文卸载参数 ──
     offload_threshold: int = 800

@@ -313,10 +313,7 @@ function fillAgentSubagentBlock(cfg) {
     tokenEl.value = sub.token_budget ?? cfg?.subagent_token_budget ?? '';
   }
   if (maxSingleTurnEl) {
-    maxSingleTurnEl.value = sub.max_single_turn_output_tokens
-      ?? sub.max_output_tokens
-      ?? sub.max_tokens
-      ?? '';
+    maxSingleTurnEl.value = sub.max_single_turn_output_tokens ?? '';
   }
   if (compressionEl) {
     compressionEl.value = boolSelectValue(sub.runtime_context_compression_enabled);
@@ -353,7 +350,7 @@ function fillSaRuntimeConfig(runtimeConfig) {
   set('saRuntimeTokenBudget', cfg.token_budget);
   set(
     'saRuntimeMaxSingleTurnOutputTokens',
-    cfg.max_single_turn_output_tokens ?? cfg.max_output_tokens ?? cfg.max_tokens,
+    cfg.max_single_turn_output_tokens,
   );
   const compressionEl = document.getElementById('saRuntimeCompression');
   if (compressionEl) compressionEl.value = boolSelectValue(cfg.runtime_context_compression_enabled);
@@ -368,7 +365,7 @@ function extractRuntimeConfigFromFields(fields) {
   const cfg = {};
   const tokenBudget = toNullableInt(fields.token_budget ?? fields.subagent_token_budget);
   const maxSingleTurn = toNullableInt(
-    fields.max_single_turn_output_tokens ?? fields.max_output_tokens ?? fields.max_tokens,
+    fields.max_single_turn_output_tokens,
   );
   const compression = toNullableBoolSelect(fields.runtime_context_compression_enabled);
   const trimThreshold = toNullableInt(fields.context_trim_token_threshold);
@@ -557,7 +554,8 @@ function openModal(agent){
   document.getElementById('agentPrompt').value = agent?.system_prompt || '';
   document.getElementById('agentModel').innerHTML = buildModelOptions(agent?.model_id || '');
   document.getElementById('agentTemp').value = agent?.temperature ?? 0.7;
-  document.getElementById('agentMaxTokens').value = agent?.max_tokens || 4096;
+  document.getElementById('agentMaxSingleTurnOutputTokens').value =
+    agent?.max_single_turn_output_tokens || 4096;
   renderWorkflowOptions(engineConfig?.workflow_id || '');
   fillContextFields(compressConfig);
   fillEngineFields(engineConfig);
@@ -648,7 +646,7 @@ async function saveAgent(){
     system_prompt: document.getElementById('agentPrompt').value,
     model_id: document.getElementById('agentModel').value,
     temperature: parseFloat(document.getElementById('agentTemp').value),
-    max_tokens: parseInt(document.getElementById('agentMaxTokens').value),
+    max_single_turn_output_tokens: parseInt(document.getElementById('agentMaxSingleTurnOutputTokens').value),
     skills: selectedSkills(),
     tools: selectedTools(),
     subagents: selectedMountedSubagents(),

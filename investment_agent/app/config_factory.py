@@ -180,7 +180,7 @@ def _parse_agent_fields(agent_row: dict | None) -> dict:
             "agent_name": None,
             "model_id": None,
             "temperature": None,
-            "max_tokens": None,
+            "max_single_turn_output_tokens": None,
             "skills": [],
             "tools": [],
             "subagent_ids": [],
@@ -193,7 +193,11 @@ def _parse_agent_fields(agent_row: dict | None) -> dict:
         "agent_name": agent_row["name"],
         "model_id": agent_row["model_id"] or None,
         "temperature": agent_row["temperature"] if agent_row["temperature"] is not None else None,
-        "max_tokens": agent_row["max_tokens"] if agent_row["max_tokens"] is not None else None,
+        "max_single_turn_output_tokens": (
+            agent_row["max_single_turn_output_tokens"]
+            if agent_row["max_single_turn_output_tokens"] is not None
+            else None
+        ),
         "skills": _parse_json_field(agent_row.get("skills"), []),
         "tools": _parse_json_field(agent_row.get("tools"), []),
         "subagent_ids": _parse_json_field(agent_row.get("subagents"), []),
@@ -207,7 +211,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
 
     合并来源：
     1. settings.json (engine + context 全局默认值)
-    2. agents 表（system_prompt, model_id, skills, engine_config, compress_config, temperature, max_tokens）
+    2. agents 表（system_prompt, model_id, skills, engine_config, compress_config, temperature, max_single_turn_output_tokens）
     3. models 表（api_key, model, base_url, 定价）
     4. Skill 正文注入到 system prompt
     """
@@ -250,7 +254,7 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         agent_id=agent_id,
         agent_name=fields["agent_name"],
         temperature=fields["temperature"],
-        max_tokens=fields["max_tokens"],
+        max_single_turn_output_tokens=fields["max_single_turn_output_tokens"],
         max_steps=engine_params["max_steps"],
         slow_think_interval=engine_params["slow_think_interval"],
         loop_mode=engine_params["loop_mode"],

@@ -152,7 +152,7 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
         system_prompt=system_prompt,
         provider=child_provider,
         temperature=parent.temperature,
-        max_tokens=resolved.max_single_turn_output_tokens,
+        max_single_turn_output_tokens=resolved.max_single_turn_output_tokens,
         config=child_cfg,
         runtime_compressor=child_compressor,
         subagent_depth=parent.subagent_depth + 1,

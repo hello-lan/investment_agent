@@ -297,8 +297,8 @@ class WorkflowLoopEngine(BaseLoopEngine):
         }
         if self.temperature is not None:
             kwargs["temperature"] = self.temperature
-        if self.max_tokens is not None:
-            kwargs["max_tokens"] = self.max_tokens
+        if self.max_single_turn_output_tokens is not None:
+            kwargs["max_tokens"] = self.max_single_turn_output_tokens
 
         response = await self.provider.chat(**kwargs)
         self.total_input_tokens += response.input_tokens

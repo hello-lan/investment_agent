@@ -76,7 +76,7 @@ async def init_db() -> None:
                 system_prompt TEXT,                   -- 系统提示词
                 model_id      TEXT,                   -- 关联模型 ID
                 temperature   REAL DEFAULT 0.7,       -- 模型温度参数（0~1）
-                max_tokens    INTEGER DEFAULT 4096,   -- 最大输出 token 数
+                max_single_turn_output_tokens INTEGER DEFAULT 4096,  -- 单轮 LLM 回复最大输出 token
                 skills        TEXT DEFAULT '[]',      -- 启用的技能列表（JSON 数组）
                 tools         TEXT DEFAULT '[]',      -- 启用的工具列表（JSON 数组）
                 subagents     TEXT DEFAULT '[]',      -- 挂载的 Subagent ID 列表（JSON 数组）
@@ -679,11 +679,25 @@ async def init_db() -> None:
         await db.commit()
 
         # agents.model_id: 从旧列 model_name 回填
+        # agents.max_tokens → max_single_turn_output_tokens
         cursor = await db.execute("PRAGMA table_info(agents)")
         agent_cols = {row[1] for row in await cursor.fetchall()}
         if "model_name" in agent_cols:
             await db.execute(
                 "UPDATE agents SET model_id = model_name WHERE model_id IS NULL"
+            )
+            await db.commit()
+        if (
+            "max_tokens" in agent_cols
+            and "max_single_turn_output_tokens" not in agent_cols
+        ):
+            await db.execute(
+                "ALTER TABLE agents RENAME COLUMN max_tokens TO max_single_turn_output_tokens"
+            )
+            await db.commit()
+        elif "max_single_turn_output_tokens" not in agent_cols:
+            await db.execute(
+                "ALTER TABLE agents ADD COLUMN max_single_turn_output_tokens INTEGER DEFAULT 4096"
             )
             await db.commit()
 

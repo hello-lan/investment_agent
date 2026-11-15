@@ -27,7 +27,7 @@ class BaseLoopEngine:
     """执行循环基类：提供公共运行时能力与模板方法。"""
 
     SKILL_BODY_MAX_CHARS = 3_000      # 技能说明截断长度
-    SLOW_THINK_MAX_TOKENS = 200       # 预留给子类反思阶段的 max_tokens
+    SLOW_THINK_MAX_TOKENS = 200       # 预留给子类反思阶段的单轮输出上限
     SYSTEM_PROMPT_EXCERPT_CHARS = 200 # system prompt 截取长度
     REASONING_MAX_CHARS = 300         # 推理内容保留长度
     LOOP_WHITELIST = {"run_command", "run_python_script", "DelegateTask"}  # 不受死循环检测限制的工具（挂载 Subagent 名运行时并入）
@@ -39,7 +39,7 @@ class BaseLoopEngine:
         system_prompt: str = "",
         provider: ModelProvider | None = None,
         temperature: float | None = None,
-        max_tokens: int | None = None,
+        max_single_turn_output_tokens: int | None = None,
         runtime_compressor: RuntimeCompressor | None = None,
         subagent_depth: int = 0,
     ):
@@ -56,7 +56,7 @@ class BaseLoopEngine:
         self.storage = None
 
         self.temperature = temperature
-        self.max_tokens = max_tokens
+        self.max_single_turn_output_tokens = max_single_turn_output_tokens
 
         # 引擎参数：全部来自 config
         self.max_steps = config.max_steps
@@ -162,7 +162,7 @@ class BaseLoopEngine:
             self.task_planner = TaskPlanner(
                 provider=self.provider,
                 temperature=self.temperature,
-                max_tokens=self.max_tokens,
+                max_single_turn_output_tokens=self.max_single_turn_output_tokens,
                 planning_max_tokens=self.planning_max_tokens,
                 skill_body_max_chars=self.SKILL_BODY_MAX_CHARS,
             )
@@ -391,8 +391,8 @@ class BaseLoopEngine:
         }
         if self.temperature is not None:
             chat_kwargs["temperature"] = self.temperature
-        if self.max_tokens is not None:
-            chat_kwargs["max_tokens"] = self.max_tokens
+        if self.max_single_turn_output_tokens is not None:
+            chat_kwargs["max_tokens"] = self.max_single_turn_output_tokens
         try:
             response: LLMResponse = await self.provider.chat(**chat_kwargs)
         except Exception as e:

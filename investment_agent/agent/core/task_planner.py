@@ -50,13 +50,13 @@ class TaskPlanner:
         self,
         provider: "ModelProvider",
         temperature: float | None = None,
-        max_tokens: int | None = None,
+        max_single_turn_output_tokens: int | None = None,
         planning_max_tokens: int = PLANNING_MAX_TOKENS_DEFAULT,
         skill_body_max_chars: int = 3000,
     ):
         self.provider = provider
         self.temperature = temperature
-        self.max_tokens = max_tokens
+        self.max_single_turn_output_tokens = max_single_turn_output_tokens
         self.planning_max_tokens = planning_max_tokens
         self.skill_body_max_chars = skill_body_max_chars
         # token 消耗回写到调用方
@@ -127,8 +127,10 @@ class TaskPlanner:
             }
             if self.temperature is not None:
                 kwargs["temperature"] = self.temperature
-            if self.max_tokens is not None:
-                kwargs["max_tokens"] = min(self.max_tokens, self.planning_max_tokens)
+            if self.max_single_turn_output_tokens is not None:
+                kwargs["max_tokens"] = min(
+                    self.max_single_turn_output_tokens, self.planning_max_tokens
+                )
             else:
                 kwargs["max_tokens"] = self.planning_max_tokens
             resp = await self.provider.chat(**kwargs)

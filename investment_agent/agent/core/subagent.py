@@ -225,7 +225,7 @@ def create_child_engine(
         ),
         provider=parent.provider,
         temperature=parent.temperature,
-        max_tokens=resolved.max_single_turn_output_tokens,
+        max_single_turn_output_tokens=resolved.max_single_turn_output_tokens,
         config=child_cfg,
         runtime_compressor=child_compressor,
         subagent_depth=depth,

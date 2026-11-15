@@ -107,7 +107,7 @@ class SlowThinkStrategy:
         provider: "ModelProvider",
         extract_role_fn,
         temperature: float | None = None,
-        max_tokens: int | None = None,
+        max_single_turn_output_tokens: int | None = None,
         slow_think_max_tokens: int = 512,
         total_input_tokens: int = 0,
         total_output_tokens: int = 0,
@@ -145,8 +145,10 @@ class SlowThinkStrategy:
             }
             if temperature is not None:
                 think_kwargs["temperature"] = temperature
-            if max_tokens is not None:
-                think_kwargs["max_tokens"] = min(max_tokens, slow_think_max_tokens)
+            if max_single_turn_output_tokens is not None:
+                think_kwargs["max_tokens"] = min(
+                    max_single_turn_output_tokens, slow_think_max_tokens
+                )
             else:
                 think_kwargs["max_tokens"] = slow_think_max_tokens
             resp = await provider.chat(**think_kwargs)

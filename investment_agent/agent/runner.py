@@ -261,7 +261,7 @@ class AgentRunner:
             system_prompt=config.system_prompt,
             provider=config.provider,
             temperature=config.temperature,
-            max_tokens=config.max_tokens,
+            max_single_turn_output_tokens=config.max_single_turn_output_tokens,
             config=engine_cfg,
             runtime_compressor=runtime_compressor,
         )

@@ -25,7 +25,7 @@ class DualLoopEngine(BaseLoopEngine):
                 messages, step, self.provider,
                 extract_role_fn=self._extract_role_from_system,
                 temperature=self.temperature,
-                max_tokens=self.max_tokens,
+                max_single_turn_output_tokens=self.max_single_turn_output_tokens,
                 slow_think_max_tokens=self.SLOW_THINK_MAX_TOKENS,
                 total_input_tokens=self.total_input_tokens,
                 total_output_tokens=self.total_output_tokens,

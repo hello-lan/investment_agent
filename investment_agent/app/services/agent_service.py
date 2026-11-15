@@ -41,7 +41,7 @@ class AgentService:
         async with get_db() as db:
             cursor = await db.execute(
                 "SELECT id, name, description, system_prompt, model_id, "
-                "temperature, max_tokens, skills, tools, subagents, "
+                "temperature, max_single_turn_output_tokens, skills, tools, subagents, "
                 "compress_config, engine_config, created_at, updated_at "
                 "FROM agents ORDER BY created_at"
             )
@@ -55,7 +55,7 @@ class AgentService:
         system_prompt: str = "",
         model_id: str = "",
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_single_turn_output_tokens: int = 4096,
         skills: list[str] | None = None,
         tools: list[str] | None = None,
         subagents: list[str] | None = None,
@@ -68,12 +68,12 @@ class AgentService:
         async with get_db() as db:
             await db.execute(
                 "INSERT INTO agents (id, name, description, system_prompt, "
-                "model_id, temperature, max_tokens, skills, tools, subagents, "
+                "model_id, temperature, max_single_turn_output_tokens, skills, tools, subagents, "
                 "compress_config, engine_config, created_at, updated_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     agent_id, name, description, system_prompt,
-                    model_id, temperature, max_tokens,
+                    model_id, temperature, max_single_turn_output_tokens,
                     json.dumps(skills or []),
                     json.dumps(tools or []),
                     json.dumps(subagents or []),
@@ -103,7 +103,7 @@ class AgentService:
         system_prompt: str = "",
         model_id: str = "",
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_single_turn_output_tokens: int = 4096,
         skills: list[str] | None = None,
         tools: list[str] | None = None,
         subagents: list[str] | None = None,
@@ -121,12 +121,12 @@ class AgentService:
 
             await db.execute(
                 "UPDATE agents SET name=?, description=?, system_prompt=?, "
-                "model_id=?, temperature=?, max_tokens=?, skills=?, tools=?, "
+                "model_id=?, temperature=?, max_single_turn_output_tokens=?, skills=?, tools=?, "
                 "subagents=?, compress_config=?, engine_config=?, updated_at=? "
                 "WHERE id=?",
                 (
                     name, description, system_prompt,
-                    model_id, temperature, max_tokens,
+                    model_id, temperature, max_single_turn_output_tokens,
                     json.dumps(skills or []),
                     json.dumps(tools or []),
                     json.dumps(subagents or []),

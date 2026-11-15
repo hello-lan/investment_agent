@@ -15,7 +15,7 @@ class AgentEntry(BaseModel):
     system_prompt: str = ""
     model_id: str = ""
     temperature: float = 0.7
-    max_tokens: int = 4096
+    max_single_turn_output_tokens: int = 4096  # 单轮 LLM 回复的最大输出 token
     skills: list[str] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
     subagents: list[str] = Field(default_factory=list)
@@ -36,7 +36,7 @@ async def create_agent(body: AgentEntry):
         system_prompt=body.system_prompt,
         model_id=body.model_id,
         temperature=body.temperature,
-        max_tokens=body.max_tokens,
+        max_single_turn_output_tokens=body.max_single_turn_output_tokens,
         skills=body.skills,
         tools=body.tools,
         subagents=body.subagents,
@@ -63,7 +63,7 @@ async def update_agent(agent_id: str, body: AgentEntry):
         system_prompt=body.system_prompt,
         model_id=body.model_id,
         temperature=body.temperature,
-        max_tokens=body.max_tokens,
+        max_single_turn_output_tokens=body.max_single_turn_output_tokens,
         skills=body.skills,
         tools=body.tools,
         subagents=body.subagents,
