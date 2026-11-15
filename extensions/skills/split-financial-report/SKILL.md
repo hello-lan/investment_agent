@@ -7,11 +7,11 @@ description: 将 markdown 格式的财报按章节目录切割为独立的章节
 
 使用 `auto` 命令一键完成端到端切割。脚本内部自动完成 TOC 发现、标题提取、行号查找、规则消歧、文件切割。
 
-**核心设计原则**：脚本完成 90% 的机械工作（单次 shell 调用），遇到不确定性时输出**实际文件上下文**供 LLM 精准决策，避免 LLM 反复用 `run_command` 试错。
+**核心设计原则**：脚本完成 90% 的机械工作（单次 `run_python_script`），遇到不确定性时输出**实际文件上下文**供 LLM 精准决策，避免反复试错读文件。
 
 ## ⚠️ 输出目录约束
 
-- **必须使用委派指令中指定的输出目录**，不得自行创建新目录或更改目录命名
+- **必须使用委派指令中指定的输出目录**（须在 `data/` 下），不得自行创建新目录或更改目录命名
 - 当在 `orch-full-financial-analysis` 编排流程中使用时，输出目录约定为 `3_split/{股票代码}_{年份}/`
 - 多文件批量切割时，每个文件创建对应的年份子目录，统一放在指定的输出根目录下
 
@@ -21,9 +21,16 @@ description: 将 markdown 格式的财报按章节目录切割为独立的章节
 
 ### 第 1 步：一键自动切割
 
-```bash
-python3 extensions/skills/split-financial-report/scripts/split_report.py auto <输入文件.md> <输出目录> [--financial-sub]
+优先：
+
+```text
+run_python_script(
+  script_path="extensions/skills/split-financial-report/scripts/split_report.py",
+  argv=["auto", "<输入文件.md>", "<输出目录>", "--financial-sub"]
+)
 ```
+
+`run_command` 兜底：`python extensions/skills/split-financial-report/scripts/split_report.py auto <输入> <输出> [--financial-sub]`
 
 - `--financial-sub`：最后一章为"财务报告"时自动执行二次切割（审计报告、合并报表、附注等）
 
@@ -32,11 +39,10 @@ python3 extensions/skills/split-financial-report/scripts/split_report.py auto <�
 | exit | 含义 | LLM 需要做什么 |
 |------|------|---------------|
 | **0** | 全部成功 | 无需介入。跳转到验证步骤。 |
-| **1** | 部分成功 | 脚本已切割能确认的章节。**仔细读脚本输出**——它已打印了 TOC 原始内容、未识别条目的行号和周围文本、搜索范围。LLM 根据这些信息确定正确行号后，用 `printf "行号\t章节名\n" \| python3 split_report.py split <文件> <输出>` 补切缺失章节。 |
-| **2** | 无法切割 | 脚本无法识别文档结构。**读脚本输出的文件样本（前 100 行）**，确定文档格式后用 grep/find 手工定位章节，然后 pipe 给 split 命令。 |
+| **1** | 部分成功 | 脚本已切割能确认的章节。**仔细读脚本输出**——它已打印了 TOC 原始内容、未识别条目的行号和周围文本、搜索范围。LLM 根据这些信息确定正确行号后，用 `run_python_script`（`argv=["split", 文件, 输出]` + `stdin` 为 `行号\t章节名\n`）补切缺失章节。 |
+| **2** | 无法切割 | 脚本无法识别文档结构。**读脚本输出的文件样本（前 100 行）**，确定文档格式后用 `search_text` 手工定位章节，再 stdin 交给 split。 |
 
-**关键**：exit 1/2 时，脚本输出中已包含实际文件内容（带行号的原文），**不需要额外 `run_command` 去读文件**。直接看输出做决策即可。
-
+**关键**：exit 1/2 时，脚本输出中已包含实际文件内容（带行号的原文），**不需要额外再读文件**。直接看输出做决策即可。
 ### 第 3 步：验证
 
 检查切割结果：
@@ -61,10 +67,14 @@ python3 extensions/skills/split-financial-report/scripts/split_report.py auto <�
 
 **LLM 操作**：
 1. 看 `?` 标记的行 — 这是脚本不认识的章节格式
-2. 用 `grep -n "Part5\|可持续报告" <文件>` 在正文中定位该章节
+2. 用 `search_text` 在正文中定位该章节
 3. 将行号补充到切割结果：
-```bash
-printf "2772\tPart5 可持续报告\n" | python3 split_report.py split <文件> <输出>
+```text
+run_python_script(
+  script_path="extensions/skills/split-financial-report/scripts/split_report.py",
+  argv=["split", "<文件>", "<输出>"],
+  stdin="2772\tPart5 可持续报告\n"
+)
 ```
 4. 如果章节名格式与已有不统一，统一命名后重新切割
 
@@ -85,10 +95,14 @@ printf "2772\tPart5 可持续报告\n" | python3 split_report.py split <文件> 
 
 **LLM 操作**：
 1. 阅读文件样本，理解文档的章节标题格式
-2. 用 `grep -n` 找到所有章节正文标题的行号
+2. 用 `search_text` 找到所有章节正文标题的行号
 3. 构建切割输入：
-```bash
-printf "行号\t章节名\n行号\t章节名\n..." | python3 split_report.py split <文件> <输出>
+```text
+run_python_script(
+  script_path="extensions/skills/split-financial-report/scripts/split_report.py",
+  argv=["split", "<文件>", "<输出>"],
+  stdin="行号\t章节名\n行号\t章节名\n..."
+)
 ```
 
 ### 场景 D：financial-sub 有歧义候选（exit 1）
@@ -101,7 +115,11 @@ printf "行号\t章节名\n行号\t章节名\n..." | python3 split_report.py spl
 1. 看 heading_score 和上下文，确认每个子章节的正确行号
 2. 通过 stdin 传给 split：
 ```bash
-printf "334\t审计报告\n565\t合并利润表\n..." | python3 split_report.py split <财务报告.md> <输出>
+run_python_script(
+  script_path="extensions/skills/split-financial-report/scripts/split_report.py",
+  argv=["split", "<财务报告.md>", "<输出>"],
+  stdin="334\t审计报告\n565\t合并利润表\n..."
+)
 ```
 
 ---

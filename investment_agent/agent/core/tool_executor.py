@@ -42,6 +42,7 @@ class LoopDetector:
         "get_valuation": ["symbol"],
         "get_financial_indicators": ["symbol"],
         "run_command": ["command"],
+        "run_python_script": ["script_path", "argv", "kwargs", "stdin"],
         "DelegateTask": ["task"],
         "Skill": ["name"],
         "list_files": ["path", "pattern", "recursive"],

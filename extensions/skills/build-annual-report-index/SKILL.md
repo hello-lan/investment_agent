@@ -12,34 +12,61 @@ description: 为 A 股年报 Markdown 生成最多两级的 chapter 索引 JSON�
 
 ## 强制执行顺序（违反即失败）
 
-1. **第一步必须** `run_command` 跑 `build_minimal_index.py`（见下方命令）
-2. **第二步** 跑 `validate_sections_index.py` 校验
-3. 校验通过 → 返回输出路径 + 简短摘要，**立即结束**
-4. **仅当脚本失败或校验报错**，才允许按「失败回退」做最小修补；禁止一上来就 grep/read 扫全文
+1. **第一步必须** `run_python_script` 跑 `build_minimal_index.py`（见下方）
+2. **第二步** `run_python_script` 跑 `validate_sections_index.py` 校验
+3. 根据校验 JSON 决定是否结束（见下「校验结果判定」）
+4. **仅当**满足失败回退条件时，才允许最小修补；禁止一上来就 grep/read 扫全文
+
+### 校验结果判定（必须遵守）
+
+校验脚本 stdout 为 `{"errors":[...],"warnings":[...]}`，退出码：`errors` 非空 → 非 0，否则 → 0。
+
+| 情况 | 动作 |
+|------|------|
+| `errors` 为空（无论 `warnings` 是否为空） | **成功**：返回输出路径 + 简短摘要（可附带 warnings 原文）并**立即结束** |
+| `errors` 非空，或 build 脚本非 0 退出 | 才进入「失败回退」 |
+
+**`warnings` 不是失败。** 常见如 `missing required financial report chapters: ...` 仅作提示：列出后交卷，**禁止**为此继续 `search_text`/`read_file` 扫年报或手写整份索引。
 
 禁止事项（烧 token 的典型失败模式）：
 - 禁止先 `Skill` 再手工探路；system 已有本 skill 快速参考时，**不要**再加载全文
 - 禁止用 `grep`/`read_file`/`search_text` 反复扫描年报来「理解结构」替代脚本
+- 禁止因校验 **warning** 进入长探索 / 手工补全附注 children
 - 禁止因上游 `task` 给了简化字段（如只有 `title`/`start_line`/`children`）就改写输出 schema 或重写解析逻辑
 - 禁止在「task 格式 vs Output contract」上长篇推理；**一律以本 skill Output contract + 脚本产出为准**
 - 禁止通读 `scripts/*.py`、禁止预读全部 `references/`
 
 ## Quick start（唯一默认路径）
 
-`run_command` **已在项目根执行**。路径用相对路径 + `/`；**禁止** `cd`。
+优先 `run_python_script`（cwd=项目根）。路径用相对路径 + `/`；**禁止** `cd`。仅当该工具不可用时再用 `run_command` 执行下方等价 shell。
+
+```text
+run_python_script(
+  script_path="extensions/skills/build-annual-report-index/scripts/build_minimal_index.py",
+  argv=[
+    "data/reports/md/<code>/<report>.md",
+    "--output", "data/reports/index/<code>_<year>年年度报告_index.json",
+    "--pretty"
+  ]
+)
+```
+
+校验：
+
+```text
+run_python_script(
+  script_path="extensions/skills/build-annual-report-index/scripts/validate_sections_index.py",
+  argv=["data/reports/index/<code>_<year>年年度报告_index.json"]
+)
+```
+
+`run_command` 兜底等价命令：
 
 ```bash
 python extensions/skills/build-annual-report-index/scripts/build_minimal_index.py \
   data/reports/md/<code>/<report>.md \
   --output data/reports/index/<code>_<year>年年度报告_index.json \
   --pretty
-```
-
-校验：
-
-```bash
-python extensions/skills/build-annual-report-index/scripts/validate_sections_index.py \
-  data/reports/index/<code>_<year>年年度报告_index.json
 ```
 
 若上游指定了 `output_path`，把 `--output` 改成该路径。默认也可写到报告同级 `*_index.json`。
@@ -67,14 +94,17 @@ python extensions/skills/build-annual-report-index/scripts/validate_sections_ind
 - 仅对「公司简介和主要财务指标」「管理层讨论与分析」及「财务报告-合并报表附注」展开一层 children
 - 最多两级，不展开第三层
 
-## 失败回退（脚本失败后才允许）
+## 失败回退（仅 errors 非空 / build 非 0 才允许）
 
-仅当脚本非 0 退出或校验报错时：
+前提：`validate` 的 `errors` 非空，或 `build_minimal_index.py` 非 0 退出。  
+**仅有 warnings → 不准进入本节。**
+
+允许的最小修补：
 1. 每次只读 `references/` 中**一个**相关规则文件
-2. 用最小命令定位缺失标题行号（单次 `grep -n`，带行号范围限制）
-3. 修补后再次跑脚本或校验；仍失败则返回已有输出路径 + 错误列表，停止
+2. 用 `search_text` **单次**定位缺失标题行号（带路径与关键词限制）
+3. 修补后再次跑脚本或校验；仍失败则返回已有输出路径 + **errors** 列表，停止
 
-不要回退到「通读年报 + 手写整份索引」。
+不要回退到「通读年报 + 手写整份索引」。单次回退循环最多再跑脚本/校验 **1 轮**。
 
 ## Canonical rule files
 

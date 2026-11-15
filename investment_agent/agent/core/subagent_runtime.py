@@ -102,6 +102,7 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
     from ..tools.list_files import ListFilesTool
     from ..tools.read_file import ReadFileTool
     from ..tools.run_command import RunCommandTool
+    from ..tools.run_python_script import RunPythonScriptTool
     from ..tools.search_text import SearchTextTool
     from ..tools.skill_tool import SkillTool
     from ..tools.write_file import WriteFileTool
@@ -154,7 +155,9 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
     tool_names = set(definition.get("tools") or [])
     # 永不给子引擎委派类工具
     tool_names -= {"DelegateTask", "Subagent"}
-    tool_names |= {"list_files", "read_file", "search_text", "write_file"}
+    tool_names |= {
+        "list_files", "read_file", "search_text", "write_file", "run_python_script",
+    }
 
     scope = FileScopePolicy.for_main_agent(skill_names=all_skill_names)
     child._system_prompt += scope.main_agent_prompt_section()
@@ -167,6 +170,14 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
         if tool.name in tool_names:
             child.register_tool(tool.schema, tool.run)
             tool_names.discard(tool.name)
+
+    if "run_python_script" in tool_names:
+        py_tool = RunPythonScriptTool(
+            allowed_skill_names=all_skill_names,
+            scope=scope,
+        )
+        child.register_tool(py_tool.schema, py_tool.run)
+        tool_names.discard("run_python_script")
 
     if "run_command" in tool_names:
         run_tool = RunCommandTool()
@@ -190,9 +201,10 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
                     body_excerpt = skill.body[:4500]
                     child._system_prompt += (
                         f"\n\n---\n\n# 技能 {name} 快速参考\n\n{body_excerpt}\n\n"
-                        "执行约定：命令已在项目根（Windows/Linux）；"
-                        "用相对路径+`/`直接跑脚本；不要 `cd`；不要通读 scripts/*.py。\n"
-                        "已注入快速参考：第一步直接 `run_command` 跑脚本；"
+                        "执行约定：在项目根执行；优先 `run_python_script`，"
+                        "仅当专用工具无法覆盖时再用 `run_command`；"
+                        "用相对路径+`/`；不要 `cd`；不要通读 scripts/*.py。\n"
+                        "已注入快速参考：第一步优先 `run_python_script` 跑脚本；"
                         "禁止先调 Skill / 禁止用 grep/read 扫全文替代脚本；"
                         "上游 task 的简化 schema 一律忽略，以脚本 Output contract 为准。\n"
                     )

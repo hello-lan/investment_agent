@@ -23,7 +23,6 @@ class FileScopePolicy:
         "data/agent.db",
         "daemon.json",
     }
-    _MAIN_AGENT_OPTIONAL_TARGETS = ("output", "docs")
 
     def __init__(
         self,
@@ -59,10 +58,10 @@ class FileScopePolicy:
         project_root: str | Path = ROOT_DIR,
         skill_names: list[str] | None = None,
     ) -> "FileScopePolicy":
-        """创建主 Agent 的宽范围文件作用域。
+        """创建主 Agent 的文件作用域。
 
-        已启用技能目录 `extensions/skills/{name}/` 会加入只读 targets，
-        与 AccessPolicy 对 run_command 的放行规则对齐。
+        可读：`data/` + 已启用 `extensions/skills/{name}/`（只读）。
+        可写：仅 `data/`。
         """
         project_root = Path(project_root).resolve()
         data_root = project_root / "data"
@@ -70,9 +69,6 @@ class FileScopePolicy:
 
         names = list(skill_names or [])
         targets: list[str | Path] = ["data"]
-        for rel in cls._MAIN_AGENT_OPTIONAL_TARGETS:
-            if (project_root / rel).exists():
-                targets.append(rel)
         for name in names:
             skill_dir = project_root / "extensions" / "skills" / name
             if skill_dir.is_dir():

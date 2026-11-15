@@ -3,8 +3,8 @@
 数据来源：巨潮资讯网 (cninfo.com.cn) — 中国证监会指定的上市公司信息披露平台
 """
 
+import os
 import re
-import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +12,18 @@ from typing import List, Dict, Optional, Tuple
 
 import requests
 
-DEFAULT_SAVE_DIR = str(Path(tempfile.gettempdir()) / "financial_reports")
+# sources/ -> scripts/ -> skill/ -> skills/ -> extensions/ -> 项目根
+_PROJECT_ROOT = Path(__file__).resolve().parents[5]
+
+
+def _default_save_dir() -> str:
+    data_root = os.environ.get("IA_DATA_ROOT", "").strip()
+    if data_root:
+        return str(Path(data_root) / "reports" / "pdf")
+    return str(_PROJECT_ROOT / "data" / "reports" / "pdf")
+
+
+DEFAULT_SAVE_DIR = _default_save_dir()
 
 
 class CninfoConfig:
@@ -51,7 +62,7 @@ class CninfoSpider:
 
     def __init__(self, save_dir: str = None, delay: float = None):
         if save_dir is None:
-            save_dir = DEFAULT_SAVE_DIR
+            save_dir = _default_save_dir()
         self.save_dir = Path(save_dir)
         self.save_dir.mkdir(parents=True, exist_ok=True)
         self.delay = delay if delay is not None else CninfoConfig.REQUEST_DELAY

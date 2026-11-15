@@ -33,28 +33,39 @@ description: 将 PDF 文件转换为 Markdown 格式。默认使用 pdfplumber�
 
 注：docling 首次运行时会自动下载 OCR 模型文件（约 500MB+），需要网络连接且耗时较长。
 
-## CLI 调用模板
+## 调用模板
 
-**必须在项目根目录（ROOT_DIR）执行**，使用 `python`（不要用 `python3`）。  
-输入/输出路径一律写相对项目根的路径，**不要 `cd` 进 skill 目录后再用 `../..`**。
+**优先 `run_python_script`**（cwd=项目根）。输入/输出路径一律相对项目根，**禁止 `cd`**。仅当专用工具不可用时再用 `run_command`。
 
 **快速模式（默认）：**
 
-```bash
-python extensions/skills/pdf-to-markdown/scripts/pdf2markdown_fast.py \
-  data/reports/pdf/002415/002415_2025年年度报告_2025.pdf \
-  -o data/reports/md/002415/002415_2025年年度报告_2025.md
+```text
+run_python_script(
+  script_path="extensions/skills/pdf-to-markdown/scripts/pdf2markdown_fast.py",
+  argv=[
+    "data/reports/pdf/002415/002415_2025年年度报告_2025.pdf",
+    "-o", "data/reports/md/002415/002415_2025年年度报告_2025.md"
+  ],
+  timeout_seconds=120
+)
 ```
 
 **高质量模式：**
 
-```bash
-python extensions/skills/pdf-to-markdown/scripts/pdf2markdown_quality.py \
-  data/reports/pdf/002415/002415_2025年年度报告_2025.pdf \
-  -o data/reports/md/002415/002415_2025年年度报告_2025.md
+```text
+run_python_script(
+  script_path="extensions/skills/pdf-to-markdown/scripts/pdf2markdown_quality.py",
+  argv=[
+    "data/reports/pdf/002415/002415_2025年年度报告_2025.pdf",
+    "-o", "data/reports/md/002415/002415_2025年年度报告_2025.md"
+  ],
+  timeout_seconds=120
+)
 ```
 
-若省略 `-o`，输出文件自动命名为 `<输入文件名>.md`（与 PDF 同目录）。
+`run_command` 兜底：`python extensions/skills/pdf-to-markdown/scripts/pdf2markdown_fast.py <pdf> -o <md>`
+
+若省略 `-o`，输出文件自动命名为 `<输入文件名>.md`（与 PDF 同目录；请确保输出仍在 `data/` 下）。
 
 转换成功后直接进入下一步（分割/建索引），**不要再 `find` / 全量 `list_files` 探路**。
 
@@ -62,9 +73,9 @@ python extensions/skills/pdf-to-markdown/scripts/pdf2markdown_quality.py \
 
 1. 从用户输入提取 PDF 文件路径和输出路径（可选）
 2. 检测用户输入中的质量关键词，选择对应脚本
-3. 若未指定输出路径，默认与 PDF 同目录，文件名为 `{原文件名}.md`
-4. 在项目根目录构造 CLI 并执行（**脚本自动创建输出目录，无需先 `mkdir`**）
-5. 脚本输出包含行数和字符数，**无需额外 `wc -l` 验证**
+3. 若未指定输出路径，默认写到 `data/reports/md/...`，文件名为 `{原文件名}.md`
+4. 用 `run_python_script` 执行（**脚本自动创建输出目录，无需先 `mkdir`**）
+5. 脚本输出包含行数和字符数，**无需额外行数校验**
 
 ## 输出格式
 

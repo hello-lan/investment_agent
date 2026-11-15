@@ -3,17 +3,25 @@ A股上市公司财报下载工具（多数据源，自动切换）
 按优先级尝试：巨潮资讯网 → 东方财富 → 新浪财经
 """
 
+import os
 import sys
-import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
 
-DEFAULT_SAVE_DIR = str(Path(tempfile.gettempdir()) / "financial_reports")
-
 # scripts/ -> skill/ -> skills/ -> extensions/ -> 项目根
 _PROJECT_ROOT = Path(__file__).resolve().parents[4]
+
+
+def _default_save_dir() -> str:
+    data_root = os.environ.get("IA_DATA_ROOT", "").strip()
+    if data_root:
+        return str(Path(data_root) / "reports" / "pdf")
+    return str(_PROJECT_ROOT / "data" / "reports" / "pdf")
+
+
+DEFAULT_SAVE_DIR = _default_save_dir()
 
 from sources import CninfoSpider, EastmoneySpider, SinaSpider, SOURCE_PRIORITY
 

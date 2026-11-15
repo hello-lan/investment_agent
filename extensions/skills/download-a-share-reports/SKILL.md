@@ -52,29 +52,28 @@ description: 从巨潮资讯网、东方财富、新浪财经等多数据源下�
 | 未指定年份范围 | `--start` `--end` | 默认最近 5 年 |
 | 未指定报告类型 | `--category` | 默认年报 |
 
-## CLI 调用模板
+## 调用模板
 
-**必须在项目根目录（ROOT_DIR）执行**，使用 `python`（不要用 `python3`，Windows 上常无输出）。  
-**不要 `cd` 进 `scripts/`**；相对 `--save-dir` 会按项目根解析。
+**优先 `run_python_script`**（cwd=项目根）。**不要 `cd` 进 `scripts/`**；相对 `--save-dir` 会按项目根解析，默认已是 `data/reports/pdf`。仅当专用工具不可用时再用 `run_command`。
 
-```bash
-SCRIPT="extensions/skills/download-a-share-reports/scripts/download_report.py"
-SAVE_DIR="data/reports/pdf"
-
-# 单个股票（代码）— 多数据源自动切换
-python "$SCRIPT" --stock 600519 --start 2020 --end 2024 --category 年报 --save-dir "$SAVE_DIR"
-
-# 单个股票（名称）
-python "$SCRIPT" --name 茅台 --start 2020 --end 2024 --save-dir "$SAVE_DIR"
-
-# 批量下载
-python "$SCRIPT" --names 茅台,五粮液,宁德时代 --start 2020 --end 2024 --category 年报 --save-dir "$SAVE_DIR"
-
-# 强制使用指定数据源
-python "$SCRIPT" --name 茅台 --source eastmoney --save-dir "$SAVE_DIR"
+```text
+run_python_script(
+  script_path="extensions/skills/download-a-share-reports/scripts/download_report.py",
+  kwargs={"stock": "600519", "start": 2020, "end": 2024, "category": "年报", "save_dir": "data/reports/pdf"},
+  timeout_seconds=120
+)
 ```
 
-下载成功后直接使用脚本打印的绝对路径，**不要再 `find` / 全量 `list_files` 探路**。
+其它常用 kwargs：`name` / `names` / `source`（如 `eastmoney`）。也可把旗标拆进 `argv`。
+
+`run_command` 兜底示例：
+
+```bash
+python extensions/skills/download-a-share-reports/scripts/download_report.py \
+  --stock 600519 --start 2020 --end 2024 --category 年报 --save-dir data/reports/pdf
+```
+
+下载成功后直接使用脚本打印的路径，**不要再 `find` / 全量 `list_files` 探路**。
 
 ## 常见股票代码速查
 
@@ -99,14 +98,14 @@ python "$SCRIPT" --name 茅台 --source eastmoney --save-dir "$SAVE_DIR"
 
 1. 从用户输入提取：股票名称/代码、年份范围、报告类型、结果保存目录
 2. 如果用户使用股票名称，先查速查表确认代码；如果是未知名称，仍传入 CLI 尝试模糊匹配
-3. 在项目根目录构造并执行 CLI（见上方模板）
+3. 用 `run_python_script` 执行（见上方模板）；必要时才用 `run_command`
 4. **多数据源自动切换**：按优先级尝试 cninfo → eastmoney → sina，成功即停止
-5. 将下载进度、使用的数据源和**输出绝对路径**汇报给用户
+5. 将下载进度、使用的数据源和**输出路径**汇报给用户
 6. 如果全部数据源均失败，提示用户检查网络或稍后重试
 
 ## 输出位置
 
-**必须通过 `--save-dir` 指定保存路径**（推荐 `data/reports/pdf`）：
+默认保存到 `data/reports/pdf`（也可显式传 `--save-dir` / `save_dir`）：
 
 PDF 保存到 `{项目根}/{save_dir}/{stock_code}/`（如 `data/reports/pdf/600519/`）。
 

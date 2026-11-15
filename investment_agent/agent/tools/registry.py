@@ -15,7 +15,9 @@ _tool_registry: dict[str, BaseTool] = {}
 
 # 始终自动绑定的基础设施工具（Skill 加载 + 命令执行 + 任务委派）
 #AUTO_BOUND_TOOLS: set[str] = {"Skill", "run_command", "DelegateTask"}
-AUTO_BOUND_TOOLS: set[str] = {"Skill", "read_file", "write_file", "list_files", "search_files"}
+AUTO_BOUND_TOOLS: set[str] = {
+    "Skill", "read_file", "write_file", "list_files", "search_text", "run_python_script",
+}
 
 
 def register_tool(cls):

@@ -15,6 +15,7 @@ DEFAULT_TRIM_LIMITS: dict[str, int] = {
     "Skill": 4000,
     # 脚本执行 — 输出噪声大，激进截断
     "run_command": 1000,
+    "run_python_script": 1000,
 }
 
 # 未在表中列出的工具使用的兜底限制

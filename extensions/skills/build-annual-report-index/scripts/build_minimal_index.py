@@ -113,7 +113,14 @@ FINANCIAL_REPORT_SPECS = [
     },
     {
         "chapter_id": "financial_report_notes",
-        "aliases": ["合并财务报表项目注释", "合并财务报表附注", "合并财务报表附注中的项目注释", "合并报表附注"],
+        "aliases": [
+            "合并财务报表主要项目注释",
+            "合并财务报表项目注释",
+            "合并财务报表附注",
+            "合并财务报表附注中的项目注释",
+            "合并报表附注",
+            "财务报表主要项目注释",
+        ],
         "priority": "P0",
         "reason": "用于按附注项目回查主表异常的解释层",
     },
@@ -124,6 +131,10 @@ TOP_LEVEL_TOC_PATTERN = re.compile(r"^(第[一二三四五六七八九十]+节)\
 FLEX_HEADING_PATTERN = re.compile(r"^(第[一二三四五六七八九十]+节|[一二三四五六七八九十百]+、|\d+、)")
 PAGE_HEADER_PATTERN = re.compile(r"^##\s*Page\s+\d+", re.IGNORECASE)
 NOTE_ITEM_PATTERN = re.compile(r"^(\d+)、\s*(.+)$")
+# 常见变体：「（一）货币资金」「(一)货币资金」
+PAREN_NOTE_ITEM_PATTERN = re.compile(
+    r"^[（(]([一二三四五六七八九十百零〇]+)[）)]\s*(.+)$"
+)
 CN_CHILD_HEADING_PATTERN = re.compile(r"^([一二三四五六七八九十百]+、)\s*(.+)$")
 
 CHINESE_NUMERAL_MAP = {
@@ -344,7 +355,13 @@ def line_looks_like_heading(line: str) -> bool:
         return False
     if "......" in stripped or "……" in stripped:
         return False
-    if stripped.startswith(("合并财务报表项目注释", "合并财务报表附注", "合并报表附注")):
+    if stripped.startswith((
+        "合并财务报表主要项目注释",
+        "合并财务报表项目注释",
+        "合并财务报表附注",
+        "合并报表附注",
+        "财务报表主要项目注释",
+    )):
         return True
     return bool(FLEX_HEADING_PATTERN.match(stripped)) or stripped.startswith(("审计报告正文", "合并资产负债表", "合并利润表", "合并现金流量表"))
 
@@ -414,18 +431,38 @@ def parse_note_item_heading(line: str) -> tuple[str, str, str] | None:
         return None
     if "|" in stripped or len(stripped) > 80:
         return None
+
+    item_no: str | None = None
+    raw_title: str | None = None
+    display_prefix: str | None = None
+
     match = NOTE_ITEM_PATTERN.match(stripped)
-    if not match:
+    if match:
+        item_no = match.group(1)
+        raw_title = match.group(2)
+        display_prefix = f"{item_no}、"
+    else:
+        paren = PAREN_NOTE_ITEM_PATTERN.match(stripped)
+        if paren:
+            cn_no = paren.group(1)
+            arabic = chinese_numeral_to_int(cn_no)
+            if arabic is None:
+                return None
+            item_no = str(arabic)
+            raw_title = paren.group(2)
+            display_prefix = f"（{cn_no}）"
+
+    if not item_no or raw_title is None or display_prefix is None:
         return None
-    item_no = match.group(1)
-    normalized_title = clean_note_item_name(match.group(2))
+
+    normalized_title = clean_note_item_name(raw_title)
     if not normalized_title:
         return None
     if len(normalized_title) > 30:
         return None
     if any(token in normalized_title for token in ("。", "；", "：", "因此", "由于")):
         return None
-    display_title = f"{item_no}、{normalized_title}"
+    display_title = f"{display_prefix}{normalized_title}"
     return item_no, normalized_title, display_title
 
 

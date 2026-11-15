@@ -277,9 +277,9 @@ class AgentRunner:
         engine._mounted_subagent_names = set(engine._mounted_subagents_by_name)
         engine._prompt_builder = None  # 重新拼装含挂载 Subagent 的委派说明
 
-        # skills 为空时不注册 Skill 工具，LLM 看不到也就无法调用
+        # skills 为空时不注册 Skill / 脚本工具，LLM 看不到也就无法调用
         if not config.skills:
-            allowed_tools = allowed_tools - {"Skill"}
+            allowed_tools = allowed_tools - {"Skill", "run_python_script"}
 
         engine._system_prompt += main_scope.main_agent_prompt_section()
         if enable_run_command:

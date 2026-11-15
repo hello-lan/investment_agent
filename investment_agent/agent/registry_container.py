@@ -25,6 +25,7 @@ class AgentRegistry:
     skills: dict[str, "BaseSkill"] = field(default_factory=dict)
     auto_bound_tools: set[str] = field(default_factory=lambda: {
         "Skill", "list_files", "read_file", "search_text", "write_file",
+        "run_python_script",
     })
 
     # ── Tool registration ──────────────────────────────────────────────
@@ -63,11 +64,13 @@ class AgentRegistry:
         from .tools.list_files import ListFilesTool
         from .tools.read_file import ReadFileTool
         from .tools.run_command import RunCommandTool
+        from .tools.run_python_script import RunPythonScriptTool
         from .tools.search_text import SearchTextTool
         from .tools.skill_tool import SkillTool
         from .tools.write_file import WriteFileTool
 
-        main_scope = FileScopePolicy.for_main_agent(skill_names=skill_names)
+        names = list(skill_names or [])
+        main_scope = FileScopePolicy.for_main_agent(skill_names=names)
         self.register_tool(SkillTool())
         self.register_tool(RunCommandTool())
         self.register_tool(DelegateTaskTool())
@@ -75,6 +78,10 @@ class AgentRegistry:
         self.register_tool(ReadFileTool(main_scope))
         self.register_tool(SearchTextTool(main_scope))
         self.register_tool(WriteFileTool(main_scope))
+        self.register_tool(RunPythonScriptTool(
+            allowed_skill_names=names,
+            scope=main_scope,
+        ))
 
     # ── Skill registration ─────────────────────────────────────────────
 

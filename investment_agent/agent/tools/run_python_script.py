@@ -4,8 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ...config import ROOT_DIR
 from ..skills.script_runner import run_python_entry
 from .base import BaseTool
+from .file_scope_policy import FileScopePolicy
 
 
 class RunPythonScriptTool(BaseTool):
@@ -13,19 +15,22 @@ class RunPythonScriptTool(BaseTool):
 
     name = "run_python_script"
     description = (
-        "执行已启用技能目录中的 Python 脚本。"
-        "适用于运行 extensions/skills/** 下的脚本，"
-        "比 run_command 更结构化、更安全。"
+        "执行已启用技能目录中的 Python 脚本（项目根 cwd）。"
+        "优先于 run_command 运行 extensions/skills/**/scripts/*.py；"
+        "支持 argv 位置参数/子命令、kwargs 旗标、可选 stdin。"
+        "脚本写入被限制在 data/ 内；仅当专用工具无法覆盖时再使用 run_command。"
     )
     risk_level = 2
 
     def __init__(
         self,
-        project_root: str | Path = ".",
+        project_root: str | Path | None = None,
         allowed_skill_names: list[str] | None = None,
+        scope: FileScopePolicy | None = None,
     ):
-        self.project_root = Path(project_root).resolve()
+        self.project_root = Path(project_root or ROOT_DIR).resolve()
         self.allowed_skill_names = list(allowed_skill_names or [])
+        self.scope = scope
 
     @property
     def schema(self) -> dict:
@@ -37,15 +42,34 @@ class RunPythonScriptTool(BaseTool):
                 "properties": {
                     "script_path": {
                         "type": "string",
-                        "description": "要执行的 Python 脚本相对路径，仅允许 extensions/skills/<skill_name>/ 下的 .py 文件",
+                        "description": (
+                            "要执行的 Python 脚本相对路径，"
+                            "仅允许 extensions/skills/<skill_name>/ 下的 .py 文件"
+                        ),
+                    },
+                    "argv": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "传给脚本的位置参数/子命令列表，例如 "
+                            "[\"data/reports/a.pdf\", \"-o\", \"data/reports/a.md\"] "
+                            "或 [\"auto\", \"file.md\", \"out_dir\"]"
+                        ),
                     },
                     "kwargs": {
                         "type": "object",
-                        "description": "传给脚本的参数对象；会同时以 CLI 参数和 stdin JSON 形式传递",
+                        "description": (
+                            "旗标参数对象；会转为 --flag value 追加在 argv 后。"
+                            "若未提供 stdin，同时以 JSON 写入 stdin"
+                        ),
+                    },
+                    "stdin": {
+                        "type": "string",
+                        "description": "可选标准输入文本（如 TSV 行）；提供后不再自动写入 kwargs JSON",
                     },
                     "timeout_seconds": {
                         "type": "integer",
-                        "description": "脚本超时时间（秒），默认 20，最大 120",
+                        "description": "脚本超时时间（秒），默认 120，最大 120",
                     },
                 },
                 "required": ["script_path"],
@@ -103,20 +127,39 @@ class RunPythonScriptTool(BaseTool):
             raise ValueError("kwargs 必须可序列化为 JSON") from exc
         return kwargs
 
+    @staticmethod
+    def _normalize_argv(argv: list[str] | None) -> list[str]:
+        if argv is None:
+            return []
+        if not isinstance(argv, list):
+            raise ValueError("argv 必须是字符串数组")
+        out: list[str] = []
+        for item in argv:
+            if not isinstance(item, str):
+                raise ValueError("argv 的每一项必须是字符串")
+            out.append(item)
+        return out
+
     async def run(
         self,
         script_path: str,
+        argv: list[str] | None = None,
         kwargs: dict[str, Any] | None = None,
-        timeout_seconds: int = 20,
+        stdin: str | None = None,
+        timeout_seconds: int = 120,
     ) -> str:
         try:
+            normalized_argv = self._normalize_argv(argv)
             normalized_kwargs = self._normalize_kwargs(kwargs)
-            timeout_seconds = max(1, min(int(timeout_seconds or 20), 120))
+            timeout_seconds = max(1, min(int(timeout_seconds or 120), 120))
             resolved_script, skill_root = self._resolve_script_path(script_path)
             result = await run_python_entry(
-                base_dir=skill_root,
+                project_root=self.project_root,
                 entry_path=resolved_script,
+                skill_root=skill_root,
+                argv=normalized_argv,
                 kwargs=normalized_kwargs,
+                stdin=stdin,
                 timeout_seconds=timeout_seconds,
             )
             return result or "(no output)"

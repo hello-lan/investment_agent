@@ -176,7 +176,13 @@ def create_child_engine(
     from ..skills.loader import _registry as skill_registry
     from ..skills.dependency import expand_with_dependencies
     from ..tools.access_policy import AccessPolicy
+    from ..tools.file_scope_policy import FileScopePolicy
+    from ..tools.list_files import ListFilesTool
+    from ..tools.read_file import ReadFileTool
     from ..tools.run_command import RunCommandTool
+    from ..tools.run_python_script import RunPythonScriptTool
+    from ..tools.search_text import SearchTextTool
+    from ..tools.write_file import WriteFileTool
     from ...config import ROOT_DIR
     from .base_loop import BaseLoopEngine
     from .loop_factory import create_loop_engine
@@ -251,10 +257,27 @@ def create_child_engine(
     child._mounted_subagent_names = set()
     child._mounted_subagents_by_name = {}
 
-    # 展开 orch 技能的 depends_on 依赖，供 AccessPolicy 使用
+    # 展开 orch 技能的 depends_on 依赖，供 AccessPolicy / 脚本白名单使用
     all_skill_names = expand_with_dependencies(skill_names) if skill_names else []
 
-    # 注册基础工具（独立实例 + AccessPolicy）
+    # 安全文件工具 + 专用脚本执行器（优先于 shell）
+    scope = FileScopePolicy.for_main_agent(skill_names=all_skill_names)
+    child._system_prompt += scope.main_agent_prompt_section()
+    for tool in (
+        ListFilesTool(scope),
+        ReadFileTool(scope),
+        SearchTextTool(scope),
+        WriteFileTool(scope),
+    ):
+        child.register_tool(tool.schema, tool.run)
+
+    py_tool = RunPythonScriptTool(
+        allowed_skill_names=all_skill_names,
+        scope=scope,
+    )
+    child.register_tool(py_tool.schema, py_tool.run)
+
+    # 保留 run_command 作为兜底
     run_tool = RunCommandTool()
     policy = AccessPolicy.for_agent(str(ROOT_DIR), all_skill_names)
     run_tool.access_policy = policy
@@ -288,9 +311,10 @@ def create_child_engine(
             child._system_prompt += (
                 f"\n\n---\n\n# 技能 {name} 快速参考\n\n"
                 f"{body_excerpt}\n\n"
-                "执行约定：命令已在项目根（Windows/Linux）；"
-                "用相对路径+`/`直接跑脚本；不要 `cd`；不要通读 scripts/*.py。\n"
-                "已注入快速参考：第一步直接 `run_command` 跑脚本；"
+                "执行约定：在项目根执行；优先 `run_python_script`，"
+                "仅当专用工具无法覆盖时再用 `run_command`；"
+                "用相对路径+`/`；不要 `cd`；不要通读 scripts/*.py。\n"
+                "已注入快速参考：第一步优先 `run_python_script` 跑脚本；"
                 "禁止先调 Skill / 禁止用 grep/read 扫全文替代脚本；"
                 "上游 task 的简化 schema 一律忽略，以脚本 Output contract 为准。\n"
             )

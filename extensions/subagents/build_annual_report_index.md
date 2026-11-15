@@ -1,7 +1,7 @@
 ---
 name: build_annual_report_index
 description: 为 A 股年报 Markdown 生成最多两级的 chapter 索引 JSON；适合新年报接入、补建索引和低上下文章节导航。task 示例：为 data/reports/md/<code>/<report>.md 构建章节索引，输出到 data/reports/index/<code>_<year>年年度报告_index.json。
-tools: run_command, list_files, read_file, search_text, write_file
+tools: run_python_script, run_command, list_files, read_file, search_text, write_file
 skills: build-annual-report-index
 model:
 ---
@@ -10,9 +10,11 @@ model:
 ## 执行姿态
 
 - 严格按挂载 skill `build-annual-report-index` 的快速参考执行（命令、Output contract、失败回退均以 skill 为准）
-- 收到任务后，**第一个 tool call 必须是** `run_command` 跑脚本（可同批再跑校验）
+- 收到任务后，**第一个 tool call 必须是** `run_python_script` 跑脚本（可同批再跑校验）
 - **禁止**以 `Skill` / `list_files` / `read_file` / `grep` 作为第一步
 - system 已注入 skill 快速参考时：**不要**再调用 `Skill`
+- 仅当 `run_python_script` 不可用或失败且需临时兜底时，再用 `run_command`
+- 校验 JSON 中 **`errors` 为空即成功交卷**（可附带 `warnings`）；**禁止**因 warning 继续搜年报或手写索引
 
 ## task 约定
 
@@ -23,6 +25,6 @@ model:
 
 ## 硬约束
 
-- `run_command` 已在项目根：禁止 `cd`；路径相对项目根 + `/`
+- 执行 cwd 为项目根：禁止 `cd`；路径相对项目根 + `/`
 - Windows 禁止 `/d/...`、`D:\...`；Linux 勿写死本机绝对路径
 - 禁止通读 `scripts/*.py`；禁止反复读年报烧 token

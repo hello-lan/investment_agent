@@ -27,8 +27,11 @@ description: 专业A股上市公司财报排雷与风险分析工具。基于《
 
 使用 `collect_data.py` 生成 `data_manifest.md`——包含文件清单（大小+推荐读取方式）+ 三张报表结构化解析 + LLM读取指南。
 
-```bash
-python3 extensions/skills/a-share-financial-forensic/scripts/collect_data.py {split_dir} data/reports/{code}/4_output/ --code {code}
+```text
+run_python_script(
+  script_path="extensions/skills/a-share-financial-forensic/scripts/collect_data.py",
+  argv=["{split_dir}", "data/reports/{code}/4_output/", "--code", "{code}"]
+)
 ```
 
 **输入**：`{split_dir}` 下的年份子目录（如 `2023/ 2024/ 2025/`），每年含切割后的章节 `.md` 文件。
@@ -45,11 +48,15 @@ python3 extensions/skills/a-share-financial-forensic/scripts/collect_data.py {sp
 
 在数据加载前，用 AKShare 三表数据与 `data_manifest.md` 解析结果交叉比对，标注偏差项：
 
-```bash
-python3 extensions/skills/a-share-financial-forensic/scripts/cross_validate.py \
-  --code {code} \
-  --manifest data/reports/{code}/4_output/data_manifest.md \
-  --output data/reports/{code}/4_output/crosscheck_report.md
+```text
+run_python_script(
+  script_path="extensions/skills/a-share-financial-forensic/scripts/cross_validate.py",
+  kwargs={
+    "code": "{code}",
+    "manifest": "data/reports/{code}/4_output/data_manifest.md",
+    "output": "data/reports/{code}/4_output/crosscheck_report.md"
+  }
+)
 ```
 
 **输出**：`crosscheck_report.md`（偏差 <3% pass，3-10% warn，>10% fail）。分析时若某科目 fail，优先以 AKShare 数据为准并标注口径差异。
@@ -58,13 +65,13 @@ python3 extensions/skills/a-share-financial-forensic/scripts/cross_validate.py \
 
 **核心规则**：
 1. **每个文件只读一次** — 读取前规划好该文件需要提取的所有数据点，一次读完全部提取
-2. **读取前先估算大小** — 用 `wc -c <file>` 确认文件大小
+2. **读取前先看清单大小** — 以 `data_manifest.md` 中的文件大小为准，必要时用 `list_files` 确认
 3. **禁止反复读取** — 读完一个文件后禁止回头再读同一文件提取其他指标
 4. **读完后纯推理** — 数据加载完成后进入阶段二，禁止再调用工具读文件
 
 **第一步**：加载清单（1步）
-```bash
-cat data/reports/{code}/4_output/data_manifest.md
+```text
+read_file(path="data/reports/{code}/4_output/data_manifest.md")
 ```
 此时三张报表的结构化数据已在上下文中。文件清单中的路径信息指导后续读取。
 
@@ -72,42 +79,39 @@ cat data/reports/{code}/4_output/data_manifest.md
 
 ⚠️ **脚本的正则匹配可能因格式差异而出错**。在开始大量读取文件之前，必须快速校验匹配结果：
 
-1. **检查 ⚠️ fallback 标记的文件** — data_manifest.md 的"文件匹配校验清单"中标记为 `⚠️ fallback` 的文件，用 `head -5` 快速确认文件类别是否匹配
-2. **检查未匹配的大文件** — "🔍 未匹配文件"列表中 >100KB 的文件可能包含遗漏数据，用 `grep -l` 快速识别：
-   ```bash
-   grep -l '财务报表附注\|合并资产负债表\|审计报告' <未匹配的大文件>
-   ```
-3. **附注缺失时的 fallback** — 如果"合并财务报表附注"标注为"未找到"，data_manifest.md 的"⚠️ 附注缺失 Fallback"章节给出了按优先级排列的候选文件和确认命令。按提示排查即可
+1. **检查 ⚠️ fallback 标记的文件** — data_manifest.md 的"文件匹配校验清单"中标记为 `⚠️ fallback` 的文件，用 `read_file`（限制行数）快速确认文件类别是否匹配
+2. **检查未匹配的大文件** — "🔍 未匹配文件"列表中 >100KB 的文件可能包含遗漏数据，用 `search_text` 快速识别关键关键词
+3. **附注缺失时的 fallback** — 如果"合并财务报表附注"标注为"未找到"，data_manifest.md 的"⚠️ 附注缺失 Fallback"章节给出了按优先级排列的候选文件。按提示排查即可
 4. 若发现匹配错误：在后续加载步骤中使用正确的文件路径，忽略脚本的错误匹配
 
 校验通过后进入实际数据加载。
 
 **第二步**：按优先级读取数据源文件。data_manifest.md 中的"读取顺序建议"表格已给出每类文件的大小、读取方式和提取目标。遵循该表格执行即可。关键约束：
 
-- **小文件（<50KB）**：`cat` 全文，一次性提取全部指标
-- **大文件附注（>100KB）**：两步法 — 先 `grep -n` 一次性定位所有目标段落行号（1次工具调用），再 `sed -n` 一次性读取所有段落（1次工具调用）
-- 同类型的多年文件可以合并为一次 cat（如 `cat ch02/2023.md ch02/2024.md ch02/2025.md`）
+- **小文件（<50KB）**：`read_file` 全文，一次性提取全部指标
+- **大文件附注（>100KB）**：两步法 — 先 `search_text` 定位目标段落行号，再 `read_file`（按行号范围）读取段落
+- 同类型的多年文件可分次 `read_file`（每次一个文件，仍遵守只读一次）
 
 **步数预算**：
 
 | 步骤 | 说明 | 工具调用 |
 |------|------|----------|
 | 1 | 执行 collect_data.py | 1 |
-| 2 | cat data_manifest.md | 1 |
+| 2 | read_file data_manifest.md | 1 |
 | 2.5 | 校验匹配结果（检查⚠️标记 + 未匹配文件） | 0-2 |
-| 3 | cat 主要财务指标（3年合并） | 1 |
-| 4 | cat 审计报告（3年合并） | 1 |
-| 5 | cat 股东情况（3年合并） | 1 |
-| 6 | cat 重要事项（3年合并） | 1 |
-| 7-8 | 附注分段读取（grep 定位 + sed 读取） | 2 |
-| 9-10 | 写入报告 | 1-2 |
-| **合计** | | **9-13步**（均在15次预算内） |
+| 3 | read_file 主要财务指标（分年） | 1-3 |
+| 4 | read_file 审计报告（分年） | 1-3 |
+| 5 | read_file 股东情况（分年） | 1-3 |
+| 6 | read_file 重要事项（分年） | 1-3 |
+| 7-8 | 附注分段读取（search_text + read_file） | 2 |
+| 9-10 | write_file 写入报告 | 1-2 |
+| **合计** | | **约 9-20 步** |
 
 完成上述读取后，38条规则所需的全部数据已在上下文中。进入阶段二前确认：三张报表 ✅ | 主要财务指标 ✅ | 审计报告 ✅ | 股东质押 ✅ | 关联交易 ✅ | 附注关键数据 ✅。
 
 ### 阶段二：分析推理（0次工具调用）
 
-所有数据已在上下文中。**后续分析全部通过 LLM 推理完成，禁止再调用工具读取文件**（技能正文已含完整分析步骤和38条规则）。仅写入报告时使用 run_command。
+所有数据已在上下文中。**后续分析全部通过 LLM 推理完成，禁止再调用工具读取文件**（技能正文已含完整分析步骤和38条规则）。仅写入报告时使用 `write_file`（路径须在 `data/` 下）；仅当专用工具无法覆盖时才用 `run_command`。
 
 #### ⚠️ 非刚性分析原则
 
@@ -310,8 +314,8 @@ ROE = 净利润率 × 总资产周转率 × 杠杆系数
 
 1. **数据清单 1 步生成** — 执行 `collect_data.py` 生成 `data_manifest.md`（文件清单 + 结构化报表 + 读取指南），1步完成。
 2. **每个文件只读一次** — 关键原则。读取前用 `wc -c` 确认大小，<50KB 全文 cat，>100KB 大文件（附注）用 grep定位+sed读取 两步策略。读完一个文件后禁止回头再读。
-3. **数据加载后纯推理** — 所有数据加载完成后（阶段一），分析阶段（阶段二）禁止再调用工具读取任何文件。技能正文已包含完整分析步骤和38条规则。仅写入报告时使用 run_command。
-4. **data_manifest.md 是导航地图** — 包含文件清单、大小、推荐读取方式、读取顺序建议、结构化财务报表。先 cat 它，再按它指引的顺序读取其他文件。
+3. **数据加载后纯推理** — 所有数据加载完成后（阶段一），分析阶段（阶段二）禁止再调用工具读取任何文件。技能正文已包含完整分析步骤和38条规则。仅写入报告时使用 `write_file`。
+4. **data_manifest.md 是导航地图** — 包含文件清单、大小、推荐读取方式、读取顺序建议、结构化财务报表。先 `read_file` 它，再按它指引的顺序读取其他文件。
 5. **遵守非刚性分析原则** — 38条规则是最低覆盖要求，不是上限。发现规则表外的重大信号必须补充进"额外重大发现"章节。趋势恶化即使未触及阈值也要标注。
 6. **分析覆盖项必须完整** — 应收账款项必须含账龄趋势（1年以上增长率），货币资金项必须含受限资金细分，大股东项必须含质押比例年度趋势，存货项必须含毛利率+存货周转联动分析，现金流量肖像必须逐标注类型名称，三大前提判定必须显式回答全部三个问题。
 7. **明确标注数据口径** — 必须使用合并报表数据（非母公司报表），若需引用母公司数据须显式标注。报告"数据质量"节标注覆盖年份、缺失字段、数据来源。

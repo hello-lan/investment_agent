@@ -30,7 +30,7 @@ class BaseLoopEngine:
     SLOW_THINK_MAX_TOKENS = 200       # 预留给子类反思阶段的 max_tokens
     SYSTEM_PROMPT_EXCERPT_CHARS = 200 # system prompt 截取长度
     REASONING_MAX_CHARS = 300         # 推理内容保留长度
-    LOOP_WHITELIST = {"run_command", "DelegateTask"}  # 不受死循环检测限制的工具（挂载 Subagent 名运行时并入）
+    LOOP_WHITELIST = {"run_command", "run_python_script", "DelegateTask"}  # 不受死循环检测限制的工具（挂载 Subagent 名运行时并入）
 
     def __init__(
         self,
