@@ -63,16 +63,73 @@
 .switch-control input:checked + .switch-slider{background:#7c3aed;}
 .switch-control input:checked + .switch-slider::after{transform:translateX(20px);}
 .hidden{display:none !important;}
+.page-tabs{display:flex;gap:0;border-bottom:1px solid #ddd;margin-bottom:16px;}
+.page-tab{padding:10px 18px;border:none;background:none;font-size:14px;color:#888;cursor:pointer;border-bottom:2px solid transparent;}
+.page-tab:hover{color:#333;}
+.page-tab.active{color:#1a1a2e;border-bottom-color:#1a1a2e;font-weight:600;}
+.page-panel{display:none;}
+.page-panel.active{display:block;}
+
+/* Subagent 紧凑列表 */
+.sa-list{display:flex;flex-direction:column;gap:8px;}
+.sa-row{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;background:#fff;border:1px solid #e5e5e5;border-radius:8px;padding:10px 14px;}
+.sa-row:hover{border-color:#cfd8e3;background:#fafbfd;}
+.sa-row-main{min-width:0;}
+.sa-row-title{font-size:14px;font-weight:600;color:#1a1a2e;margin:0 0 2px;}
+.sa-row-desc{font-size:12px;color:#666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 4px;}
+.sa-row-meta{font-size:11px;color:#999;display:flex;flex-wrap:wrap;gap:8px;}
+.sa-row-meta code{font-size:11px;background:#f3f4f6;padding:1px 5px;border-radius:3px;color:#555;}
+.sa-row .actions{display:flex;gap:6px;flex-shrink:0;}
+.btn-ghost{background:#f5f5f5;color:#444;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;}
+.btn-ghost:hover{background:#eee;}
+
+/* Subagent modal 紧凑 */
+.sa-modal{width:640px;max-height:90vh;display:flex;flex-direction:column;}
+.sa-modal .modal-title{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.sa-view-tabs{display:inline-flex;border:1px solid #ddd;border-radius:6px;overflow:hidden;}
+.sa-view-tab{border:none;background:#fff;padding:5px 12px;font-size:12px;color:#888;cursor:pointer;}
+.sa-view-tab.active{background:#1a1a2e;color:#fff;}
+.sa-modal-body{overflow-y:auto;flex:1;padding-right:2px;}
+.sa-modal .form-row{margin-bottom:10px;}
+.sa-modal .form-row label{font-size:12px;margin-bottom:4px;}
+.sa-modal .hint{font-size:11px;margin-top:3px;}
+.sa-modal .skill-list{max-height:180px;}
+.sa-modal .config-group{margin:12px 0;}
+.sa-modal .config-group-header{padding:8px 12px;}
+.sa-modal .config-group-body{padding:10px 12px;}
+.sa-compact-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+@media (max-width:520px){.sa-compact-grid{grid-template-columns:1fr;}}
+.sa-md-editor{width:100%;min-height:420px;border:1px solid #ddd;border-radius:6px;padding:12px;font-size:12.5px;line-height:1.55;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;outline:none;resize:vertical;background:#fafafa;color:#222;box-sizing:border-box;}
+.sa-md-hint{font-size:11px;color:#888;margin:0 0 8px;line-height:1.5;}
+.sa-panel{display:none;}
+.sa-panel.active{display:block;}
 </style>
 {% endblock %}
 {% block content %}
 <div class="container">
-  <div class="top-bar">
-    <h2>Agent 配置</h2>
-    <button class="btn btn-primary" onclick="openModal()">+ 新建 Agent</button>
+  <div class="page-tabs">
+    <button class="page-tab active" data-page="agents" onclick="switchPage('agents')">主 Agent</button>
+    <button class="page-tab" data-page="subagents" onclick="switchPage('subagents')">Subagent 定义</button>
   </div>
-  <div class="agent-grid" id="agentGrid">
-    <div class="empty">暂无 Agent，点击右上角新建</div>
+
+  <div class="page-panel active" id="pageAgents">
+    <div class="top-bar">
+      <h2>Agent 配置</h2>
+      <button class="btn btn-primary" onclick="openModal()">+ 新建 Agent</button>
+    </div>
+    <div class="agent-grid" id="agentGrid">
+      <div class="empty">暂无 Agent，点击右上角新建</div>
+    </div>
+  </div>
+
+  <div class="page-panel" id="pageSubagents">
+    <div class="top-bar">
+      <h2>Subagent 定义</h2>
+      <button class="btn btn-primary" onclick="openSubagentModal()">+ 新建 Subagent</button>
+    </div>
+    <div class="sa-list" id="subagentGrid">
+      <div class="empty">暂无 Subagent，点击右上角新建</div>
+    </div>
   </div>
 </div>
 
@@ -128,22 +185,24 @@
       </div>
     </div>
 
-    <!-- ===== 3. Skill / 工具 ===== -->
+    <!-- ===== 3. Skill / 工具 / Subagent ===== -->
     <div class="config-group">
       <div class="config-group-header">
         <span class="group-num" style="background:#34a853;">3</span>
-        <span class="group-title">Skill / 工具</span>
+        <span class="group-title">Skill / 工具 / Subagent</span>
       </div>
       <div class="config-group-body">
         <div class="form-row">
-          <label>挂载 Skill / 工具</label>
+          <label>挂载能力</label>
           <div class="tabs">
             <button class="tab-btn active" data-tab="skills" onclick="switchTab('skills')">Skill</button>
             <button class="tab-btn" data-tab="tools" onclick="switchTab('tools')">工具</button>
+            <button class="tab-btn" data-tab="subagents" onclick="switchTab('subagents')">Subagent</button>
           </div>
           <div id="agentSkills" class="skill-list tab-panel active"></div>
           <div id="agentTools" class="skill-list tab-panel"></div>
-          <div class="hint">安全文件工具默认绑定；`run_command` 和 `DelegateTask` 需在此处手动勾选后才会启用；在 ReAct + Subagent 模式下，Subagent 会自动绑定；在 Plan Execute 模式下，系统会同时复用 `DelegateTask` 和 `Subagent` 做规划委派；在 Workflow 模式下，执行流程由选中的 JSON/DAG 工作流定义驱动</div>
+          <div id="agentSubagents" class="skill-list tab-panel"></div>
+          <div class="hint">安全文件工具默认绑定；`run_command` 与 `DelegateTask` 需手动勾选。勾选的 Subagent 会以独立工具形式暴露给主模型（name/description 用于命中），执行时隔离上下文，仅返回摘要。`DelegateTask` 仍用于技能型委派；Workflow 模式由工作流定义驱动。</div>
         </div>
       </div>
     </div>
@@ -161,11 +220,10 @@
           <select id="agentLoopMode">
             <option value="dual_loop">双循环（快循环 + 慢思考）</option>
             <option value="react">ReAct（普通单循环）</option>
-            <option value="react_subagent">ReAct + Subagent（安全文件子Agent）</option>
             <option value="plan_execute">Plan Execute（规划 + 委派执行）</option>
             <option value="workflow">Workflow（JSON / DAG 工作流）</option>
           </select>
-          <div class="hint">双循环适合复杂任务纠偏；ReAct 适合轻量工具推理；ReAct + Subagent 适合把文件检索/筛选/写作类子任务委派给安全子Agent；Plan Execute 适合开放式复杂任务先拆解，再按阶段委派执行并最终汇总；Workflow 适合执行已定义好的 JSON / DAG 工作流</div>
+          <div class="hint">双循环适合复杂任务纠偏；ReAct 适合轻量工具推理；Plan Execute 适合先拆解再委派汇总；Workflow 适合执行已定义 JSON/DAG。挂载的用户定义 Subagent 在 dual_loop / react / plan_execute 下均可使用。</div>
         </div>
         <div class="form-row" id="agentWorkflowRow" style="display:none;">
           <label>关联 Workflow</label>
@@ -281,12 +339,17 @@
             <div class="form-row">
               <label>最大嵌套深度</label>
               <div class="range-row"><input type="range" id="agentMaxSubagentDepth" min="0" max="5" step="1" oninput="document.getElementById('agentMaxSubagentDepthVal').textContent=this.value"><span class="range-val" id="agentMaxSubagentDepthVal">3</span></div>
-              <div class="hint">旧 DelegateTask 或新 react_subagent 的 Subagent 可继续分派的最大层数；0=不允许子Agent继续创建下一层</div>
+              <div class="hint">DelegateTask / 用户定义 Subagent 可继续分派的最大层数；用户定义 Subagent 自身不可再委派；0=不允许创建子Agent</div>
+            </div>
+            <div class="form-row">
+              <label>同一步最多委派数</label>
+              <div class="range-row"><input type="range" id="agentMaxParallelSubagents" min="1" max="8" step="1" oninput="document.getElementById('agentMaxParallelSubagentsVal').textContent=this.value"><span class="range-val" id="agentMaxParallelSubagentsVal">3</span></div>
+              <div class="hint">同一 LLM 步内可发起的 Subagent/DelegateTask 上限，防止失控扇出</div>
             </div>
             <div class="form-row">
               <label>任务指令 max_tokens</label>
               <input type="number" id="agentPlanningMaxTokens" min="256" max="4096" step="256" placeholder="留空=默认 1024">
-              <div class="hint">委派子Agent时生成任务指令的 max_tokens 上限。对 react_subagent 会影响文件范围、输出要求等约束描述的完整度</div>
+              <div class="hint">DelegateTask 生成任务指令的 max_tokens 上限</div>
             </div>
           </div>
         </div>
@@ -296,6 +359,63 @@
     <div class="modal-footer">
       <button class="btn btn-cancel" onclick="closeModal()">取消</button>
       <button class="btn btn-primary" onclick="saveAgent()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Subagent 定义 Modal -->
+<div class="modal-overlay" id="subagentModalOverlay">
+  <div class="modal sa-modal">
+    <div class="modal-title">
+      <span id="subagentModalTitle">新建 Subagent</span>
+      <div class="sa-view-tabs">
+        <button type="button" class="sa-view-tab active" data-sa-view="form" onclick="switchSaView('form')">表单</button>
+        <button type="button" class="sa-view-tab" data-sa-view="markdown" onclick="switchSaView('markdown')">Markdown</button>
+      </div>
+    </div>
+    <input type="hidden" id="subagentId">
+
+    <div class="sa-modal-body">
+      <div class="sa-panel active" id="saPanelForm">
+        <div class="sa-compact-grid">
+          <div class="form-row">
+            <label>名称 *（工具名）</label>
+            <input type="text" id="subagentName" placeholder="report_reader">
+          </div>
+          <div class="form-row">
+            <label>模型</label>
+            <select id="subagentModel"></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <label>描述 *</label>
+          <textarea id="subagentDesc" rows="2" style="width:100%;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:13px;outline:none;font-family:inherit;resize:vertical;" placeholder="写清何时应调用此 Subagent..."></textarea>
+        </div>
+        <div class="form-row">
+          <label>系统提示词 *</label>
+          <textarea id="subagentPrompt" rows="5" style="width:100%;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:13px;outline:none;font-family:inherit;resize:vertical;" placeholder="定义子 Agent 角色与执行规范..."></textarea>
+        </div>
+        <div class="form-row" style="margin-bottom:0;">
+          <label>Tools / Skills</label>
+          <div class="tabs">
+            <button class="tab-btn active" data-sa-tab="tools" onclick="switchSaTab('tools')">工具</button>
+            <button class="tab-btn" data-sa-tab="skills" onclick="switchSaTab('skills')">Skill</button>
+          </div>
+          <div id="subagentTools" class="skill-list tab-panel active"></div>
+          <div id="subagentSkills" class="skill-list tab-panel"></div>
+          <div class="hint">不可勾选 DelegateTask；不可再挂载 Subagent。模型留空=继承主 Agent。</div>
+        </div>
+      </div>
+
+      <div class="sa-panel" id="saPanelMarkdown">
+        <p class="sa-md-hint">YAML frontmatter + 正文为 system_prompt。保存前会自动解析回表单字段。</p>
+        <textarea id="subagentMarkdown" class="sa-md-editor" spellcheck="false" placeholder="---&#10;name: report_reader&#10;description: ...&#10;tools: read_file, search_text&#10;skills:&#10;model:&#10;---&#10;你是一个..."></textarea>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-cancel" onclick="closeSubagentModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveSubagent()">保存</button>
     </div>
   </div>
 </div>

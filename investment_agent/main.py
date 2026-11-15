@@ -8,6 +8,7 @@ from .app.api.chat import router as chat_router
 from .app.api.sessions import router as sessions_router
 from .app.api.settings import router as settings_router
 from .app.api.agents import router as agents_router
+from .app.api.subagents import router as subagents_router
 from .app.api.skills import router as skills_router
 from .app.api.files import router as files_router
 from .app.api.observability import router as observability_router
@@ -18,6 +19,7 @@ from .app.api.stock_dashboard_old import router as stock_dashboard_old_router
 from .app.api.risk_dashboard import router as risk_dashboard_router
 from .agent.skills.loader import init_skills_dir
 from .agent.tools.run_command import set_project_root
+from .app.services.subagent_seed import seed_default_subagents
 from .config import ROOT_DIR, resolve_skills_dir
 
 STATIC_DIR = ROOT_DIR / "investment_agent" / "app" / "static"
@@ -44,6 +46,7 @@ TABS = [
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化数据库、输出目录、Skills、全局依赖"""
     await init_db()
+    await seed_default_subagents()
     (OUTPUT_DIR / "reports").mkdir(parents=True, exist_ok=True)
     (OUTPUT_DIR / "charts").mkdir(parents=True, exist_ok=True)
     # 注入 agent 包所需的全局依赖
@@ -59,6 +62,7 @@ app.include_router(chat_router)
 app.include_router(sessions_router)
 app.include_router(settings_router)
 app.include_router(agents_router)
+app.include_router(subagents_router)
 app.include_router(skills_router)
 app.include_router(files_router)
 app.include_router(observability_router)

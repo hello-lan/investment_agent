@@ -12,6 +12,26 @@ from datetime import datetime, timezone
 from ..db import get_db
 
 
+def _parse_json_list(raw) -> list:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    try:
+        value = json.loads(raw)
+        return value if isinstance(value, list) else []
+    except (TypeError, json.JSONDecodeError):
+        return []
+
+
+def _row_to_agent(row) -> dict:
+    d = dict(row)
+    d["skills"] = _parse_json_list(d.get("skills"))
+    d["tools"] = _parse_json_list(d.get("tools"))
+    d["subagents"] = _parse_json_list(d.get("subagents"))
+    return d
+
+
 class AgentService:
     """Agent 配置 CRUD。"""
 
@@ -21,12 +41,12 @@ class AgentService:
         async with get_db() as db:
             cursor = await db.execute(
                 "SELECT id, name, description, system_prompt, model_id, "
-                "temperature, max_tokens, skills, tools, "
+                "temperature, max_tokens, skills, tools, subagents, "
                 "compress_config, engine_config, created_at, updated_at "
                 "FROM agents ORDER BY created_at"
             )
             rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+        return [_row_to_agent(r) for r in rows]
 
     @staticmethod
     async def create_agent(
@@ -38,6 +58,7 @@ class AgentService:
         max_tokens: int = 4096,
         skills: list[str] | None = None,
         tools: list[str] | None = None,
+        subagents: list[str] | None = None,
         compress_config: dict | None = None,
         engine_config: dict | None = None,
     ) -> str:
@@ -47,14 +68,15 @@ class AgentService:
         async with get_db() as db:
             await db.execute(
                 "INSERT INTO agents (id, name, description, system_prompt, "
-                "model_id, temperature, max_tokens, skills, tools, "
+                "model_id, temperature, max_tokens, skills, tools, subagents, "
                 "compress_config, engine_config, created_at, updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     agent_id, name, description, system_prompt,
                     model_id, temperature, max_tokens,
                     json.dumps(skills or []),
                     json.dumps(tools or []),
+                    json.dumps(subagents or []),
                     json.dumps(compress_config) if compress_config is not None else None,
                     json.dumps(engine_config) if engine_config is not None else None,
                     now, now,
@@ -71,7 +93,7 @@ class AgentService:
                 "SELECT * FROM agents WHERE id = ?", (agent_id,)
             )
             agent = await row.fetchone()
-            return dict(agent) if agent else None
+            return _row_to_agent(agent) if agent else None
 
     @staticmethod
     async def update_agent(
@@ -84,6 +106,7 @@ class AgentService:
         max_tokens: int = 4096,
         skills: list[str] | None = None,
         tools: list[str] | None = None,
+        subagents: list[str] | None = None,
         compress_config: dict | None = None,
         engine_config: dict | None = None,
     ) -> bool:
@@ -99,12 +122,14 @@ class AgentService:
             await db.execute(
                 "UPDATE agents SET name=?, description=?, system_prompt=?, "
                 "model_id=?, temperature=?, max_tokens=?, skills=?, tools=?, "
-                "compress_config=?, engine_config=?, updated_at=? WHERE id=?",
+                "subagents=?, compress_config=?, engine_config=?, updated_at=? "
+                "WHERE id=?",
                 (
                     name, description, system_prompt,
                     model_id, temperature, max_tokens,
                     json.dumps(skills or []),
                     json.dumps(tools or []),
+                    json.dumps(subagents or []),
                     json.dumps(compress_config) if compress_config is not None else None,
                     json.dumps(engine_config) if engine_config is not None else None,
                     now, agent_id,

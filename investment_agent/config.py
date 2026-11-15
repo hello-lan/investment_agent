@@ -41,6 +41,22 @@ def resolve_skills_dir(raw_dir: str | None = None) -> Path:
     return path
 
 
+def resolve_subagents_dir(raw_dir: str | None = None) -> Path:
+    """解析默认 Subagents 目录路径（支持相对路径，相对于项目根目录）。"""
+    if raw_dir is None:
+        subagents_cfg = get_settings().get("subagents", {})
+        if not isinstance(subagents_cfg, dict):
+            subagents_cfg = {}
+        raw_dir = (
+            str(subagents_cfg.get("directory", "./extensions/subagents")).strip()
+            or "./extensions/subagents"
+        )
+    path = Path(raw_dir)
+    if not path.is_absolute():
+        path = ROOT_DIR / path
+    return path
+
+
 def get_tushare_token() -> str:
     """读取 tushare token，环境变量优先于 settings.json。"""
     env_token = os.getenv("TUSHARE_TOKEN", "").strip()

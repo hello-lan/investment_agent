@@ -225,6 +225,7 @@ def create_child_engine(
         runtime_context_compression_enabled=runtime_context_compression_enabled,
         context_trim_token_threshold=child_trim_threshold,
         max_subagent_depth=parent.max_subagent_depth,
+        max_parallel_subagents=getattr(parent, "max_parallel_subagents", 3),
         offload_threshold=parent.offload_threshold,
         offload_summary_strategy=parent.offload_summary_strategy,
         offload_summary_chars=parent.offload_summary_chars,
@@ -247,6 +248,9 @@ def create_child_engine(
 
     # 共享中断信号
     child._interrupt = parent._interrupt
+    # Delegate 子引擎为叶子：禁止再挂用户定义 Subagent
+    child._mounted_subagent_names = set()
+    child._mounted_subagents_by_name = {}
 
     # 展开 orch 技能的 depends_on 依赖，供 AccessPolicy 使用
     all_skill_names = expand_with_dependencies(skill_names) if skill_names else []

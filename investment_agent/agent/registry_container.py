@@ -61,14 +61,12 @@ class AgentRegistry:
         from .tools.run_command import RunCommandTool
         from .tools.search_text import SearchTextTool
         from .tools.skill_tool import SkillTool
-        from .tools.subagent import SubagentTool
         from .tools.write_file import WriteFileTool
 
         main_scope = FileScopePolicy.for_main_agent()
         self.register_tool(SkillTool())
         self.register_tool(RunCommandTool())
         self.register_tool(DelegateTaskTool())
-        self.register_tool(SubagentTool())
         self.register_tool(ListFilesTool(main_scope))
         self.register_tool(ReadFileTool(main_scope))
         self.register_tool(SearchTextTool(main_scope))

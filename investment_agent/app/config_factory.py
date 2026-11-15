@@ -10,6 +10,7 @@ import json
 from ..agent.config import (
     AgentRunConfig,
     DEFAULT_SYSTEM_PROMPT,
+    MAX_PARALLEL_SUBAGENTS_DEFAULT,
     PLANNING_MAX_TOKENS_DEFAULT,
     SUBAGENT_WORKSPACE_DIR_DEFAULT,
 )
@@ -54,7 +55,9 @@ async def get_provider(model_id: str | None = None) -> ModelProvider:
 
 
 def _normalize_loop_mode(value, workflow_id: str | None = None) -> str:
-    """标准化 loop_mode，兼容旧 workflow=plan_execute 数据。"""
+    """标准化 loop_mode，兼容旧 workflow / react_subagent 数据。"""
+    if value == "react_subagent":
+        return LoopMode.REACT
     if value == LoopMode.WORKFLOW and not workflow_id:
         return LoopMode.PLAN_EXECUTE
     try:
@@ -107,6 +110,9 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
         "runtime_context_compression_enabled": runtime_context_compression_enabled,
         "context_trim_token_threshold": context_trim_token_threshold,
         "max_subagent_depth": _resolve_preferring_agent(agent_cfg, global_cfg, "max_subagent_depth", 3),
+        "max_parallel_subagents": _resolve_preferring_agent(
+            agent_cfg, global_cfg, "max_parallel_subagents", MAX_PARALLEL_SUBAGENTS_DEFAULT,
+        ),
         "offload_threshold": _resolve_preferring_agent(agent_cfg, global_cfg, "offload_threshold", 800),
         "offload_summary_strategy": _resolve_preferring_agent(
             agent_cfg, global_cfg, "offload_summary_strategy", OffloadSummaryStrategy.TRUNCATE,
@@ -157,6 +163,7 @@ def _parse_agent_fields(agent_row: dict | None) -> dict:
             "max_tokens": None,
             "skills": [],
             "tools": [],
+            "subagent_ids": [],
             "engine_config": None,
             "compress_config": None,
         }
@@ -167,10 +174,11 @@ def _parse_agent_fields(agent_row: dict | None) -> dict:
         "model_id": agent_row["model_id"] or None,
         "temperature": agent_row["temperature"] if agent_row["temperature"] is not None else None,
         "max_tokens": agent_row["max_tokens"] if agent_row["max_tokens"] is not None else None,
-        "skills": _parse_json_field(agent_row["skills"], []),
-        "tools": _parse_json_field(agent_row["tools"], []),
-        "engine_config": _parse_json_field(agent_row["engine_config"]),
-        "compress_config": _parse_json_field(agent_row["compress_config"]),
+        "skills": _parse_json_field(agent_row.get("skills"), []),
+        "tools": _parse_json_field(agent_row.get("tools"), []),
+        "subagent_ids": _parse_json_field(agent_row.get("subagents"), []),
+        "engine_config": _parse_json_field(agent_row.get("engine_config")),
+        "compress_config": _parse_json_field(agent_row.get("compress_config")),
     }
 
 
@@ -203,7 +211,17 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
     # —— Engine params ——
     engine_params = _resolve_engine_params(fields["engine_config"])
 
-    # —— Context config ——
+    # —— 挂载的用户定义 Subagent 快照 ——
+    from .services.subagent_service import SubagentService
+    mounted_subagents = await SubagentService.get_by_ids(fields.get("subagent_ids") or [])
+    for sa in mounted_subagents:
+        model_id = (sa.get("model_id") or "").strip()
+        if model_id:
+            try:
+                sa["_provider"] = await get_provider(model_id)
+            except Exception:
+                # 模型无效时回退继承主 Agent
+                sa["_provider"] = None
 
     return AgentRunConfig(
         provider=provider,
@@ -222,8 +240,10 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
         runtime_context_compression_enabled=engine_params["runtime_context_compression_enabled"],
         tools=fields["tools"],
         skills=fields["skills"],
+        mounted_subagents=mounted_subagents,
         context=context_cfg,
         max_subagent_depth=engine_params["max_subagent_depth"],
+        max_parallel_subagents=engine_params["max_parallel_subagents"],
         offload_threshold=engine_params["offload_threshold"],
         offload_summary_strategy=engine_params["offload_summary_strategy"],
         offload_summary_chars=engine_params["offload_summary_chars"],

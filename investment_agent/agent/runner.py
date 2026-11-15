@@ -237,6 +237,7 @@ class AgentRunner:
                 config.context_trim_token_threshold if needs_compressor else 0
             ),
             max_subagent_depth=config.max_subagent_depth,
+            max_parallel_subagents=config.max_parallel_subagents,
             offload_threshold=config.offload_threshold,
             offload_summary_strategy=config.offload_summary_strategy,
             offload_summary_chars=config.offload_summary_chars,
@@ -255,21 +256,25 @@ class AgentRunner:
         )
         engine.storage = self._storage
         allowed_tools = registry.auto_bound_tools | set(config.tools)
+        # 内置通用 Subagent 工具已废弃，始终移除
+        allowed_tools = allowed_tools - {"Subagent"}
         enable_run_command = "run_command" in allowed_tools
-        if config.loop_mode == LoopMode.REACT_SUBAGENT:
-            allowed_tools = (allowed_tools - {"DelegateTask"}) | {"Subagent"}
-        elif config.loop_mode == LoopMode.PLAN_EXECUTE:
-            allowed_tools = allowed_tools | {"DelegateTask", "Subagent"}
-        elif config.loop_mode == LoopMode.WORKFLOW:
-            allowed_tools = allowed_tools
-        else:
-            allowed_tools = allowed_tools - {"Subagent"}
+        if config.loop_mode == LoopMode.PLAN_EXECUTE:
+            allowed_tools = allowed_tools | {"DelegateTask"}
 
         # 展开 orch 技能的 depends_on 依赖，供 AccessPolicy 和 prepare_delegate_task 使用
         all_skill_names = expand_with_dependencies(config.skills) if config.skills else []
 
         # 设置允许的技能名称集合（含依赖，供 prepare_delegate_task 委派到依赖技能）
         engine._allowed_skill_names = set(all_skill_names)
+
+        # 用户定义 Subagent 挂载快照
+        mounted = list(getattr(config, "mounted_subagents", None) or [])
+        engine._mounted_subagents_by_name = {
+            sa["name"]: sa for sa in mounted if sa.get("name")
+        }
+        engine._mounted_subagent_names = set(engine._mounted_subagents_by_name)
+        engine._prompt_builder = None  # 重新拼装含挂载 Subagent 的委派说明
 
         # skills 为空时不注册 Skill 工具，LLM 看不到也就无法调用
         if not config.skills:
@@ -283,9 +288,6 @@ class AgentRunner:
             engine._system_prompt += OFFLOAD_AWARE_PROMPT
         if not enable_run_command and needs_compressor:
             engine._system_prompt += "\n- 当前未启用 run_command 时，如需查看卸载文件，请改用 read_file 读取对应路径。"
-        if config.loop_mode == LoopMode.REACT_SUBAGENT:
-            from .config import REACT_SUBAGENT_PROMPT
-            engine._system_prompt += REACT_SUBAGENT_PROMPT
         if enable_run_command:
             from .tools.run_command import RunCommandTool  # 延迟导入避免循环依赖
             run_tool = RunCommandTool()
@@ -310,6 +312,17 @@ class AgentRunner:
                 engine.register_tool(tool_schema, filtered_run)
             else:
                 engine.register_tool(tool_schema, tool.run)
+
+        # 注册用户定义 Subagent 为动态工具（TaskTool 语义，handler 由 ToolExecutor 拦截）
+        from .core.subagent_runtime import build_subagent_tool_schema
+
+        def _subagent_placeholder(**_kwargs):
+            raise NotImplementedError("用户定义 Subagent 由 ToolExecutor 拦截执行")
+
+        for sa in mounted:
+            if not sa.get("name"):
+                continue
+            engine.register_tool(build_subagent_tool_schema(sa), _subagent_placeholder)
 
         # 技能加载（通过全局 loader，保持向后兼容）
         if config.skills:

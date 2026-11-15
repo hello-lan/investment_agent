@@ -78,10 +78,25 @@ async def init_db() -> None:
                 temperature   REAL DEFAULT 0.7,       -- 模型温度参数（0~1）
                 max_tokens    INTEGER DEFAULT 4096,   -- 最大输出 token 数
                 skills        TEXT DEFAULT '[]',      -- 启用的技能列表（JSON 数组）
+                tools         TEXT DEFAULT '[]',      -- 启用的工具列表（JSON 数组）
+                subagents     TEXT DEFAULT '[]',      -- 挂载的 Subagent ID 列表（JSON 数组）
                 compress_config TEXT,                 -- 上下文压缩配置（JSON）
                 engine_config TEXT,                   -- 引擎运行配置（JSON）
                 created_at    TEXT,                   -- 创建时间
                 updated_at    TEXT                    -- 更新时间
+            );
+
+            -- 用户定义 Subagent 目录
+            CREATE TABLE IF NOT EXISTS subagents (
+                id            TEXT PRIMARY KEY,
+                name          TEXT NOT NULL UNIQUE,   -- 工具名（唯一）
+                description   TEXT NOT NULL,          -- 供主模型命中的描述
+                system_prompt TEXT,                   -- 子 Agent 系统提示词
+                model_id      TEXT,                   -- 可空=继承主 Agent 模型
+                tools         TEXT DEFAULT '[]',      -- 工具列表（JSON）
+                skills        TEXT DEFAULT '[]',      -- 技能列表（JSON）
+                created_at    TEXT,
+                updated_at    TEXT
             );
 
             -- Workflow 定义（JSON / DAG）
@@ -615,6 +630,7 @@ async def init_db() -> None:
             ("agents", "compress_config", "TEXT"),
             ("agents", "engine_config", "TEXT"),
             ("agents", "tools", "TEXT DEFAULT '[]'"),
+            ("agents", "subagents", "TEXT DEFAULT '[]'"),
             ("sessions", "current_task_id", "TEXT"),
             ("sessions", "input_tokens", "INTEGER DEFAULT 0"),
             ("sessions", "output_tokens", "INTEGER DEFAULT 0"),

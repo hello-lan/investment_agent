@@ -9,7 +9,7 @@ const DEFAULT_WORKFLOW = {
       id: 'collect',
       type: 'subagent',
       task: '收集目标文件中的关键数据',
-      targets: ['/absolute/path/to/file.md'],
+      subagent_name: 'report_reader',
       expected_output: '输出关键摘录',
       depends_on: [],
       input_from: [],

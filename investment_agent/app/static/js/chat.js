@@ -134,7 +134,9 @@ async function loadAgents(){
       const icon = AGENT_ICONS[i % AGENT_ICONS.length];
       const modelName = (a.model_id || '未设置');
       let skillsCount = 0;
-      try { skillsCount = JSON.parse(a.skills || '[]').length; } catch(e){}
+      try {
+        skillsCount = Array.isArray(a.skills) ? a.skills.length : JSON.parse(a.skills || '[]').length;
+      } catch(e){}
       return `<div class="agent-item${active}" data-id="${a.id}" onclick="selectAgent('${a.id}')">
         <div class="agent-icon">${icon}</div>
         <div class="agent-info">
@@ -185,7 +187,9 @@ function selectAgent(id, silent){
     document.getElementById('ctxAgentName').textContent = agent.name;
     let modelName = agent.model_id || '未设置模型';
     let skillsCount = 0;
-    try { skillsCount = JSON.parse(agent.skills || '[]').length; } catch(e){}
+    try {
+      skillsCount = Array.isArray(agent.skills) ? agent.skills.length : JSON.parse(agent.skills || '[]').length;
+    } catch(e){}
     document.getElementById('ctxAgentDetail').textContent = '模型 ' + escapeHtml(modelName) + ' · 挂载 ' + skillsCount + ' 个 Skill';
   }
 

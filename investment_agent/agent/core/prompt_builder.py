@@ -12,36 +12,34 @@ if TYPE_CHECKING:
     from ...agent.skills.base import BaseSkill
 
 
-_DELEGATION_STRATEGY = (
-    "\n\n## 子任务委派策略\n"
-    "加载技能说明后，分析其工作流程是否包含互不依赖的子阶段。"
-    "若存在多个独立分析维度，应优先使用合适的委派工具拆分执行。\n"
-    "- DelegateTask：适合技能驱动、工具调用密集、需要多步执行的开放式子任务\n"
-    "- Subagent：适合限定文件范围的检索、筛选、摘录、写作类子任务\n"
-    "当前可用委派工具：{tool_names}。"
-    "父Agent保留全局判断（交叉验证、综合定级），子Agent返回结果后汇总整合。"
-    "简单场景（如仅查单一指标）直接执行，无需委派。"
+_ROUTING_STRATEGY = (
+    "\n\n## 能力分层与委派策略\n"
+    "- **Tools**：原子能力（读文件、搜索、执行命令）。简单取数/单次读写直接调用。\n"
+    "- **Skills**：流程说明书。先调用 `Skill(name=...)` 加载说明，**下一轮**再按说明执行工具；"
+    "同一步的多个 tool_calls 彼此看不到结果，不要同批「加载 Skill 又立刻按正文执行」。\n"
+    "- **SubAgents（用户定义）**：隔离执行者。调用对应工具名，传入自包含的 `task`；"
+    "适合多步、易污染主上下文的专项。同一 turn 可发起多个 SubAgent，前提是 task 互不依赖；"
+    "完成后由你汇总。不要对同一目标重复委派。\n"
+    "- **DelegateTask**：技能驱动的开放委派（编排/多 skill 流水线）。\n"
+    "当前可用委派入口：{tool_names}。\n"
+    "父 Agent 保留全局判断；简单场景直接用 Tools，无需委派。"
 )
 
 
 class PromptBuilder:
-    """System prompt 拼装器。
-
-    将基础 prompt 与项目路径、技能描述、委派策略组合，
-    生成供 LLM 使用的完整 system prompt。
-
-    幂等性：多次调用 build() 返回相同结果。
-    """
+    """System prompt 拼装器。"""
 
     def __init__(
         self,
         base_prompt: str,
         skills: list | None = None,
         delegation_tool_names: list[str] | None = None,
+        mounted_subagents: list[dict] | None = None,
     ):
         self._base_prompt = base_prompt
         self._skills = skills or []
-        self._delegation_tool_names = delegation_tool_names or ["DelegateTask"]
+        self._delegation_tool_names = delegation_tool_names or []
+        self._mounted_subagents = mounted_subagents or []
 
     def set_base_prompt(self, prompt: str) -> None:
         """更新基础 prompt（ContextManager 处理后调用）。"""
@@ -52,18 +50,21 @@ class PromptBuilder:
         self._skills = skills
 
     def build(self) -> str | list[dict]:
-        """拼装完整 system prompt。
-
-        若 base_prompt 已是 list[dict]（Anthropic cache_control 格式），
-        直接返回，不做额外拼装。
-        """
+        """拼装完整 system prompt。"""
         prompt = self._base_prompt
 
-        # ContextManager 已处理为带 cache_control 的 content block 列表
         if isinstance(prompt, list):
             return prompt
 
         prompt = self._ensure_project_info(prompt)
+
+        if self._mounted_subagents and "## 已挂载 Subagent" not in prompt:
+            prompt += self._format_mounted_subagents()
+
+        if self._delegation_tool_names and "## 能力分层与委派策略" not in prompt:
+            prompt += _ROUTING_STRATEGY.format(
+                tool_names=", ".join(self._delegation_tool_names) or "(无)",
+            )
 
         if not self._skills:
             return prompt
@@ -71,22 +72,14 @@ class PromptBuilder:
         if "# 可用技能" in prompt:
             return prompt
 
-        delegation = ""
-        if self._delegation_tool_names:
-            delegation = _DELEGATION_STRATEGY.format(
-                tool_names=", ".join(self._delegation_tool_names),
-            )
-
         return (
             prompt
             + "\n\n---\n\n# 可用技能\n\n"
             + self._format_skills()
             + "\n\n> 使用 Skill 工具加载技能完整说明后再执行。"
-            + delegation
         )
 
     def _ensure_project_info(self, prompt: str) -> str:
-        """确保 prompt 包含项目路径。"""
         if "## 项目路径" in prompt:
             return prompt
 
@@ -98,10 +91,21 @@ class PromptBuilder:
         )
 
     def _format_skills(self) -> str:
-        """格式化技能列表为 Markdown。"""
         lines = []
         for s in self._skills:
             prefix = "[orch] " if s.skill_type == "orch" else ""
             deps = f"（含 {len(s.depends_on)} 个子流程）" if s.depends_on else ""
             lines.append(f"- {prefix}**{s.name}**: {s.description}{deps}")
+        return "\n".join(lines)
+
+    def _format_mounted_subagents(self) -> str:
+        lines = ["\n\n## 已挂载 Subagent\n"]
+        for sa in self._mounted_subagents:
+            name = sa.get("name", "")
+            desc = sa.get("description") or ""
+            lines.append(f"- **{name}**: {desc}")
+        lines.append(
+            "\n调用时传入 `task`（可选 `expected_output`）；"
+            "子 Agent 看不到主对话历史，仅返回最终摘要。"
+        )
         return "\n".join(lines)

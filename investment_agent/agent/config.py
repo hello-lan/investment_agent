@@ -10,6 +10,7 @@ from .constants import OffloadSummaryStrategy, LoopMode
 # ── 默认值常量（全局单一来源，避免多文件硬编码）──────────────────────────
 PLANNING_MAX_TOKENS_DEFAULT = 1024  # 委派任务指令生成 max_tokens 默认值
 SUBAGENT_WORKSPACE_DIR_DEFAULT = "data/tmp/subagents"
+MAX_PARALLEL_SUBAGENTS_DEFAULT = 3
 
 
 DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
@@ -154,6 +155,7 @@ class EngineConfig:
     runtime_context_compression_enabled: bool = True
     context_trim_token_threshold: int = 0  # input_tokens 超过此阈值时触发安全压缩（0=禁用）
     max_subagent_depth: int = 3
+    max_parallel_subagents: int = MAX_PARALLEL_SUBAGENTS_DEFAULT
     offload_threshold: int = 800
     offload_summary_strategy: str = OffloadSummaryStrategy.TRUNCATE
     offload_summary_chars: int = 200
@@ -205,11 +207,15 @@ class AgentRunConfig:
     # ── Agent 级技能选择（空列表=不启用任何技能）──
     skills: list[str] = field(default_factory=list)
 
+    # ── 挂载的用户定义 Subagent 快照 ──
+    mounted_subagents: list[dict] = field(default_factory=list)
+
     # ── 上下文参数 ──
     context: dict = field(default_factory=dict)
 
     # ── 子Agent配置 ──
     max_subagent_depth: int = 3
+    max_parallel_subagents: int = MAX_PARALLEL_SUBAGENTS_DEFAULT
     subagent_workspace_dir: str = SUBAGENT_WORKSPACE_DIR_DEFAULT
     workflow_id: str | None = None
 

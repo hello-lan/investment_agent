@@ -1,7 +1,7 @@
 """Agent 配置 API 路由 — 薄层，委托 AgentService 处理业务逻辑。"""
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..services.agent_service import AgentService
 
@@ -16,8 +16,9 @@ class AgentEntry(BaseModel):
     model_id: str = ""
     temperature: float = 0.7
     max_tokens: int = 4096
-    skills: list[str] = []
-    tools: list[str] = []
+    skills: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    subagents: list[str] = Field(default_factory=list)
     compress_config: dict | None = None
     engine_config: dict | None = None
 
@@ -38,6 +39,7 @@ async def create_agent(body: AgentEntry):
         max_tokens=body.max_tokens,
         skills=body.skills,
         tools=body.tools,
+        subagents=body.subagents,
         compress_config=body.compress_config,
         engine_config=body.engine_config,
     )
@@ -64,6 +66,7 @@ async def update_agent(agent_id: str, body: AgentEntry):
         max_tokens=body.max_tokens,
         skills=body.skills,
         tools=body.tools,
+        subagents=body.subagents,
         compress_config=body.compress_config,
         engine_config=body.engine_config,
     )

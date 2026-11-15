@@ -23,8 +23,10 @@ def validate_workflow_spec(spec: WorkflowSpec) -> WorkflowSpec:
                 raise ValueError(f"节点 {node.id} 引用了不存在的上游节点: {ref}")
         if node.type == "delegate" and not node.skill_names:
             raise ValueError(f"delegate 节点 {node.id} 必须提供 skill_names")
-        if node.type == "subagent" and not node.targets:
-            raise ValueError(f"subagent 节点 {node.id} 必须提供 targets")
+        if node.type == "subagent" and not (node.subagent_name or "").strip():
+            raise ValueError(
+                f"subagent 节点 {node.id} 必须提供 subagent_name（用户定义 Subagent 的 name）"
+            )
 
     topological_order(spec)
     return spec

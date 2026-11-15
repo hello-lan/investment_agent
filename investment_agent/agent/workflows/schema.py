@@ -16,7 +16,8 @@ class WorkflowNode(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     input_from: list[str] = Field(default_factory=list)
     skill_names: list[str] = Field(default_factory=list)
-    targets: list[str] = Field(default_factory=list)
+    subagent_name: str | None = None
+    targets: list[str] = Field(default_factory=list)  # 兼容旧字段，已弃用
     expected_output: str | None = None
     output_path: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)

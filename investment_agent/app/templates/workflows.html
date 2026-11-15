@@ -45,7 +45,7 @@
     <div class="form-row">
       <label>Workflow JSON <span class="required">*</span></label>
       <textarea id="workflowDefinition" class="json-editor" spellcheck="false"></textarea>
-      <div class="hint">定义标准 JSON / DAG 工作流。节点类型支持 assistant / delegate / subagent。</div>
+      <div class="hint">定义标准 JSON / DAG 工作流。节点类型：assistant / delegate / subagent。subagent 节点需提供 subagent_name（对应用户定义 Subagent 的 name）与 task。</div>
       <div id="workflowValidation" class="validation-box"></div>
     </div>
 

@@ -30,7 +30,7 @@ class BaseLoopEngine:
     SLOW_THINK_MAX_TOKENS = 200       # 预留给子类反思阶段的 max_tokens
     SYSTEM_PROMPT_EXCERPT_CHARS = 200 # system prompt 截取长度
     REASONING_MAX_CHARS = 300         # 推理内容保留长度
-    LOOP_WHITELIST = {"run_command", "DelegateTask", "Subagent"}  # 不受死循环检测限制的工具
+    LOOP_WHITELIST = {"run_command", "DelegateTask"}  # 不受死循环检测限制的工具（挂载 Subagent 名运行时并入）
 
     def __init__(
         self,
@@ -93,6 +93,9 @@ class BaseLoopEngine:
         self._cached_role_system: str | None = None
         self.subagent_depth = subagent_depth
         self.max_subagent_depth = config.max_subagent_depth
+        self.max_parallel_subagents = getattr(config, "max_parallel_subagents", 3)
+        self._mounted_subagent_names: set[str] = set()
+        self._mounted_subagents_by_name: dict = {}
         self.loop_state = None  # 预留给不同 loop 子类维护私有状态
 
         # ── 组合组件 ──
@@ -123,18 +126,18 @@ class BaseLoopEngine:
     def system_prompt(self) -> str | list[dict]:
         """动态拼接：基础 prompt + 项目路径 + 已注册 skill 的名称/描述"""
         if self._prompt_builder is None:
-            if self.loop_mode == LoopMode.REACT_SUBAGENT:
-                delegation_tool_names = ["Subagent"]
-            elif self.loop_mode == LoopMode.PLAN_EXECUTE:
-                delegation_tool_names = ["DelegateTask", "Subagent"]
-            elif self.loop_mode == LoopMode.WORKFLOW:
-                delegation_tool_names = []
-            else:
-                delegation_tool_names = ["DelegateTask"]
+            delegation_tool_names: list[str] = []
+            if self.loop_mode != LoopMode.WORKFLOW:
+                if "DelegateTask" in self.tool_handlers or any(
+                    t.get("name") == "DelegateTask" for t in self.tools
+                ):
+                    delegation_tool_names.append("DelegateTask")
+                delegation_tool_names.extend(sorted(self._mounted_subagent_names))
             self._prompt_builder = PromptBuilder(
                 self._system_prompt,
                 self._skills,
                 delegation_tool_names=delegation_tool_names,
+                mounted_subagents=list(self._mounted_subagents_by_name.values()),
             )
         return self._prompt_builder.build()
 
@@ -253,8 +256,9 @@ class BaseLoopEngine:
 
         self._ensure_task_planner()
         self._start_ts = __import__("time").monotonic()
+        loop_whitelist = set(self.LOOP_WHITELIST) | set(self._mounted_subagent_names)
         loop_detector = LoopDetector(
-            self.loop_threshold, self.LOOP_WHITELIST,
+            self.loop_threshold, loop_whitelist,
         )
         step = 0
 

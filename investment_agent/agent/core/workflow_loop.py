@@ -12,8 +12,6 @@ from ..workflows import WorkflowSpec, topological_order, validate_workflow_spec
 from ._signals import _Value
 from .base_loop import BaseLoopEngine
 from .subagent import run_delegate_task
-from .subagent_runtime import prepare_subagent_request, run_subagent
-from .types import ToolCall
 
 
 @dataclass
@@ -371,28 +369,51 @@ class WorkflowLoopEngine(BaseLoopEngine):
         yield _Value((result or "(委派节点完成，无文本输出)").strip())
 
     async def _run_subagent_node(self, node, input_text: str) -> AsyncGenerator[dict | _Value, None]:
+        from .subagent_runtime import (
+            DefinedSubagentRequest,
+            prepare_defined_subagent,
+            run_defined_subagent,
+        )
+
         task_text = node.task.strip()
         if input_text:
             task_text += f"\n\n上游输入：\n{input_text}"
 
-        tc = ToolCall(
-            id=f"workflow_subagent_{node.id}",
-            name="Subagent",
-            input={
+        subagent_name = (getattr(node, "subagent_name", None) or "").strip()
+        if not subagent_name:
+            raise ValueError(f"subagent 节点 {node.id} 缺少 subagent_name")
+
+        # 优先用主 Agent 已挂载定义；否则按 name 从目录加载
+        definition = (getattr(self, "_mounted_subagents_by_name", {}) or {}).get(subagent_name)
+        if not definition:
+            from ...app.services.subagent_service import SubagentService
+            definition = await SubagentService.get_by_name(subagent_name)
+        if not definition:
+            raise ValueError(f"未找到名为 '{subagent_name}' 的 Subagent 定义")
+
+        # 临时挂到引擎映射，供 prepare 查找
+        if not hasattr(self, "_mounted_subagents_by_name") or self._mounted_subagents_by_name is None:
+            self._mounted_subagents_by_name = {}
+        self._mounted_subagents_by_name[subagent_name] = definition
+
+        prepared = await prepare_defined_subagent(
+            self,
+            subagent_name,
+            {
                 "task": task_text,
-                "targets": node.targets,
                 "expected_output": node.expected_output,
-                "output_path": node.output_path,
             },
         )
-        prepared = await prepare_subagent_request(self, tc)
         if isinstance(prepared, str):
             raise ValueError(prepared)
 
         request, delegate_id = prepared
+        if not isinstance(request, DefinedSubagentRequest):
+            raise ValueError("Subagent 请求准备失败")
+
         result = ""
         error_message = ""
-        async for event in run_subagent(self, request, delegate_id):
+        async for event in run_defined_subagent(self, request, delegate_id):
             if event["type"] == EventType._DELEGATE_DONE:
                 result = event["result"]
             elif event["type"] == EventType._DELEGATE_ERROR:

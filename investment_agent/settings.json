@@ -24,6 +24,9 @@
   "skills": {
     "directory": "./extensions/skills"
   },
+  "subagents": {
+    "directory": "./extensions/subagents"
+  },
   "db": {
     "type": "sqlite",
     "sqlite_path": "./data/agent.db"
