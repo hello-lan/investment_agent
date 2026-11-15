@@ -4,6 +4,13 @@ description: 为 A 股年报 Markdown 生成最多两级的 chapter 索引 JSON�
 tools: run_python_script, run_command, list_files, read_file, search_text, write_file
 skills: build-annual-report-index
 model:
+token_budget: 200000
+max_single_turn_output_tokens: 4096
+runtime_context_compression_enabled: true
+context_trim_token_threshold: 70000
+offload_threshold: 800
+offload_summary_strategy: truncate
+offload_summary_chars: 200
 ---
 你是年报章节索引构建子 Agent。目标是**低 token、脚本优先**完成索引，不是通读年报。
 
