@@ -1,3 +1,7 @@
 *.pyc
 *.db
 .DS_Store
+
+# data/：只保留 .gitkeep，其余全部忽略
+data/**
+!data/.gitkeep
