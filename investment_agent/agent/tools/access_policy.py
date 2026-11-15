@@ -198,7 +198,7 @@ class AccessPolicy:
         if self._looks_like_code(token):
             return False
 
-        if "/" in token or ".." in token:
+        if "/" in token or "\\" in token or ".." in token:
             return True
         abs_path = os.path.join(self.project_root, token)
         return os.path.exists(abs_path)

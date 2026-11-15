@@ -5,9 +5,9 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ...config import PROJECT_ROOT
+from ...config import ROOT_DIR
 
-REPORTS_ROOT = PROJECT_ROOT / "data" / "reports"
+REPORTS_ROOT = ROOT_DIR / "data" / "reports"
 REPORT_SUFFIX = "_财务排雷分析报告.md"
 
 # 风险等级映射
@@ -99,7 +99,7 @@ def scan_forensic_reports() -> list[dict]:
     for md_file in REPORTS_ROOT.rglob(f"*{REPORT_SUFFIX}"):
         try:
             text = md_file.read_text(encoding="utf-8")
-            rel = str(md_file.relative_to(PROJECT_ROOT)).replace("\\", "/")
+            rel = str(md_file.relative_to(ROOT_DIR)).replace("\\", "/")
             parsed = parse_forensic_report(text, rel)
             parsed["file_path"] = rel
             parsed["updated_at"] = datetime.fromtimestamp(
@@ -122,11 +122,11 @@ def get_report_by_code(code: str) -> dict | None:
 
 def get_report_detail(file_path: str) -> dict | None:
     """按文件路径获取完整报告（含原文摘要）。"""
-    full = PROJECT_ROOT / file_path if not Path(file_path).is_absolute() else Path(file_path)
+    full = ROOT_DIR / file_path if not Path(file_path).is_absolute() else Path(file_path)
     if not full.exists():
         return None
     text = full.read_text(encoding="utf-8")
-    parsed = parse_forensic_report(text, str(full.relative_to(PROJECT_ROOT)).replace("\\", "/"))
+    parsed = parse_forensic_report(text, str(full.relative_to(ROOT_DIR)).replace("\\", "/"))
     parsed["content_preview"] = text[:8000]
     return parsed
 
