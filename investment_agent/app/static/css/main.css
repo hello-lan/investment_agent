@@ -184,6 +184,10 @@ body { font-family: var(--ff-body); background: var(--c-bg); height: 100vh; disp
 .slash-item-empty { cursor: default; color: var(--c-text-4); }
 .slash-item-empty:hover { background: transparent; }
 .slash-item-empty a { color: var(--c-primary); }
+.at-item { flex-wrap: wrap; }
+.at-item-name { max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-item-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-item-kind { font-size: var(--fs-sm); color: var(--c-text-4); flex-shrink: 0; margin-left: auto; }
 
 .input-area textarea { flex: 1; border: 1px solid var(--c-border); border-radius: var(--r-md); padding: 10px 14px; font-size: var(--fs-md); resize: none; outline: none; font-family: inherit; max-height: 120px; line-height: var(--lh-base); color: var(--c-text-1); transition: border-color var(--ease), box-shadow var(--ease); width: 100%; box-sizing: border-box; }
 .input-area textarea::placeholder { color: var(--c-text-4); }

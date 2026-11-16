@@ -910,6 +910,7 @@ function hideSlashMenu(){
   _slashMode = 'commands';
   _agentPickerItems = [];
   _modelPickerItems = [];
+  if (_atOpen) return;
   const menu = document.getElementById('slashMenu');
   if (menu){ menu.style.display = 'none'; menu.innerHTML = ''; }
 }
@@ -934,6 +935,7 @@ function updateSlashMenu(){
   if (!input || !menu) return;
 
   if (_slashMode === 'agents' || _slashMode === 'models') return;
+  if (_atOpen) hideAtMenu();
 
   const query = _slashQueryFromInput(input.value, input.selectionStart);
   const matches = _getSlashMatches(query);
@@ -992,6 +994,7 @@ function _renderAgentPicker(){
 async function openAgentPicker(){
   const input = document.getElementById('inputBox');
   if (input){ input.value = ''; autoResize(input); }
+  hideAtMenu();
 
   const agents = Object.values(agentMap);
   if (!agents.length) {
@@ -1035,6 +1038,7 @@ function _renderModelPicker(){
 async function openModelPicker(){
   const input = document.getElementById('inputBox');
   if (input){ input.value = ''; autoResize(input); }
+  hideAtMenu();
 
   if (!modelList.length) {
     await loadModels();
@@ -1135,10 +1139,20 @@ function onInputBoxInput(el){
     const v = el.value;
     if (!v || v[0] !== '/') {
       hideSlashMenu();
+      updateAtMenu();
+      if (_atOpen) return;
       updateSlashMenu();
       return;
     }
+    return;
   }
+  const atToken = _atQueryFromInput(el.value, el.selectionStart);
+  if (atToken) {
+    updateAtMenu();
+    return;
+  }
+  if (_atOpen || _atDismissed) hideAtMenu();
+  else _clearAtDismissed();
   updateSlashMenu();
 }
 
@@ -1154,6 +1168,317 @@ function _moveSlashSelection(delta){
   menu.querySelectorAll('.slash-item').forEach((el, i) => {
     el.classList.toggle('active', i === _slashIndex);
   });
+}
+
+/* ====== @ 文件路径提及 ====== */
+
+const AT_MAX_RESULTS = 30;
+
+let _atOpen = false;
+let _atMatches = [];
+let _atIndex = 0;
+let _atToken = null;
+let _atDismissed = false;
+let _atDismissedTokenStart = -1;
+let _atFileIndex = null;
+let _atFileIndexPromise = null;
+let _atUpdateSeq = 0;
+
+function _clearAtDismissed(){
+  _atDismissed = false;
+  _atDismissedTokenStart = -1;
+}
+
+function _atQueryFromInput(value, cursorPos){
+  if (!value) return null;
+  const cursor = typeof cursorPos === 'number' ? cursorPos : value.length;
+  if (cursor < 1) return null;
+
+  let start = cursor;
+  while (start > 0 && !/\s/.test(value[start - 1])) start--;
+  if (value[start] !== '@') return null;
+  if (start > 0 && !/\s/.test(value[start - 1])) return null;
+
+  let end = start + 1;
+  while (end < value.length && !/\s/.test(value[end])) end++;
+
+  const query = value.slice(start + 1, cursor);
+  return { start, end, query, cursor };
+}
+
+function _flattenFileTree(nodes, out){
+  const list = out || [];
+  if (!Array.isArray(nodes)) return list;
+  for (const n of nodes) {
+    if (!n || !n.path) continue;
+    const path = String(n.path).replace(/\\/g, '/');
+    const type = n.type === 'dir' ? 'dir' : 'file';
+    list.push({
+      name: n.name || path.split('/').pop() || path,
+      path,
+      type,
+    });
+    if (type === 'dir' && Array.isArray(n.children) && n.children.length) {
+      _flattenFileTree(n.children, list);
+    }
+  }
+  return list;
+}
+
+async function _ensureAtFileIndex(){
+  if (_atFileIndex) return _atFileIndex;
+  if (_atFileIndexPromise) return _atFileIndexPromise;
+  _atFileIndexPromise = fetch('/api/files/tree')
+    .then(res => {
+      if (!res.ok) throw new Error('load failed');
+      return res.json();
+    })
+    .then(tree => {
+      _atFileIndex = _flattenFileTree(tree);
+      return _atFileIndex;
+    })
+    .catch(err => {
+      _atFileIndexPromise = null;
+      throw err;
+    });
+  return _atFileIndexPromise;
+}
+
+function _scoreAtMatch(entry, query){
+  const q = String(query || '').toLowerCase();
+  if (!q) return 0;
+  const name = String(entry.name || '').toLowerCase();
+  const path = String(entry.path || '').toLowerCase();
+  if (name === q) return 1000;
+  if (name.startsWith(q)) return 800;
+  if (name.includes(q)) return 500;
+  if (path.startsWith(q)) return 350;
+  if (path.includes(q)) return 200;
+  return 0;
+}
+
+function _getAtMatches(index, query){
+  const q = String(query || '').replace(/\\/g, '/');
+  if (!index || !index.length) return [];
+
+  if (!q) {
+    return index
+      .filter(e => e.path && !e.path.includes('/'))
+      .slice()
+      .sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+        return a.name.localeCompare(b.name, 'zh');
+      })
+      .slice(0, AT_MAX_RESULTS);
+  }
+
+  if (q.includes('/')) {
+    const qLower = q.toLowerCase();
+    const scored = [];
+    for (const e of index) {
+      const path = e.path.toLowerCase();
+      const withSlash = e.type === 'dir' ? path + '/' : path;
+      if (!path.startsWith(qLower) && !withSlash.startsWith(qLower)) continue;
+      scored.push(e);
+    }
+    scored.sort((a, b) => {
+      const da = a.path.split('/').length;
+      const db = b.path.split('/').length;
+      if (da !== db) return da - db;
+      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+      return a.path.localeCompare(b.path, 'zh');
+    });
+    return scored.slice(0, AT_MAX_RESULTS);
+  }
+
+  const scored = [];
+  for (const e of index) {
+    const score = _scoreAtMatch(e, q);
+    if (score > 0) scored.push({ entry: e, score });
+  }
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.entry.path.length !== b.entry.path.length) {
+      return a.entry.path.length - b.entry.path.length;
+    }
+    return a.entry.path.localeCompare(b.entry.path, 'zh');
+  });
+  return scored.slice(0, AT_MAX_RESULTS).map(s => s.entry);
+}
+
+function hideAtMenu(opts){
+  const dismiss = !!(opts && opts.dismiss);
+  if (dismiss) {
+    const input = document.getElementById('inputBox');
+    const token = _atToken || (input && _atQueryFromInput(input.value, input.selectionStart));
+    if (token) {
+      _atDismissed = true;
+      _atDismissedTokenStart = token.start;
+    }
+  } else {
+    _clearAtDismissed();
+  }
+  _atOpen = false;
+  _atMatches = [];
+  _atIndex = 0;
+  _atToken = null;
+  if (_slashOpen) return;
+  const menu = document.getElementById('slashMenu');
+  if (menu){ menu.style.display = 'none'; menu.innerHTML = ''; }
+}
+
+function _atDisplayPath(entry){
+  const p = 'data/' + entry.path.replace(/\\/g, '/');
+  return entry.type === 'dir' ? p + '/' : p;
+}
+
+function _renderAtMenu(matches, opts){
+  const menu = document.getElementById('slashMenu');
+  if (!menu) return;
+  const hint = '<div class="slash-menu-hint">↑↓选择，Tab/Enter确认，Esc取消</div>';
+  if (opts && opts.loading) {
+    menu.innerHTML = hint + '<div class="slash-item slash-item-empty">加载文件列表…</div>';
+    menu.style.display = '';
+    _atOpen = true;
+    _slashOpen = false;
+    return;
+  }
+  if (opts && opts.error) {
+    menu.innerHTML = hint +
+      '<div class="slash-item slash-item-empty">无法加载文件列表</div>';
+    menu.style.display = '';
+    _atOpen = true;
+    _slashOpen = false;
+    return;
+  }
+  if (!matches.length) {
+    hideAtMenu();
+    return;
+  }
+
+  if (_atMatches.length !== matches.length ||
+      _atMatches.some((m, i) => m.path !== matches[i].path || m.type !== matches[i].type)) {
+    _atIndex = 0;
+  } else {
+    _atIndex = Math.max(0, Math.min(_atIndex, matches.length - 1));
+  }
+  _atMatches = matches;
+  _atOpen = true;
+  _slashOpen = false;
+
+  menu.innerHTML = hint + matches.map((e, i) => {
+    const active = i === _atIndex ? ' active' : '';
+    const kind = e.type === 'dir' ? '文件夹' : '文件';
+    const display = _atDisplayPath(e);
+    const base = e.name + (e.type === 'dir' ? '/' : '');
+    const parent = e.path.includes('/')
+      ? 'data/' + e.path.slice(0, e.path.lastIndexOf('/') + 1)
+      : 'data/';
+    return `<div class="slash-item at-item${active}" role="option" data-idx="${i}"` +
+      ` onclick="selectAtItem(${i})">` +
+      `<span class="slash-item-name at-item-name">${escapeHtml(base)}</span>` +
+      `<span class="slash-item-desc at-item-path" title="${escapeHtml(display)}">${escapeHtml(parent)}</span>` +
+      `<span class="at-item-kind">${kind}</span></div>`;
+  }).join('');
+  menu.style.display = '';
+
+  const activeEl = menu.querySelector('.slash-item.active');
+  if (activeEl && typeof activeEl.scrollIntoView === 'function') {
+    activeEl.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+async function updateAtMenu(){
+  const input = document.getElementById('inputBox');
+  const menu = document.getElementById('slashMenu');
+  if (!input || !menu) return;
+
+  const token = _atQueryFromInput(input.value, input.selectionStart);
+  if (!token) {
+    if (_atOpen) hideAtMenu();
+    else _clearAtDismissed();
+    return;
+  }
+
+  if (_atDismissed && token.start === _atDismissedTokenStart) {
+    if (_atOpen) hideAtMenu({ dismiss: true });
+    return;
+  }
+  if (_atDismissed && token.start !== _atDismissedTokenStart) {
+    _clearAtDismissed();
+  }
+
+  _atToken = token;
+  hideSlashMenu();
+
+  const seq = ++_atUpdateSeq;
+  if (!_atFileIndex) {
+    _renderAtMenu([], { loading: true });
+  }
+
+  let index;
+  try {
+    index = await _ensureAtFileIndex();
+  } catch (_) {
+    if (seq !== _atUpdateSeq) return;
+    const still = _atQueryFromInput(input.value, input.selectionStart);
+    if (!still || still.start !== token.start) return;
+    _atToken = still;
+    _renderAtMenu([], { error: true });
+    return;
+  }
+  if (seq !== _atUpdateSeq) return;
+
+  const still = _atQueryFromInput(input.value, input.selectionStart);
+  if (!still || still.start !== token.start) return;
+  if (_atDismissed && still.start === _atDismissedTokenStart) return;
+
+  _atToken = still;
+  const matches = _getAtMatches(index, still.query);
+  if (!matches.length) {
+    // 无匹配：隐藏面板，不抑制，方便回退字符后再次出现
+    hideAtMenu();
+    return;
+  }
+  _renderAtMenu(matches);
+}
+
+function selectAtItem(idx){
+  if (idx < 0 || idx >= _atMatches.length) return;
+  _atIndex = idx;
+  confirmAtItem();
+}
+
+function confirmAtItem(){
+  const input = document.getElementById('inputBox');
+  if (!input || !_atMatches.length) return;
+  const entry = _atMatches[_atIndex] || _atMatches[0];
+  const token = _atToken || _atQueryFromInput(input.value, input.selectionStart);
+  if (!token || !entry) return;
+
+  const insert = '`' + _atDisplayPath(entry) + '`';
+  const before = input.value.slice(0, token.start);
+  const after = input.value.slice(token.end);
+  input.value = before + insert + after;
+  const caret = before.length + insert.length;
+  autoResize(input);
+  hideAtMenu();
+  input.focus();
+  input.setSelectionRange(caret, caret);
+}
+
+function _moveAtSelection(delta){
+  if (!_atOpen || !_atMatches.length) return;
+  _atIndex = (_atIndex + delta + _atMatches.length) % _atMatches.length;
+  const menu = document.getElementById('slashMenu');
+  if (!menu) return;
+  menu.querySelectorAll('.slash-item').forEach((el, i) => {
+    el.classList.toggle('active', i === _atIndex);
+  });
+  const activeEl = menu.querySelector('.slash-item.active');
+  if (activeEl && typeof activeEl.scrollIntoView === 'function') {
+    activeEl.scrollIntoView({ block: 'nearest' });
+  }
 }
 
 /* ====== 发送消息 ====== */
@@ -1175,6 +1500,7 @@ async function sendMessage(){
 
   const displayText = currentFile ? (text || '(无文本问题)') + '\n\n[已上传文件] ' + currentFile.name : text;
   input.value = ''; autoResize(input);
+  hideAtMenu();
   hideSlashMenu();
   appendUserMsg(displayText);
   showThinking(); setRunning(true);
@@ -1223,6 +1549,21 @@ async function sendMessage(){
 }
 
 function handleKey(e){
+  if (_atOpen){
+    if (e.key === 'ArrowDown'){ e.preventDefault(); _moveAtSelection(1); return; }
+    if (e.key === 'ArrowUp'){ e.preventDefault(); _moveAtSelection(-1); return; }
+    if (e.key === 'Escape'){ e.preventDefault(); hideAtMenu({ dismiss: true }); return; }
+    if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)){
+      e.preventDefault();
+      confirmAtItem();
+      return;
+    }
+    if (e.key === ' ' || e.code === 'Space'){
+      // 插入空格并结束提及，保留已输入的 @… 原文
+      hideAtMenu();
+      return;
+    }
+  }
   if (_slashOpen){
     if (e.key === 'ArrowDown'){ e.preventDefault(); _moveSlashSelection(1); return; }
     if (e.key === 'ArrowUp'){ e.preventDefault(); _moveSlashSelection(-1); return; }
@@ -1255,7 +1596,7 @@ function autoResize(el){ el.style.height='auto'; el.style.height=Math.min(el.scr
 
 function fillExample(text){
   const input = document.getElementById('inputBox');
-  if (input){ input.value = text; autoResize(input); hideSlashMenu(); input.focus(); }
+  if (input){ input.value = text; autoResize(input); hideAtMenu(); hideSlashMenu(); input.focus(); }
 }
 
 /* ====== 自动滚动控制 ====== */
