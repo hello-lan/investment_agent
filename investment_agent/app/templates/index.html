@@ -73,9 +73,23 @@
   </aside>
 
 </div>
+
+<div class="file-drawer-overlay" id="fileDrawerOverlay" hidden></div>
+<aside class="file-drawer" id="fileDrawer" aria-hidden="true">
+  <div class="file-drawer-resizer" id="fileDrawerResizer" title="拖动调整宽度" role="separator" aria-orientation="vertical"></div>
+  <div class="file-drawer-header">
+    <button type="button" class="file-drawer-back" id="fileDrawerBack" title="返回" style="display:none">←</button>
+    <div class="file-drawer-title" id="fileDrawerTitle">文件预览</div>
+    <div class="file-drawer-toolbar" id="fileDrawerToolbar" style="display:none"></div>
+    <button type="button" class="file-drawer-close" id="fileDrawerClose" title="关闭">×</button>
+  </div>
+  <div class="file-drawer-path" id="fileDrawerPath"></div>
+  <div class="file-drawer-body" id="fileDrawerBody"></div>
+</aside>
 {% endblock %}
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
 <script src="/static/js/chat.js"></script>
 {% endblock %}

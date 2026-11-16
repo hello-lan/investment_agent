@@ -6,8 +6,118 @@ const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const ALLOWED_EXTS = new Set(['.txt','.md','.pdf','.xlsx','.xls','.docx','.doc']);
 const AGENT_ICONS = ['📊','🔍','💡','📈','🧠','⚡','🎯','🔬','💼','📋'];
 const STREAM_RENDER_INTERVAL_MS = 60;
+const DATA_PATH_RE = /data[/\\](?:[^/\\\s`'"<>|]+[/\\])+[^/\\\s`'"<>|]+[/\\]?/gi;
+
+let _drawerNavStack = [];
+let _drawerEscBound = false;
+const DRAWER_WIDTH_KEY = 'fileDrawerWidth';
+const DRAWER_MIN_WIDTH = 320;
+const DRAWER_MAX_WIDTH_RATIO = 0.92;
+let _drawerResizing = false;
+let _drawerCurrentFile = null;
 
 function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function _pathExt(name){
+  const m = String(name || '').toLowerCase().match(/(\.[a-z0-9]+)$/);
+  return m ? m[1] : '';
+}
+
+function _inferPathFtype(displayPath){
+  const p = String(displayPath || '').replace(/\\/g, '/');
+  if (/\/$/.test(p)) return 'folder';
+  const base = p.split('/').pop() || '';
+  const ext = _pathExt(base);
+  if (!ext) return 'folder';
+  if (ext === '.json') return 'json';
+  if (ext === '.pdf') return 'pdf';
+  if (ext === '.md' || ext === '.markdown') return 'markdown';
+  return 'text';
+}
+
+function _toApiPath(displayPath){
+  let p = String(displayPath || '').trim().replace(/\\/g, '/');
+  p = p.replace(/\/+$/, '');
+  if (/^data\//i.test(p)) p = p.slice(5);
+  return p;
+}
+
+function _displayDataPath(apiPath){
+  const p = String(apiPath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  return p ? ('data/' + p) : 'data';
+}
+
+function _buildPathChip(displayPath){
+  const ftype = _inferPathFtype(displayPath);
+  const apiPath = _toApiPath(displayPath);
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'path-chip';
+  btn.dataset.path = apiPath;
+  btn.dataset.ftype = ftype;
+  btn.title = '打开 ' + displayPath;
+  const icon = document.createElement('span');
+  icon.className = 'path-icon path-icon-' + ftype;
+  icon.setAttribute('aria-hidden', 'true');
+  const text = document.createElement('span');
+  text.className = 'path-text';
+  text.textContent = displayPath.replace(/\\/g, '/');
+  btn.appendChild(icon);
+  btn.appendChild(text);
+  return btn;
+}
+
+function _shouldSkipPathNode(node){
+  let el = node.parentElement;
+  while (el) {
+    if (el.tagName === 'A' || el.tagName === 'BUTTON') return true;
+    if (el.classList && el.classList.contains('path-chip')) return true;
+    el = el.parentElement;
+  }
+  return false;
+}
+
+function linkifyDataPaths(html){
+  const src = String(html || '');
+  if (!src || !/data[/\\]/i.test(src)) return src;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = src;
+  const walker = document.createTreeWalker(wrap, NodeFilter.SHOW_TEXT, null);
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+  for (const textNode of nodes) {
+    if (_shouldSkipPathNode(textNode)) continue;
+    const value = textNode.nodeValue;
+    if (!value || !/data[/\\]/i.test(value)) continue;
+    DATA_PATH_RE.lastIndex = 0;
+    let match;
+    let last = 0;
+    const frag = document.createDocumentFragment();
+    let changed = false;
+    while ((match = DATA_PATH_RE.exec(value)) !== null) {
+      let raw = match[0];
+      // Strip trailing punctuation that the char-class may have absorbed
+      raw = raw.replace(/[.,;:!?，。；：！？、）)】》」』]+$/u, '');
+      if (!raw || !/[/\\]/.test(raw.slice(4))) continue;
+      const absEnd = match.index + match[0].length;
+      const usedEnd = match.index + raw.length;
+      if (match.index > last) {
+        frag.appendChild(document.createTextNode(value.slice(last, match.index)));
+      }
+      frag.appendChild(_buildPathChip(raw));
+      if (usedEnd < absEnd) {
+        frag.appendChild(document.createTextNode(value.slice(usedEnd, absEnd)));
+      }
+      last = absEnd;
+      changed = true;
+    }
+    if (!changed) continue;
+    if (last < value.length) frag.appendChild(document.createTextNode(value.slice(last)));
+    textNode.parentNode.replaceChild(frag, textNode);
+  }
+  return wrap.innerHTML;
+}
 
 function _safeUrl(url){
   const u = String(url || '').trim();
@@ -73,7 +183,7 @@ function _createStreamState(replyBlock){
 function renderMarkdown(t){
   const src = String(t || '');
   if (!window.marked || !window.DOMPurify) {
-    return escapeHtml(src).replace(/\n/g, '<br>');
+    return linkifyDataPaths(escapeHtml(src).replace(/\n/g, '<br>'));
   }
   try {
     marked.setOptions({ gfm: true, breaks: false, headerIds: false, mangle: false });
@@ -91,9 +201,10 @@ function renderMarkdown(t){
       return `<img src="${safe}" alt="${escapeHtml(text || '')}" loading="lazy"${tAttr}>`;
     };
     const raw = marked.parse(src, { renderer });
-    return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+    const clean = DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+    return linkifyDataPaths(clean);
   } catch (_) {
-    return escapeHtml(src).replace(/\n/g, '<br>');
+    return linkifyDataPaths(escapeHtml(src).replace(/\n/g, '<br>'));
   }
 }
 
@@ -374,7 +485,7 @@ function clearFile(){
 
 function appendUserMsg(text){
   const w = document.getElementById('welcome'); if (w) w.remove();
-  _append('<div class="msg user"><div class="msg-bubble">' + escapeHtml(text) + '</div></div>');
+  _append('<div class="msg user"><div class="msg-bubble">' + linkifyDataPaths(escapeHtml(text)) + '</div></div>');
 }
 
 function appendAssistantMsg(md){
@@ -1043,11 +1154,502 @@ function _welcomeHtml(){
     '</div></div>';
 }
 
+/* ====== 文件路径抽屉预览 ====== */
+
+function _formatSize(bytes){
+  if (bytes == null || isNaN(bytes)) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function _drawerEls(){
+  return {
+    overlay: document.getElementById('fileDrawerOverlay'),
+    drawer: document.getElementById('fileDrawer'),
+    title: document.getElementById('fileDrawerTitle'),
+    path: document.getElementById('fileDrawerPath'),
+    body: document.getElementById('fileDrawerBody'),
+    back: document.getElementById('fileDrawerBack'),
+    close: document.getElementById('fileDrawerClose'),
+    resizer: document.getElementById('fileDrawerResizer'),
+    toolbar: document.getElementById('fileDrawerToolbar'),
+  };
+}
+
+function _dataFileUrl(apiPath){
+  return '/data-files/' + String(apiPath || '').split('/').filter(Boolean).map(encodeURIComponent).join('/');
+}
+
+function _clearDrawerToolbar(){
+  const els = _drawerEls();
+  _drawerCurrentFile = null;
+  if (!els.toolbar) return;
+  els.toolbar.innerHTML = '';
+  els.toolbar.style.display = 'none';
+}
+
+function _triggerBlobDownload(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'download';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+}
+
+function _downloadDrawerSource(){
+  const file = _drawerCurrentFile;
+  if (!file) return;
+  if (file.type === 'text' && file.content != null) {
+    const mime = file.ext === '.json' ? 'application/json'
+      : (file.ext === '.html' || file.ext === '.htm') ? 'text/html'
+      : (file.ext === '.md' || file.ext === '.markdown') ? 'text/markdown;charset=utf-8'
+      : 'text/plain;charset=utf-8';
+    _triggerBlobDownload(new Blob([file.content], { type: mime }), file.name || 'download.txt');
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = file.url || _dataFileUrl(file.path);
+  a.download = file.name || 'download';
+  a.target = '_blank';
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+function _downloadDrawerMarkdownPdf(){
+  const file = _drawerCurrentFile;
+  if (!file || !window.html2pdf) {
+    alert('PDF 导出组件未加载，请刷新后重试');
+    return;
+  }
+  const container = document.createElement('div');
+  container.style.padding = '24px';
+  container.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
+  container.style.fontSize = '13px';
+  container.style.lineHeight = '1.7';
+  container.style.color = '#333';
+  container.style.maxWidth = '800px';
+  container.style.margin = '0 auto';
+  try {
+    container.innerHTML = window.marked
+      ? marked.parse(file.content || '')
+      : '<pre>' + escapeHtml(file.content || '') + '</pre>';
+  } catch (_) {
+    container.textContent = file.content || '';
+  }
+  const pdfName = String(file.name || 'document').replace(/\.md$/i, '').replace(/\.markdown$/i, '') + '.pdf';
+  html2pdf().set({
+    margin: [15, 15, 15, 15],
+    filename: pdfName,
+    image: { type: 'jpeg', quality: 0.95 },
+    html2canvas: { scale: 2, logging: false, useCORS: true },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+  }).from(container).save();
+}
+
+function _buildDrawerDownloadToolbar(file){
+  const els = _drawerEls();
+  if (!els.toolbar || !file) {
+    _clearDrawerToolbar();
+    return;
+  }
+  _drawerCurrentFile = file;
+  els.toolbar.innerHTML = '';
+  els.toolbar.style.display = 'flex';
+
+  const isMd = file.ext === '.md' || file.ext === '.markdown';
+  const wrap = document.createElement('div');
+  wrap.className = 'drawer-download-wrap';
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'drawer-download-btn';
+  btn.title = '下载';
+  btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+
+  if (!isMd) {
+    btn.addEventListener('click', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      _downloadDrawerSource();
+    });
+    wrap.appendChild(btn);
+    els.toolbar.appendChild(wrap);
+    return;
+  }
+
+  const dropdown = document.createElement('div');
+  dropdown.className = 'drawer-download-dropdown';
+
+  const mdItem = document.createElement('button');
+  mdItem.type = 'button';
+  mdItem.className = 'drawer-download-item';
+  mdItem.innerHTML = 'Markdown<span class="desc">下载源文件 (.md)</span>';
+  mdItem.addEventListener('click', function(e){
+    e.preventDefault();
+    e.stopPropagation();
+    dropdown.classList.remove('show');
+    _downloadDrawerSource();
+  });
+
+  const pdfItem = document.createElement('button');
+  pdfItem.type = 'button';
+  pdfItem.className = 'drawer-download-item';
+  pdfItem.innerHTML = 'PDF<span class="desc">渲染后转换 (.pdf)</span>';
+  pdfItem.addEventListener('click', function(e){
+    e.preventDefault();
+    e.stopPropagation();
+    dropdown.classList.remove('show');
+    _downloadDrawerMarkdownPdf();
+  });
+
+  dropdown.appendChild(mdItem);
+  dropdown.appendChild(pdfItem);
+  btn.addEventListener('click', function(e){
+    e.preventDefault();
+    e.stopPropagation();
+    dropdown.classList.toggle('show');
+  });
+  wrap.appendChild(btn);
+  wrap.appendChild(dropdown);
+  els.toolbar.appendChild(wrap);
+}
+
+function _drawerMaxWidth(){
+  return Math.max(DRAWER_MIN_WIDTH, Math.floor(window.innerWidth * DRAWER_MAX_WIDTH_RATIO));
+}
+
+function _clampDrawerWidth(px){
+  const n = Math.round(Number(px) || 0);
+  return Math.min(_drawerMaxWidth(), Math.max(DRAWER_MIN_WIDTH, n));
+}
+
+function _readStoredDrawerWidth(){
+  try {
+    const v = localStorage.getItem(DRAWER_WIDTH_KEY);
+    if (!v) return null;
+    const n = parseInt(v, 10);
+    return isNaN(n) ? null : n;
+  } catch (_) {
+    return null;
+  }
+}
+
+function _saveDrawerWidth(px){
+  try { localStorage.setItem(DRAWER_WIDTH_KEY, String(px)); } catch (_) {}
+}
+
+function _applyDrawerWidth(px){
+  const els = _drawerEls();
+  if (!els.drawer) return;
+  const w = _clampDrawerWidth(px != null ? px : (_readStoredDrawerWidth() || 560));
+  els.drawer.style.width = w + 'px';
+  return w;
+}
+
+function _setDrawerHeader(name, apiPath){
+  const els = _drawerEls();
+  if (els.title) els.title.textContent = name || '文件预览';
+  if (els.path) els.path.textContent = _displayDataPath(apiPath);
+  if (els.back) els.back.style.display = _drawerNavStack.length > 1 ? '' : 'none';
+}
+
+function openFileDrawer(){
+  const els = _drawerEls();
+  if (!els.drawer || !els.overlay) return;
+  _applyDrawerWidth();
+  els.overlay.hidden = false;
+  requestAnimationFrame(function(){
+    els.overlay.classList.add('open');
+    els.drawer.classList.add('open');
+    els.drawer.setAttribute('aria-hidden', 'false');
+  });
+  if (!_drawerEscBound) {
+    _drawerEscBound = true;
+    document.addEventListener('keydown', _onDrawerKeydown);
+  }
+}
+
+function closeFileDrawer(){
+  const els = _drawerEls();
+  if (!els.drawer || !els.overlay) return;
+  els.overlay.classList.remove('open');
+  els.drawer.classList.remove('open');
+  els.drawer.setAttribute('aria-hidden', 'true');
+  window.setTimeout(function(){
+    if (!els.drawer.classList.contains('open')) els.overlay.hidden = true;
+  }, 220);
+  _drawerNavStack = [];
+  _clearDrawerToolbar();
+  if (_drawerEscBound) {
+    document.removeEventListener('keydown', _onDrawerKeydown);
+    _drawerEscBound = false;
+  }
+}
+
+function _onDrawerKeydown(e){
+  if (e.key === 'Escape') closeFileDrawer();
+}
+
+function _drawerShowLoading(){
+  const els = _drawerEls();
+  _clearDrawerToolbar();
+  if (els.body) els.body.innerHTML = '<div class="loading">加载中...</div>';
+}
+
+function _drawerShowError(msg){
+  const els = _drawerEls();
+  _clearDrawerToolbar();
+  if (els.body) els.body.innerHTML = '<div class="drawer-error">' + escapeHtml(msg || '加载失败') + '</div>';
+}
+
+function _ftypeFromEntry(entry){
+  if (!entry) return 'text';
+  if (entry.type === 'dir') return 'folder';
+  return _inferPathFtype(entry.name || entry.path || '');
+}
+
+function _renderDirListing(entries, apiPath){
+  const els = _drawerEls();
+  _clearDrawerToolbar();
+  const name = (apiPath || '').split('/').filter(Boolean).pop() || 'data';
+  _setDrawerHeader(name, apiPath || '');
+  if (!entries || !entries.length) {
+    els.body.innerHTML = '<div class="drawer-empty">该目录为空</div>';
+    return;
+  }
+  let html = '<ul class="drawer-dir-list">';
+  for (const entry of entries) {
+    const ftype = _ftypeFromEntry(entry);
+    const meta = entry.type === 'dir'
+      ? (entry.hasChildren ? '文件夹' : '空文件夹')
+      : _formatSize(entry.size);
+    html +=
+      '<li><button type="button" class="drawer-dir-item" data-path="' + escapeHtml(entry.path) +
+      '" data-ftype="' + ftype + '">' +
+      '<span class="path-icon path-icon-' + ftype + '" aria-hidden="true"></span>' +
+      '<span class="dir-name">' + escapeHtml(entry.name) + '</span>' +
+      '<span class="dir-meta">' + escapeHtml(meta) + '</span>' +
+      '</button></li>';
+  }
+  html += '</ul>';
+  els.body.innerHTML = html;
+}
+
+function _renderFilePreview(data, apiPath){
+  const els = _drawerEls();
+  const title = (data.name || apiPath) + (data.size != null ? ' (' + _formatSize(data.size) + ')' : '');
+  _setDrawerHeader(title, apiPath);
+  const fileMeta = {
+    path: apiPath,
+    name: data.name || (apiPath || '').split('/').pop() || 'download',
+    type: data.type,
+    ext: data.ext || _pathExt(data.name || apiPath),
+    content: data.content,
+    url: data.url || _dataFileUrl(apiPath),
+  };
+  _buildDrawerDownloadToolbar(fileMeta);
+  if (data.type === 'pdf' || data.type === 'binary') {
+    els.body.innerHTML = '<iframe src="' + escapeHtml(data.url) + '" title="' + escapeHtml(data.name || '') + '"></iframe>';
+    return;
+  }
+  if (data.type === 'text') {
+    let inner;
+    if (data.ext === '.md' || data.ext === '.markdown') {
+      try {
+        if (window.marked) {
+          const rawMd = marked.parse(data.content || '');
+          const cleanMd = window.DOMPurify
+            ? DOMPurify.sanitize(rawMd, { USE_PROFILES: { html: true } })
+            : rawMd;
+          inner = linkifyDataPaths(cleanMd);
+        } else {
+          inner = '<pre>' + escapeHtml(data.content || '') + '</pre>';
+        }
+      } catch (_) {
+        inner = '<pre>' + escapeHtml(data.content || '') + '</pre>';
+      }
+    } else if (data.ext === '.json') {
+      let pretty = data.content || '';
+      try { pretty = JSON.stringify(JSON.parse(pretty), null, 2); } catch (_) {}
+      inner = '<pre>' + escapeHtml(pretty) + '</pre>';
+    } else if (data.ext === '.html' || data.ext === '.htm') {
+      inner =
+        '<div style="margin-bottom:12px;padding:8px 12px;background:var(--c-warning-bg);border-radius:4px;font-size:12px;color:var(--c-warning);">HTML 源文件预览</div>' +
+        '<pre>' + escapeHtml(data.content || '') + '</pre>';
+    } else {
+      inner = '<pre>' + escapeHtml(data.content || '') + '</pre>';
+    }
+    els.body.innerHTML = '<div class="drawer-content">' + inner + '</div>';
+    return;
+  }
+  _clearDrawerToolbar();
+  _drawerShowError('不支持的文件类型');
+}
+
+async function _fetchChildren(apiPath){
+  const q = apiPath ? ('?path=' + encodeURIComponent(apiPath)) : '';
+  const res = await fetch('/api/files/children' + q);
+  if (!res.ok) throw new Error('目录不存在或无法访问');
+  return res.json();
+}
+
+async function _fetchView(apiPath){
+  const res = await fetch('/api/files/view?path=' + encodeURIComponent(apiPath));
+  if (!res.ok) throw new Error('文件不存在或无法访问');
+  return res.json();
+}
+
+async function _loadDrawerTarget(apiPath, ftype, pushStack){
+  const path = String(apiPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  const kind = ftype || _inferPathFtype(path);
+  if (pushStack !== false) {
+    _drawerNavStack.push({ path: path, ftype: kind });
+  }
+  _drawerShowLoading();
+  openFileDrawer();
+  try {
+    if (kind === 'folder') {
+      const entries = await _fetchChildren(path);
+      _renderDirListing(entries, path);
+      return;
+    }
+    try {
+      const data = await _fetchView(path);
+      _renderFilePreview(data, path);
+    } catch (fileErr) {
+      // 可能是无扩展名目录被误判为文件
+      const entries = await _fetchChildren(path);
+      if (_drawerNavStack.length) _drawerNavStack[_drawerNavStack.length - 1].ftype = 'folder';
+      _renderDirListing(entries, path);
+    }
+  } catch (err) {
+    _setDrawerHeader(path.split('/').pop() || '预览', path);
+    _drawerShowError(err.message || '加载失败');
+  }
+}
+
+function openPathInDrawer(apiPath, ftype){
+  _drawerNavStack = [];
+  _loadDrawerTarget(apiPath, ftype, true);
+}
+
+function _drawerGoBack(){
+  if (_drawerNavStack.length <= 1) {
+    closeFileDrawer();
+    return;
+  }
+  _drawerNavStack.pop();
+  const prev = _drawerNavStack[_drawerNavStack.length - 1];
+  _loadDrawerTarget(prev.path, prev.ftype, false);
+}
+
+function _initDrawerResize(){
+  const els = _drawerEls();
+  if (!els.drawer || !els.resizer) return;
+  _applyDrawerWidth();
+
+  function onMove(e){
+    if (!_drawerResizing) return;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const width = _clampDrawerWidth(window.innerWidth - clientX);
+    els.drawer.style.width = width + 'px';
+    if (e.cancelable) e.preventDefault();
+  }
+
+  function onUp(){
+    if (!_drawerResizing) return;
+    _drawerResizing = false;
+    els.drawer.classList.remove('is-resizing');
+    document.body.classList.remove('file-drawer-resizing');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend', onUp);
+    const w = _clampDrawerWidth(els.drawer.getBoundingClientRect().width);
+    els.drawer.style.width = w + 'px';
+    _saveDrawerWidth(w);
+  }
+
+  function onDown(e){
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    _drawerResizing = true;
+    els.drawer.classList.add('is-resizing');
+    document.body.classList.add('file-drawer-resizing');
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onUp);
+  }
+
+  els.resizer.addEventListener('mousedown', onDown);
+  els.resizer.addEventListener('touchstart', onDown, { passive: false });
+
+  window.addEventListener('resize', function(){
+    if (!els.drawer.classList.contains('open')) return;
+    _applyDrawerWidth(els.drawer.getBoundingClientRect().width);
+  });
+}
+
+function _initFileDrawer(){
+  const els = _drawerEls();
+  if (!els.drawer) return;
+  _initDrawerResize();
+  document.addEventListener('click', function(e){
+    if (!els.toolbar) return;
+    const open = els.toolbar.querySelector('.drawer-download-dropdown.show');
+    if (!open) return;
+    if (e.target.closest('.drawer-download-wrap')) return;
+    open.classList.remove('show');
+  });
+  if (els.overlay) {
+    els.overlay.addEventListener('click', function(){ closeFileDrawer(); });
+  }
+  if (els.close) {
+    els.close.addEventListener('click', function(){ closeFileDrawer(); });
+  }
+  if (els.back) {
+    els.back.addEventListener('click', function(){ _drawerGoBack(); });
+  }
+  if (els.body) {
+    els.body.addEventListener('click', function(e){
+      const chip = e.target.closest('.path-chip');
+      if (chip && els.body.contains(chip)) {
+        e.preventDefault();
+        _loadDrawerTarget(chip.dataset.path || '', chip.dataset.ftype || '', true);
+        return;
+      }
+      const row = e.target.closest('.drawer-dir-item');
+      if (!row) return;
+      e.preventDefault();
+      _loadDrawerTarget(row.dataset.path || '', row.dataset.ftype || '', true);
+    });
+  }
+  const messages = document.getElementById('messages');
+  if (messages) {
+    messages.addEventListener('click', function(e){
+      const chip = e.target.closest('.path-chip');
+      if (!chip || !messages.contains(chip)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openPathInDrawer(chip.dataset.path || '', chip.dataset.ftype || '');
+    });
+  }
+}
+
 /* ====== 页面初始化 ====== */
 
 window.addEventListener('DOMContentLoaded', () => {
   _initScrollListener();
   _initDragDrop();
+  _initFileDrawer();
   const params = new URLSearchParams(location.search);
   const sid = params.get('session');
   const aid = params.get('agent');
