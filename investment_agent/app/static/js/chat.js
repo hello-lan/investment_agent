@@ -18,13 +18,20 @@ let _drawerCurrentFile = null;
 let _drawerOpenSource = 'chat';
 let _drawerOutsideBound = false;
 
-const LEFT_SPLIT_KEY = 'leftPanelHistoryRatio';
-const LEFT_SPLIT_DEFAULT = 0.55;
+const LEFT_SPLIT_KEY = 'leftPanelHistoryRatio_v3';
+/** 会话约 40% / 文件约 60%：兼顾会话可扫性与文件树展开空间 */
+const LEFT_SPLIT_DEFAULT = 0.4;
 const LEFT_SPLIT_MIN_PX = 120;
 let _leftSplitResizing = false;
 let _chatFileLoadedPaths = Object.create(null);
 let _chatFileActiveRow = null;
 let _chatFileCount = 0;
+const FILE_VIEW_KEY = 'chatFileViewMode';
+let _chatFileViewMode = 'list'; // list | icons
+let _chatFileRootNodes = [];
+let _chatFileIconPath = '';
+let _chatFileIconNodes = [];
+let _chatFileActivePath = '';
 
 function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
@@ -539,9 +546,9 @@ function _validateAndSetFile(file){
   }
   currentFile = file;
   const chip = document.getElementById('fileNameChip');
-  const btnClear = document.getElementById('btnClearFile');
-  if (chip){ chip.textContent = file.name + ' (' + Math.ceil(file.size/1024) + 'KB)'; chip.style.display = 'inline-block'; }
-  if (btnClear){ btnClear.style.display = 'inline-block'; }
+  const attachments = document.getElementById('composerAttachments');
+  if (chip) chip.textContent = file.name + ' (' + Math.ceil(file.size/1024) + 'KB)';
+  if (attachments) attachments.hidden = false;
   return true;
 }
 
@@ -556,9 +563,9 @@ function clearFile(){
   const el = document.getElementById('fileInput');
   if (el) el.value = '';
   const chip = document.getElementById('fileNameChip');
-  const btnClear = document.getElementById('btnClearFile');
-  if (chip){ chip.textContent = ''; chip.style.display = 'none'; }
-  if (btnClear){ btnClear.style.display = 'none'; }
+  const attachments = document.getElementById('composerAttachments');
+  if (chip) chip.textContent = '';
+  if (attachments) attachments.hidden = true;
 }
 
 function appendUserMsg(text){
@@ -691,8 +698,8 @@ function updateStats(override){
 }
 
 function setRunning(r){
-  document.getElementById('btnSend').style.display = r ? 'none' : 'inline-block';
-  document.getElementById('btnStop').style.display = r ? 'inline-block' : 'none';
+  document.getElementById('btnSend').style.display = r ? 'none' : 'flex';
+  document.getElementById('btnStop').style.display = r ? 'flex' : 'none';
 }
 
 function _closeStreamConnection(){
@@ -2315,12 +2322,18 @@ function _clearChatFileTreeActive(){
     _chatFileActiveRow.classList.remove('active');
     _chatFileActiveRow = null;
   }
+  _chatFileActivePath = '';
 }
 
 function _setChatFileTreeActiveRow(row){
   if (_chatFileActiveRow) _chatFileActiveRow.classList.remove('active');
   _chatFileActiveRow = row || null;
-  if (_chatFileActiveRow) _chatFileActiveRow.classList.add('active');
+  if (_chatFileActiveRow) {
+    _chatFileActiveRow.classList.add('active');
+    _chatFileActivePath = _chatFileActiveRow.dataset.path || '';
+  } else {
+    _chatFileActivePath = '';
+  }
 }
 
 function _syncChatFileTreeActive(apiPath, ftype){
@@ -2331,12 +2344,62 @@ function _syncChatFileTreeActive(apiPath, ftype){
     _clearChatFileTreeActive();
     return;
   }
+  _chatFileActivePath = path;
+  const selector = _chatFileViewMode === 'icons'
+    ? '.file-icon-item[data-type="file"]'
+    : '.tree-row[data-type="file"]';
   let found = null;
-  tree.querySelectorAll('.tree-row[data-type="file"]').forEach(function(row){
+  tree.querySelectorAll(selector).forEach(function(row){
     if (row.dataset.path === path) found = row;
   });
   if (found) _setChatFileTreeActiveRow(found);
-  else _clearChatFileTreeActive();
+  else {
+    if (_chatFileActiveRow) _chatFileActiveRow.classList.remove('active');
+    _chatFileActiveRow = null;
+  }
+}
+
+function _readFileViewMode(){
+  try {
+    const v = localStorage.getItem(FILE_VIEW_KEY);
+    return v === 'icons' ? 'icons' : 'list';
+  } catch (_) {
+    return 'list';
+  }
+}
+
+function _saveFileViewMode(mode){
+  try { localStorage.setItem(FILE_VIEW_KEY, mode); } catch (_) {}
+}
+
+function _updateFilesViewChrome(){
+  const tree = document.getElementById('chatFileTree');
+  const nav = document.getElementById('filesIconNav');
+  const back = document.getElementById('filesIconBack');
+  const pathEl = document.getElementById('filesIconPath');
+  const listBtn = document.getElementById('filesViewList');
+  const iconsBtn = document.getElementById('filesViewIcons');
+  if (tree) {
+    tree.classList.toggle('view-list', _chatFileViewMode === 'list');
+    tree.classList.toggle('view-icons', _chatFileViewMode === 'icons');
+  }
+  if (listBtn) {
+    listBtn.classList.toggle('active', _chatFileViewMode === 'list');
+    listBtn.setAttribute('aria-pressed', _chatFileViewMode === 'list' ? 'true' : 'false');
+  }
+  if (iconsBtn) {
+    iconsBtn.classList.toggle('active', _chatFileViewMode === 'icons');
+    iconsBtn.setAttribute('aria-pressed', _chatFileViewMode === 'icons' ? 'true' : 'false');
+  }
+  if (nav) {
+    if (_chatFileViewMode === 'icons') {
+      nav.hidden = false;
+      if (pathEl) pathEl.textContent = _chatFileIconPath ? ('data/' + _chatFileIconPath) : 'data/';
+      if (back) back.disabled = !_chatFileIconPath;
+    } else {
+      nav.hidden = true;
+    }
+  }
 }
 
 function _createChatFileRow(node, level){
@@ -2348,6 +2411,10 @@ function _createChatFileRow(node, level){
   row.style.paddingLeft = (10 + level * 14) + 'px';
   row.dataset.path = node.path || '';
   row.dataset.type = node.type || '';
+  if (_chatFileActivePath && node.type === 'file' && node.path === _chatFileActivePath) {
+    row.classList.add('active');
+    _chatFileActiveRow = row;
+  }
 
   const arrow = document.createElement('span');
   arrow.className = 'arrow';
@@ -2421,6 +2488,42 @@ function _createChatFileRow(node, level){
   return div;
 }
 
+function _createChatFileIconItem(node){
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'file-icon-item';
+  btn.dataset.path = node.path || '';
+  btn.dataset.type = node.type || '';
+  btn.title = node.name || '';
+  if (_chatFileActivePath && node.type === 'file' && node.path === _chatFileActivePath) {
+    btn.classList.add('active');
+    _chatFileActiveRow = btn;
+  }
+
+  const glyph = document.createElement('span');
+  glyph.className = 'file-icon-glyph';
+  glyph.textContent = _chatFileIcon(node);
+
+  const name = document.createElement('span');
+  name.className = 'file-icon-name';
+  name.textContent = node.name || '';
+
+  btn.appendChild(glyph);
+  btn.appendChild(name);
+
+  btn.addEventListener('click', function(e){
+    e.stopPropagation();
+    if (node.type === 'dir') {
+      _openChatFileIconDir(node.path || '', node.name || '');
+      return;
+    }
+    _setChatFileTreeActiveRow(btn);
+    openPathInDrawer(node.path, _inferPathFtype(node.name || node.path || ''), 'tree');
+  });
+
+  return btn;
+}
+
 function _loadChatFileChildren(dirPath, childrenEl, loadingEl, level){
   fetch('/api/files/children?path=' + encodeURIComponent(dirPath || ''))
     .then(function(res){
@@ -2446,29 +2549,122 @@ function _loadChatFileChildren(dirPath, childrenEl, loadingEl, level){
     });
 }
 
-function _renderChatFileTree(nodes){
+function _renderChatFileListView(nodes){
   const tree = document.getElementById('chatFileTree');
   if (!tree) return;
   tree.innerHTML = '';
-  _chatFileCount = 0;
   _chatFileActiveRow = null;
   if (!nodes || !nodes.length) {
     tree.innerHTML = '<div class="files-empty">暂无文件</div>';
-    _updateChatFileCount();
     return;
   }
-  nodes.forEach(function(n){
-    if (n.type === 'file') _chatFileCount += 1;
-  });
-  _updateChatFileCount();
   nodes.forEach(function(node){
     tree.appendChild(_createChatFileRow(node, 0));
   });
 }
 
+function _renderChatFileIconView(nodes){
+  const tree = document.getElementById('chatFileTree');
+  if (!tree) return;
+  tree.innerHTML = '';
+  _chatFileActiveRow = null;
+  _chatFileIconNodes = nodes || [];
+  if (!_chatFileIconNodes.length) {
+    tree.innerHTML = '<div class="files-empty">该目录为空</div>';
+    _updateFilesViewChrome();
+    return;
+  }
+  _chatFileIconNodes.forEach(function(node){
+    tree.appendChild(_createChatFileIconItem(node));
+  });
+  _updateFilesViewChrome();
+}
+
+function _recountVisibleFiles(nodes){
+  _chatFileCount = 0;
+  (nodes || []).forEach(function(n){
+    if (n.type === 'file') _chatFileCount += 1;
+  });
+  _updateChatFileCount();
+}
+
+function _renderChatFileTree(nodes){
+  _chatFileRootNodes = nodes || [];
+  _recountVisibleFiles(_chatFileRootNodes);
+  if (_chatFileViewMode === 'icons') {
+    _chatFileIconPath = '';
+    _renderChatFileIconView(_chatFileRootNodes);
+  } else {
+    _renderChatFileListView(_chatFileRootNodes);
+  }
+  _updateFilesViewChrome();
+}
+
+function _openChatFileIconDir(dirPath, dirName){
+  const tree = document.getElementById('chatFileTree');
+  if (!tree) return;
+  tree.innerHTML = '<div class="files-empty">加载中...</div>';
+  _updateFilesViewChrome();
+  fetch('/api/files/children?path=' + encodeURIComponent(dirPath || ''))
+    .then(function(res){
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    })
+    .then(function(nodes){
+      _chatFileIconPath = String(dirPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+      _recountVisibleFiles(nodes);
+      _renderChatFileIconView(nodes);
+    })
+    .catch(function(err){
+      tree.innerHTML = '<div class="files-empty">加载失败: ' + escapeHtml(err.message || '') + '</div>';
+    });
+}
+
+function _chatFileIconGoBack(){
+  if (!_chatFileIconPath) return;
+  const parts = _chatFileIconPath.split('/').filter(Boolean);
+  parts.pop();
+  const parent = parts.join('/');
+  if (!parent) {
+    _chatFileIconPath = '';
+    _recountVisibleFiles(_chatFileRootNodes);
+    _renderChatFileIconView(_chatFileRootNodes);
+    return;
+  }
+  _openChatFileIconDir(parent, parts[parts.length - 1] || '');
+}
+
+function setChatFileViewMode(mode){
+  const next = mode === 'icons' ? 'icons' : 'list';
+  if (next === _chatFileViewMode) return;
+  _chatFileViewMode = next;
+  _saveFileViewMode(next);
+  _chatFileLoadedPaths = Object.create(null);
+  if (_chatFileViewMode === 'icons') {
+    _chatFileIconPath = '';
+    _renderChatFileIconView(_chatFileRootNodes);
+  } else {
+    _renderChatFileListView(_chatFileRootNodes);
+  }
+  _updateFilesViewChrome();
+  if (_chatFileActivePath) _syncChatFileTreeActive(_chatFileActivePath, 'file');
+}
+
+function _initFilesViewToggle(){
+  _chatFileViewMode = _readFileViewMode();
+  _updateFilesViewChrome();
+  const listBtn = document.getElementById('filesViewList');
+  const iconsBtn = document.getElementById('filesViewIcons');
+  const back = document.getElementById('filesIconBack');
+  if (listBtn) listBtn.addEventListener('click', function(){ setChatFileViewMode('list'); });
+  if (iconsBtn) iconsBtn.addEventListener('click', function(){ setChatFileViewMode('icons'); });
+  if (back) back.addEventListener('click', function(){ _chatFileIconGoBack(); });
+}
+
 function initChatFileTree(){
   const tree = document.getElementById('chatFileTree');
   if (!tree) return;
+  _initFilesViewToggle();
   _chatFileLoadedPaths = Object.create(null);
   tree.innerHTML = '<div class="files-empty">加载中...</div>';
   fetch('/api/files/children')

@@ -19,10 +19,24 @@
     <div class="left-split-resizer" id="leftSplitResizer" title="拖动调整高度" role="separator" aria-orientation="horizontal"></div>
     <div class="files-panel" id="filesPanel">
       <div class="files-header">
-        <span>文件</span>
-        <span class="count" id="chatFileCount"></span>
+        <div class="files-header-left">
+          <span>文件</span>
+          <span class="count" id="chatFileCount"></span>
+        </div>
+        <div class="files-view-toggle" role="group" aria-label="视图切换">
+          <button type="button" class="files-view-btn active" id="filesViewList" data-view="list" title="列表视图" aria-pressed="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          </button>
+          <button type="button" class="files-view-btn" id="filesViewIcons" data-view="icons" title="图标视图" aria-pressed="false">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          </button>
+        </div>
       </div>
-      <div class="chat-file-tree" id="chatFileTree">
+      <div class="files-icon-nav" id="filesIconNav" hidden>
+        <button type="button" class="files-icon-back" id="filesIconBack" title="返回上级" aria-label="返回上级">←</button>
+        <div class="files-icon-path" id="filesIconPath">data/</div>
+      </div>
+      <div class="chat-file-tree view-list" id="chatFileTree">
         <div class="files-empty">加载中...</div>
       </div>
     </div>
@@ -45,21 +59,29 @@
       <button id="btnScrollDown" class="btn-scroll-down" onclick="scrollToBottom(true)" style="display:none">↓ 回到底部</button>
     </div>
     <div class="input-area">
-      <div class="input-left">
-        <div class="upload-row">
-          <input type="file" id="fileInput" style="display:none" onchange="onFileSelected(event)">
-          <button class="btn-upload" type="button" onclick="triggerFileSelect()">上传文件</button>
-          <span class="file-chip" id="fileNameChip" style="display:none"></span>
-          <button class="btn-clear-file" id="btnClearFile" type="button" style="display:none" onclick="clearFile()">移除</button>
+      <div class="composer">
+        <div class="composer-attachments" id="composerAttachments" hidden>
+          <span class="file-chip" id="fileNameChip"></span>
+          <button class="btn-clear-file" id="btnClearFile" type="button" onclick="clearFile()" title="移除">移除</button>
         </div>
-        <div class="slash-wrap">
-          <div id="slashMenu" class="slash-menu" style="display:none" role="listbox"></div>
-          <textarea id="inputBox" rows="1" placeholder="输入分析请求，/ 快捷命令，@ 引用文件..."
-            onkeydown="handleKey(event)" oninput="onInputBoxInput(this)"></textarea>
+        <div class="composer-row">
+          <input type="file" id="fileInput" style="display:none" onchange="onFileSelected(event)">
+          <button class="btn-upload" type="button" onclick="triggerFileSelect()" title="上传文件" aria-label="上传文件">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          </button>
+          <div class="slash-wrap">
+            <div id="slashMenu" class="slash-menu" style="display:none" role="listbox"></div>
+            <textarea id="inputBox" rows="1" placeholder="/ 快捷命令，@ 引用文件 · Enter 发送，Shift+Enter 换行"
+              onkeydown="handleKey(event)" oninput="onInputBoxInput(this)"></textarea>
+          </div>
+          <button class="btn-stop" id="btnStop" onclick="stopTask()" title="停止" aria-label="停止">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+          </button>
+          <button class="btn-send" id="btnSend" onclick="sendMessage()" title="发送" aria-label="发送">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+          </button>
         </div>
       </div>
-      <button class="btn-stop" id="btnStop" onclick="stopTask()">停止</button>
-      <button class="btn-send" id="btnSend" onclick="sendMessage()">发送</button>
     </div>
   </main>
 

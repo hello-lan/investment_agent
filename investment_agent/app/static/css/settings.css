@@ -1,6 +1,7 @@
 /* layout */
-.container{max-width:800px;margin:30px auto;padding:0 20px;}
+.container{max-width:800px;margin:var(--page-pad-y, 32px) auto 0;padding:0 20px;}
 .card{background:#fff;border-radius:10px;border:1px solid #e0e0e0;margin-bottom:20px;overflow:hidden;}
+.card:last-child{margin-bottom:0;}
 .card-header{padding:16px 20px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center;}
 .card-header h3{font-size:15px;font-weight:600;color:#1a1a2e;}
 .card-body{padding:20px;}
