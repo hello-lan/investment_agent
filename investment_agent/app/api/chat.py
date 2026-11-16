@@ -6,7 +6,6 @@ Agent 逻辑全部委托给 AgentRunner，本层只处理 HTTP 层面的事务�
 
 from __future__ import annotations
 
-import asyncio
 import json
 import uuid
 from pathlib import Path
@@ -16,18 +15,21 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ...agent import AgentRunner
+from ...config import ROOT_DIR
 from ..config_factory import load_agent_run_config
 from ..storage import SqliteStorage
 from ..task_manager import task_manager
 from ..utils.file_parser import (
     ALLOWED_EXTS,
-    MAX_FILE_TEXT_CHARS,
     build_user_message,
-    extract_file_text,
     normalize_name,
+    timestamped_filename,
 )
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+UPLOADS_DIR = ROOT_DIR / "data" / "uploads"
 
 
 class ChatRequest(BaseModel):
@@ -47,17 +49,18 @@ class RetryRequest(BaseModel):
 
 async def _parse_request_payload(
     request: Request,
-) -> tuple[str | None, str, str | None, str | None, str | None, str | None]:
+) -> tuple[str | None, str, str | None, str | None, str | None]:
     """解析请求体：支持 JSON 和 multipart/form-data（带文件上传）。
 
-    返回: session_id, message, agent_id, filename, file_text, model_id
+    返回: session_id, message, agent_id, uploaded_path, model_id
+    uploaded_path 为相对项目根的路径（正斜杠），如 data/uploads/xxx.pdf。
     """
     content_type = request.headers.get("content-type", "")
 
     if "application/json" in content_type:
         body = ChatRequest.model_validate(await request.json())
         model_id = (body.model_id or "").strip() or None
-        return body.session_id, body.message, body.agent_id, None, None, model_id
+        return body.session_id, body.message, body.agent_id, None, model_id
 
     if "multipart/form-data" in content_type:
         form = await request.form()
@@ -69,7 +72,7 @@ async def _parse_request_payload(
 
         filename_attr = getattr(upload, "filename", None)
         if not upload or not filename_attr:
-            return session_id, message, agent_id, None, None, model_id
+            return session_id, message, agent_id, None, model_id
 
         filename = normalize_name(str(filename_attr))
         ext = Path(filename).suffix.lower()
@@ -77,18 +80,16 @@ async def _parse_request_payload(
             raise HTTPException(status_code=400, detail=f"不支持的文件类型: {ext or 'unknown'}")
 
         content = await upload.read()
-        if len(content) > 10 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail="文件过大，最大支持 10MB")
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=400, detail="文件过大，最大支持 100MB")
 
-        try:
-            file_text = await asyncio.to_thread(extract_file_text, filename, ext, content)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"文件解析失败: {e}")
+        saved_name = timestamped_filename(filename)
+        UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+        dest = UPLOADS_DIR / saved_name
+        dest.write_bytes(content)
 
-        if not file_text.strip():
-            raise HTTPException(status_code=400, detail="文件内容为空或不可提取")
-
-        return session_id, message, agent_id, filename, file_text, model_id
+        uploaded_path = f"data/uploads/{saved_name}"
+        return session_id, message, agent_id, uploaded_path, model_id
 
     raise HTTPException(status_code=415, detail="仅支持 application/json 或 multipart/form-data")
 
@@ -98,11 +99,16 @@ async def _start_background_task(
     task_id: str,
     config,
     session_id: str,
+    *,
+    uploaded_path: str | None = None,
 ) -> dict[str, str]:
     """统一注册后台任务并返回标准响应体。"""
     engine = AgentRunner.get_engine(task_id)
     await task_manager.start_task(task_id, engine, runner, config, session_id)
-    return {"task_id": task_id, "session_id": session_id}
+    result: dict[str, str] = {"task_id": task_id, "session_id": session_id}
+    if uploaded_path:
+        result["uploaded_path"] = uploaded_path
+    return result
 
 
 # ── 端点 ─────────────────────────────────────────────────────────────
@@ -111,8 +117,8 @@ async def _start_background_task(
 @router.post("")
 async def start_chat(request: Request):
     """发起对话：解析请求，加载配置，创建引擎并在后台启动任务。"""
-    session_id, message, agent_id, filename, file_text, model_id = await _parse_request_payload(request)
-    final_message = build_user_message(message, filename, file_text)
+    session_id, message, agent_id, uploaded_path, model_id = await _parse_request_payload(request)
+    final_message = build_user_message(message, uploaded_path)
     if not final_message.strip():
         raise HTTPException(status_code=400, detail="消息和文件不能同时为空")
 
@@ -123,7 +129,9 @@ async def start_chat(request: Request):
         config=config,
         message=final_message,
     )
-    return await _start_background_task(runner, task_id, config, session_id)
+    return await _start_background_task(
+        runner, task_id, config, session_id, uploaded_path=uploaded_path
+    )
 
 
 @router.get("/{task_id}/stream")

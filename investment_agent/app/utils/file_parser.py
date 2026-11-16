@@ -107,15 +107,24 @@ def extract_file_text(filename: str, ext: str, content: bytes) -> str:
     raise ValueError(f"不支持的文件类型: {ext}")
 
 
+def timestamped_filename(filename: str, ts: str | None = None) -> str:
+    """在文件名 stem 后插入时间戳后缀，如 年报.pdf → 年报_20251116_105312.pdf。"""
+    from datetime import datetime
+
+    path = Path(filename)
+    stamp = ts or datetime.now().strftime("%Y%m%d_%H%M%S")
+    stem = path.stem or "uploaded_file"
+    return f"{stem}_{stamp}{path.suffix}"
+
+
 def build_user_message(
     message: str,
-    filename: str | None = None,
-    file_text: str | None = None,
+    uploaded_path: str | None = None,
 ) -> str:
-    """构建最终的用户消息（可能包含上传文件内容）。"""
+    """构建最终的用户消息（上传文件仅引用相对路径，不注入正文）。"""
     text = (message or "").strip()
-    if not filename or not file_text:
+    path = (uploaded_path or "").strip().replace("\\", "/")
+    if not path:
         return text
-    clipped = clip_text(file_text.strip())
-    file_block = f"[用户上传文件]\n文件名: {filename}\n\n{clipped}\n[/用户上传文件]"
-    return file_block if not text else f"{file_block}\n\n用户问题：{text}"
+    path_ref = f"`{path}`"
+    return path_ref if not text else f"{text}\n\n{path_ref}"

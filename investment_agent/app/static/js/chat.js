@@ -2,7 +2,7 @@ let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputT
 let allSessions=[],agentMap={},modelMap={},modelList=[];
 let userScrolledUp=false, hasNewContentSinceScroll=false;
 
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const ALLOWED_EXTS = new Set(['.txt','.md','.pdf','.xlsx','.xls','.docx','.doc']);
 const STREAM_RENDER_INTERVAL_MS = 60;
 const DATA_PATH_RE = /data[/\\](?:[^/\\\s`'"<>|]+[/\\])+[^/\\\s`'"<>|]+[/\\]?/gi;
@@ -544,7 +544,7 @@ function _validateAndSetFile(file){
     return false;
   }
   if (file.size > MAX_UPLOAD_BYTES){
-    alert('文件过大，最大支持 10MB');
+    alert('文件过大，最大支持 100MB');
     return false;
   }
   currentFile = file;
@@ -573,7 +573,14 @@ function clearFile(){
 
 function appendUserMsg(text){
   const w = document.getElementById('welcome'); if (w) w.remove();
-  _append('<div class="msg user"><div class="msg-bubble">' + linkifyDataPaths(escapeHtml(text)) + '</div></div>');
+  return _append('<div class="msg user"><div class="msg-bubble">' + linkifyDataPaths(escapeHtml(text)) + '</div></div>');
+}
+
+function updateUserMsgBubble(node, text){
+  if (!node) return;
+  const bubble = node.querySelector('.msg-bubble');
+  if (!bubble) return;
+  bubble.innerHTML = linkifyDataPaths(escapeHtml(text));
 }
 
 function appendAssistantMsg(md){
@@ -1565,15 +1572,18 @@ async function sendMessage(){
   hasNewContentSinceScroll = false;
   _updateScrollButton();
 
-  const displayText = currentFile ? (text || '(无文本问题)') + '\n\n[已上传文件] ' + currentFile.name : text;
+  const hadFile = !!currentFile;
+  const displayText = hadFile
+    ? (text || '(无文本问题)') + '\n\n[已上传文件] ' + currentFile.name
+    : text;
   input.value = ''; autoResize(input);
   hideAtMenu();
   hideSlashMenu();
-  appendUserMsg(displayText);
+  const userMsgNode = appendUserMsg(displayText);
   showThinking(); setRunning(true);
 
   let data;
-  if (currentFile){
+  if (hadFile){
     const fd = new FormData();
     if (currentSessionId) fd.append('session_id', currentSessionId);
     if (currentAgentId) fd.append('agent_id', currentAgentId);
@@ -1598,6 +1608,13 @@ async function sendMessage(){
     _append('<div class="msg-error">' + escapeHtml(msg) + '</div>');
     setRunning(false);
     return;
+  }
+
+  if (data.uploaded_path){
+    const finalText = text
+      ? text + '\n\n`' + data.uploaded_path + '`'
+      : '`' + data.uploaded_path + '`';
+    updateUserMsgBubble(userMsgNode, finalText);
   }
 
   clearFile();
