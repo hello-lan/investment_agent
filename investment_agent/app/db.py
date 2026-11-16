@@ -119,6 +119,15 @@ async def init_db() -> None:
                 created_at TEXT                       -- 创建时间
             );
 
+            -- 每轮结束时模型实际看到的完整消息（供 full 回放）
+            CREATE TABLE IF NOT EXISTS context_snapshots (
+                id              TEXT PRIMARY KEY,
+                session_id      TEXT NOT NULL,
+                user_message_id TEXT,
+                messages        TEXT NOT NULL,
+                created_at      TEXT
+            );
+
             -- 会话消息（role / content / tool_calls / token_usage）
             CREATE TABLE IF NOT EXISTS messages (
                 id          TEXT PRIMARY KEY,         -- 消息 ID
@@ -639,6 +648,7 @@ async def init_db() -> None:
             ("sessions", "cache_read_tokens", "INTEGER DEFAULT 0"),
             ("sessions", "cache_creation_tokens", "INTEGER DEFAULT 0"),
             ("sessions", "currency", "TEXT"),
+            ("sessions", "context_mode", "TEXT DEFAULT 'chat'"),
             ("trace_log", "agent_name", "TEXT"),
             ("trace_log", "detail_size", "INTEGER DEFAULT 0"),
             ("cost_log", "agent_name", "TEXT"),

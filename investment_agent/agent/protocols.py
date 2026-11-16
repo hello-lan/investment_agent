@@ -76,6 +76,7 @@ class Storage(Protocol):
 
     async def create_or_get_session(
         self, session_id: str, agent_id: str | None, title: str,
+        context_mode: str | None = None,
     ) -> str:
         """创建或复用会话，返回 session_id。"""
         ...
@@ -92,8 +93,26 @@ class Storage(Protocol):
         """保存 assistant 回复，返回 message_id。"""
         ...
 
-    async def load_messages(self, session_id: str) -> list[dict]:
-        """加载会话的所有历史消息（user + assistant）。"""
+    async def load_messages(self, session_id: str, mode: str | None = None) -> list[dict]:
+        """加载会话历史。chat 为可见对话，full 为最新完整快照。"""
+        ...
+
+    async def get_context_mode(self, session_id: str) -> str:
+        """查询会话的上下文回放方式：chat 或 full。"""
+        ...
+
+    async def set_context_mode(self, session_id: str, mode: str) -> None:
+        """设置会话的上下文回放方式。"""
+        ...
+
+    async def save_context_snapshot(
+        self, session_id: str, user_message_id: str | None, messages: list,
+    ) -> None:
+        """保存一轮结束时模型实际看到的完整消息。"""
+        ...
+
+    async def latest_user_message_id(self, session_id: str) -> str | None:
+        """最近一条用户消息的 id。"""
         ...
 
     async def get_agent_config(self, agent_id: str) -> dict | None:

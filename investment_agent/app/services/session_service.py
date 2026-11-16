@@ -20,7 +20,7 @@ class SessionService:
                 SELECT s.id, s.agent_id, s.title, s.status, s.current_task_id,
                        s.input_tokens, s.output_tokens, s.cost_usd,
                        s.cache_read_tokens, s.cache_creation_tokens, s.currency,
-                       s.created_at,
+                       s.context_mode, s.created_at,
                        (SELECT SUBSTR(content, 1, 50) FROM messages
                         WHERE session_id = s.id AND role = 'user'
                         ORDER BY created_at LIMIT 1) AS preview
@@ -61,11 +61,27 @@ class SessionService:
         }
 
     @staticmethod
+    async def set_context_mode(session_id: str, mode: str) -> bool:
+        """设置回放方式。会话不存在时返回 False。"""
+        if mode not in ("chat", "full"):
+            raise ValueError(mode)
+        async with get_db() as db:
+            cursor = await db.execute(
+                "UPDATE sessions SET context_mode = ? WHERE id = ?",
+                (mode, session_id),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    @staticmethod
     async def delete_session(session_id: str) -> None:
         """删除会话及其关联消息。"""
         async with get_db() as db:
             await db.execute(
                 "DELETE FROM messages WHERE session_id = ?", (session_id,)
+            )
+            await db.execute(
+                "DELETE FROM context_snapshots WHERE session_id = ?", (session_id,)
             )
             await db.execute(
                 "DELETE FROM sessions WHERE id = ?", (session_id,)

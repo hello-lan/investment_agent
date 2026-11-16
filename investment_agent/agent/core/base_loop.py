@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import uuid
 from typing import AsyncGenerator, Callable
 
@@ -273,10 +274,12 @@ class BaseLoopEngine:
         step = 0
 
         messages = self.prepare_run(messages)
+        self._messages = messages
 
         while step < self.max_steps:
             safety_result = self._safety.check(self, step, messages)
             if safety_result.stop_event:
+                self._messages = messages
                 yield safety_result.stop_event
                 return
 
@@ -293,6 +296,7 @@ class BaseLoopEngine:
             messages, trim_event = await self._trimmer.maybe_trim(
                 messages, step, self._last_input_tokens,
             )
+            self._messages = messages
             if trim_event:
                 yield trim_event
 
@@ -301,6 +305,7 @@ class BaseLoopEngine:
                     messages = event.value
                 else:
                     yield event
+            self._messages = messages
 
             response = None
             async for event in self.call_model(messages, step):
@@ -309,6 +314,7 @@ class BaseLoopEngine:
                 else:
                     yield event
             if not response:
+                self._messages = messages
                 return
 
             has_tool_calls = False
@@ -319,6 +325,7 @@ class BaseLoopEngine:
                     if event.event is not None:
                         yield event.event
                     if event.event is not None and event.event.get("type") == EventType.DONE:
+                        self._messages = messages
                         return
                     break
                 else:
@@ -328,6 +335,7 @@ class BaseLoopEngine:
                 self.on_tool_calls_received(response.tool_calls)
 
                 if loop_detector.check(response.tool_calls):
+                    self._messages = messages
                     yield loop_detector.error_event()
                     return
 
@@ -347,13 +355,25 @@ class BaseLoopEngine:
                         messages = event.value
                     else:
                         yield event
+                self._messages = messages
         else:
+            self._messages = messages
             yield {"type": EventType.ERROR, "message": f"Max steps ({self.max_steps}) reached."}
 
     # ── 公共辅助方法 ─────────────────────────────────────────────────
 
-    @staticmethod
-    def _inject_date(messages: list[dict]) -> None:
+    _DATE_NOTE_RE = re.compile(
+        r"^\[系统信息\] 当前时间为 .+?请以当前时间为基准判断时间相关的问题。\n\n",
+        re.DOTALL,
+    )
+
+    @classmethod
+    def _strip_date_note(cls, text: str) -> str:
+        """去掉已有的日期说明，避免快照回放时叠多层。"""
+        return cls._DATE_NOTE_RE.sub("", text, count=1)
+
+    @classmethod
+    def _inject_date(cls, messages: list[dict]) -> None:
         """将当前日期注入到第一条消息开头（避免破坏 system prompt cache）。"""
         from datetime import datetime
         now = datetime.now()
@@ -365,11 +385,11 @@ class BaseLoopEngine:
         msg = messages[0]
         content = msg.get("content", "")
         if isinstance(content, str):
-            msg["content"] = date_note + content
+            msg["content"] = date_note + cls._strip_date_note(content)
         elif isinstance(content, list):
             if content and isinstance(content[0], dict) and content[0].get("type") == "text":
                 first = dict(content[0])
-                first["text"] = date_note + str(first.get("text", ""))
+                first["text"] = date_note + cls._strip_date_note(str(first.get("text", "")))
                 msg["content"] = [first] + content[1:]
             else:
                 msg["content"] = [{"type": "text", "text": date_note}] + content

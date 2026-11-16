@@ -1,4 +1,4 @@
-let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,totalCacheReadTokens=0,totalCacheCreationTokens=0,totalCostUsd=0,totalCurrency='USD',currentAgentId=null,currentModelId=null,currentFile=null,currentStreamState=null;
+let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,totalCacheReadTokens=0,totalCacheCreationTokens=0,totalCostUsd=0,totalCurrency='USD',currentAgentId=null,currentModelId=null,currentContextMode='chat',currentFile=null,currentStreamState=null;
 let allSessions=[],agentMap={},modelMap={},modelList=[];
 let userScrolledUp=false, hasNewContentSinceScroll=false;
 
@@ -461,6 +461,13 @@ async function loadSession(sid){
 
   // 检查是否是运行中的会话
   const sessionData = allSessions.find(s => s.id === sid);
+  if (sessionData && sessionData.context_mode === 'full') {
+    currentContextMode = 'full';
+    updateContextModeChip();
+  } else if (sessionData) {
+    currentContextMode = 'chat';
+    updateContextModeChip();
+  }
   if (sessionData && sessionData.status === 'running' && sessionData.current_task_id) {
     await reconnectToTask(sid, sessionData.current_task_id);
     return;
@@ -480,6 +487,8 @@ async function loadSession(sid){
     });
     // 设置会话累计 token 统计
     const sess = data.session || {};
+    currentContextMode = sess.context_mode === 'full' ? 'full' : 'chat';
+    updateContextModeChip();
     totalInputTokens = sess.input_tokens || 0;
     totalOutputTokens = sess.output_tokens || 0;
     totalCacheReadTokens = sess.cache_read_tokens || 0;
@@ -508,6 +517,8 @@ async function deleteSession(sid){
 function newSession(){
   _closeStreamConnection();
   currentSessionId = null;
+  currentContextMode = 'chat';
+  updateContextModeChip();
   document.getElementById('messages').innerHTML = _welcomeHtml();
   resetUsageStats();
   setRunning(false);
@@ -968,14 +979,16 @@ const SLASH_COMMANDS = [
   { name: '/clear', desc: '新建对话', run: () => newSession() },
   { name: '/agent', desc: '切换 Agent', run: () => openAgentPicker() },
   { name: '/model', desc: '切换模型', run: () => openModelPicker() },
+  { name: '/context', desc: '切换上下文回放', run: () => openContextPicker() },
 ];
 
 let _slashMatches = [];
 let _slashIndex = 0;
 let _slashOpen = false;
-let _slashMode = 'commands'; // 'commands' | 'agents' | 'models'
+let _slashMode = 'commands'; // 'commands' | 'agents' | 'models' | 'context'
 let _agentPickerItems = [];
 let _modelPickerItems = [];
+let _contextPickerItems = [];
 
 function hideSlashMenu(){
   _slashOpen = false;
@@ -984,6 +997,7 @@ function hideSlashMenu(){
   _slashMode = 'commands';
   _agentPickerItems = [];
   _modelPickerItems = [];
+  _contextPickerItems = [];
   if (_atOpen) return;
   const menu = document.getElementById('slashMenu');
   if (menu){ menu.style.display = 'none'; menu.innerHTML = ''; }
@@ -1008,7 +1022,7 @@ function updateSlashMenu(){
   const menu = document.getElementById('slashMenu');
   if (!input || !menu) return;
 
-  if (_slashMode === 'agents' || _slashMode === 'models') return;
+  if (_slashMode === 'agents' || _slashMode === 'models' || _slashMode === 'context') return;
   if (_atOpen) hideAtMenu();
 
   const query = _slashQueryFromInput(input.value, input.selectionStart);
@@ -1140,6 +1154,85 @@ async function openModelPicker(){
   if (input) input.focus();
 }
 
+const CONTEXT_MODE_OPTIONS = [
+  { id: 'chat', name: '可见对话', desc: '只回放问题和回复' },
+  { id: 'full', name: '完整轨迹', desc: '回放工具调用和结果' },
+];
+
+function updateContextModeChip(){
+  const el = document.getElementById('contextModeLabel');
+  if (!el) return;
+  const opt = CONTEXT_MODE_OPTIONS.find(o => o.id === currentContextMode) || CONTEXT_MODE_OPTIONS[0];
+  el.textContent = '上下文回放 - ' + opt.name;
+}
+
+function _renderContextPicker(){
+  const menu = document.getElementById('slashMenu');
+  if (!menu) return;
+  const hint = '<div class="slash-menu-hint">选择上下文回放, ↑↓选择，Enter确认</div>';
+  _slashIndex = Math.max(0, Math.min(_slashIndex, _contextPickerItems.length - 1));
+  menu.innerHTML = hint + _contextPickerItems.map((item, i) => {
+    const active = i === _slashIndex ? ' active' : '';
+    const currentMark = item.id === currentContextMode
+      ? '<span class="slash-item-current">(当前)</span>'
+      : '';
+    const desc = item.desc
+      ? `<span class="slash-item-desc">${escapeHtml(item.desc)}</span>`
+      : '';
+    return `<div class="slash-item${active}" role="option" data-idx="${i}"` +
+      ` onclick="selectSlashItem(${i})">` +
+      `<span class="slash-item-name">${escapeHtml(item.name)}</span>${currentMark}${desc}</div>`;
+  }).join('');
+  menu.style.display = '';
+  _slashOpen = true;
+}
+
+function openContextPicker(){
+  const input = document.getElementById('inputBox');
+  if (input){ input.value = ''; autoResize(input); }
+  hideAtMenu();
+  _slashMode = 'context';
+  _contextPickerItems = CONTEXT_MODE_OPTIONS.slice();
+  _slashMatches = [];
+  const idx = _contextPickerItems.findIndex(it => it.id === currentContextMode);
+  _slashIndex = idx >= 0 ? idx : 0;
+  _renderContextPicker();
+  if (input) input.focus();
+}
+
+async function confirmContextPicker(){
+  const item = _contextPickerItems[_slashIndex] || _contextPickerItems[0];
+  const input = document.getElementById('inputBox');
+  if (input){ input.value = ''; autoResize(input); }
+  hideSlashMenu();
+  if (!item || item.id === currentContextMode) return;
+  await applyContextMode(item.id);
+}
+
+async function applyContextMode(mode){
+  if (mode !== 'chat' && mode !== 'full') return;
+  if (mode === currentContextMode) return;
+  currentContextMode = mode;
+  updateContextModeChip();
+  if (currentSessionId) {
+    try {
+      const res = await fetch('/api/sessions/' + encodeURIComponent(currentSessionId) + '/context', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: mode }),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+    } catch (e) {
+      _append('<div class="msg-error">切换上下文失败: ' + escapeHtml(e.message) + '</div>');
+      return;
+    }
+  }
+  const note = mode === 'full'
+    ? '已切换为完整轨迹，之后的提问会带上工具调用和结果'
+    : '已切换为可见对话，之后的提问只带上问题和回复';
+  _append('<div class="msg-info">' + escapeHtml(note) + '</div>');
+}
+
 function selectSlashItem(idx){
   if (_slashMode === 'agents') {
     if (idx < 0 || idx >= _agentPickerItems.length) return;
@@ -1153,6 +1246,12 @@ function selectSlashItem(idx){
     confirmModelPicker();
     return;
   }
+  if (_slashMode === 'context') {
+    if (idx < 0 || idx >= _contextPickerItems.length) return;
+    _slashIndex = idx;
+    confirmContextPicker();
+    return;
+  }
   if (idx < 0 || idx >= _slashMatches.length) return;
   _slashIndex = idx;
   completeSlashCommand();
@@ -1162,7 +1261,7 @@ function completeSlashCommand(){
   const input = document.getElementById('inputBox');
   if (!input || !_slashMatches.length) return;
   const cmd = _slashMatches[_slashIndex] || _slashMatches[0];
-  if (cmd.name === '/agent' || cmd.name === '/model') {
+  if (cmd.name === '/agent' || cmd.name === '/model' || cmd.name === '/context') {
     executeSlashCommand(cmd);
     return;
   }
@@ -1203,13 +1302,17 @@ function executeSlashCommand(cmd){
     openModelPicker();
     return;
   }
+  if (cmd.name === '/context') {
+    openContextPicker();
+    return;
+  }
   hideSlashMenu();
   cmd.run();
 }
 
 function onInputBoxInput(el){
   autoResize(el);
-  if (_slashMode === 'agents' || _slashMode === 'models') {
+  if (_slashMode === 'agents' || _slashMode === 'models' || _slashMode === 'context') {
     const v = el.value;
     if (!v || v[0] !== '/') {
       hideSlashMenu();
@@ -1235,6 +1338,7 @@ function _moveSlashSelection(delta){
   let count = _slashMatches.length;
   if (_slashMode === 'agents') count = _agentPickerItems.length;
   else if (_slashMode === 'models') count = _modelPickerItems.length;
+  else if (_slashMode === 'context') count = _contextPickerItems.length;
   if (!count) return;
   _slashIndex = (_slashIndex + delta + count) % count;
   const menu = document.getElementById('slashMenu');
@@ -1562,6 +1666,16 @@ async function sendMessage(){
   const text = input.value.trim();
   if (!text && !currentFile) return;
 
+  const contextDirect = text.match(/^\/context(?:\s+(chat|full))?$/);
+  if (contextDirect) {
+    const inputBox = document.getElementById('inputBox');
+    if (inputBox) { inputBox.value = ''; autoResize(inputBox); }
+    hideSlashMenu();
+    if (contextDirect[1]) applyContextMode(contextDirect[1]);
+    else openContextPicker();
+    return;
+  }
+
   const slashCmd = SLASH_COMMANDS.find(c => c.name === text);
   if (slashCmd){
     executeSlashCommand(slashCmd);
@@ -1588,12 +1702,13 @@ async function sendMessage(){
     if (currentSessionId) fd.append('session_id', currentSessionId);
     if (currentAgentId) fd.append('agent_id', currentAgentId);
     if (currentModelId) fd.append('model_id', currentModelId);
+    fd.append('context_mode', currentContextMode);
     fd.append('message', text);
     fd.append('file', currentFile);
     const res = await fetch('/api/chat',{ method:'POST', body:fd });
     data = await res.json();
   } else {
-    const payload = {session_id: currentSessionId, message: text, agent_id: currentAgentId};
+    const payload = {session_id: currentSessionId, message: text, agent_id: currentAgentId, context_mode: currentContextMode};
     if (currentModelId) payload.model_id = currentModelId;
     const res = await fetch('/api/chat',{
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -1662,6 +1777,12 @@ function handleKey(e){
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)){
         e.preventDefault();
         confirmModelPicker();
+        return;
+      }
+    } else if (_slashMode === 'context'){
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)){
+        e.preventDefault();
+        confirmContextPicker();
         return;
       }
     } else {

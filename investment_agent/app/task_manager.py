@@ -183,12 +183,16 @@ class TaskManager:
         except Exception:
             logger.exception("Failed to flush trace buffer for task %s", task_id)
 
-        # 保存 assistant 回复 —— 必须在 cleanup 之前执行
+        # 保存 assistant 回复和完整上下文快照 —— 必须在 cleanup 之前执行
         try:
             state.runner.set_assistant_content(state.accumulated_text)
             await self._safe_save_response(state)
         except Exception:
             logger.exception("Failed to save response for task %s", task_id)
+        try:
+            await self._safe_save_snapshot(state)
+        except Exception:
+            logger.exception("Failed to save context snapshot for task %s", task_id)
 
         # 清理引擎（从 _engines 中移除）
         try:
@@ -219,6 +223,17 @@ class TaskManager:
 
         msg_id = await state.runner.storage.save_assistant_message(
             state.session_id, state.accumulated_text,
+        )
+
+    async def _safe_save_snapshot(self, state: _TaskState) -> None:
+        """保存本轮结束时模型实际看到的完整消息，供 full 回放。"""
+        messages = state.runner.full_messages(state.task_id)
+        if not messages:
+            return
+        await state.runner.storage.save_context_snapshot(
+            state.session_id,
+            state.runner.turn_user_message_id(),
+            messages,
         )
 
     async def _broadcast(self, state: _TaskState, event: dict) -> None:

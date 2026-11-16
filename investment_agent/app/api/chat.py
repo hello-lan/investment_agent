@@ -28,6 +28,13 @@ from ..utils.file_parser import (
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
+def _normalize_context_mode(value: str | None) -> str | None:
+    if not value:
+        return None
+    mode = str(value).strip().lower()
+    return mode if mode in ("chat", "full") else None
+
+
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 UPLOADS_DIR = ROOT_DIR / "data" / "uploads"
 
@@ -37,6 +44,7 @@ class ChatRequest(BaseModel):
     message: str
     agent_id: str | None = None
     model_id: str | None = None
+    context_mode: str | None = None
 
 
 class RetryRequest(BaseModel):
@@ -49,10 +57,10 @@ class RetryRequest(BaseModel):
 
 async def _parse_request_payload(
     request: Request,
-) -> tuple[str | None, str, str | None, str | None, str | None]:
+) -> tuple[str | None, str, str | None, str | None, str | None, str | None]:
     """解析请求体：支持 JSON 和 multipart/form-data（带文件上传）。
 
-    返回: session_id, message, agent_id, uploaded_path, model_id
+    返回: session_id, message, agent_id, uploaded_path, model_id, context_mode
     uploaded_path 为相对项目根的路径（正斜杠），如 data/uploads/xxx.pdf。
     """
     content_type = request.headers.get("content-type", "")
@@ -60,7 +68,10 @@ async def _parse_request_payload(
     if "application/json" in content_type:
         body = ChatRequest.model_validate(await request.json())
         model_id = (body.model_id or "").strip() or None
-        return body.session_id, body.message, body.agent_id, None, model_id
+        return (
+            body.session_id, body.message, body.agent_id, None, model_id,
+            _normalize_context_mode(body.context_mode),
+        )
 
     if "multipart/form-data" in content_type:
         form = await request.form()
@@ -68,11 +79,12 @@ async def _parse_request_payload(
         message = str(form.get("message") or "").strip()
         agent_id = (form.get("agent_id") or "").strip() or None
         model_id = (form.get("model_id") or "").strip() or None
+        context_mode = _normalize_context_mode(str(form.get("context_mode") or ""))
         upload = form.get("file")
 
         filename_attr = getattr(upload, "filename", None)
         if not upload or not filename_attr:
-            return session_id, message, agent_id, None, model_id
+            return session_id, message, agent_id, None, model_id, context_mode
 
         filename = normalize_name(str(filename_attr))
         ext = Path(filename).suffix.lower()
@@ -89,7 +101,7 @@ async def _parse_request_payload(
         dest.write_bytes(content)
 
         uploaded_path = f"data/uploads/{saved_name}"
-        return session_id, message, agent_id, uploaded_path, model_id
+        return session_id, message, agent_id, uploaded_path, model_id, context_mode
 
     raise HTTPException(status_code=415, detail="仅支持 application/json 或 multipart/form-data")
 
@@ -117,7 +129,7 @@ async def _start_background_task(
 @router.post("")
 async def start_chat(request: Request):
     """发起对话：解析请求，加载配置，创建引擎并在后台启动任务。"""
-    session_id, message, agent_id, uploaded_path, model_id = await _parse_request_payload(request)
+    session_id, message, agent_id, uploaded_path, model_id, context_mode = await _parse_request_payload(request)
     final_message = build_user_message(message, uploaded_path)
     if not final_message.strip():
         raise HTTPException(status_code=400, detail="消息和文件不能同时为空")
@@ -128,6 +140,7 @@ async def start_chat(request: Request):
         session_id=session_id or str(uuid.uuid4()),
         config=config,
         message=final_message,
+        context_mode=context_mode,
     )
     return await _start_background_task(
         runner, task_id, config, session_id, uploaded_path=uploaded_path

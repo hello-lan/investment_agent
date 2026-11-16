@@ -5,6 +5,7 @@ FastAPI 层只需引入此类，注入依赖后调用 start() / setup() / prepar
 
 from __future__ import annotations
 
+import copy
 import os
 import shutil
 from typing import ClassVar
@@ -47,6 +48,7 @@ class AgentRunner:
         self._config: AgentRunConfig | None = None
         self._context_result: ContextResult | None = None
         self._assistant_content: str = ""
+        self._turn_user_message_id: str | None = None
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -55,6 +57,7 @@ class AgentRunner:
         session_id: str,
         config: AgentRunConfig,
         message: str,
+        context_mode: str | None = None,
     ) -> tuple[str, str]:
         """准备对话：创建会话、保存用户消息、创建引擎、注册工具。
 
@@ -68,10 +71,11 @@ class AgentRunner:
             session_id=session_id,
             agent_id=config.agent_id,
             title=message,
+            context_mode=context_mode,
         )
 
         # 2. 保存用户消息
-        await self._storage.save_user_message(session_id, message)
+        self._turn_user_message_id = await self._storage.save_user_message(session_id, message)
 
         # 3. 创建引擎（含工具/技能注册）
         engine = self._create_engine(config, session_id)
@@ -96,6 +100,7 @@ class AgentRunner:
             agent_id=config.agent_id,
             title="",  # 重试时不更新标题
         )
+        self._turn_user_message_id = await self._storage.latest_user_message_id(session_id)
 
         # 2. 创建引擎（含工具/技能注册）
         engine = self._create_engine(config, session_id)
@@ -123,8 +128,9 @@ class AgentRunner:
             if self._config and hasattr(hooks, "agent_name"):
                 hooks.agent_name = hooks.agent_name or self._config.agent_name
 
-        # 1. 加载历史消息
-        messages = await self._storage.load_messages(engine.session_id)
+        # 1. 加载历史消息（chat 只含可见对话，full 用最新完整快照）
+        mode = await self._storage.get_context_mode(engine.session_id)
+        messages = await self._storage.load_messages(engine.session_id, mode=mode)
 
         # 2. 上下文管理
         context_mgr = self._context or ContextManager(
@@ -164,6 +170,17 @@ class AgentRunner:
     def context_result(self) -> ContextResult | None:
         """获取上下文管理的结果（prepare_context 后可用）。"""
         return self._context_result
+
+    def turn_user_message_id(self) -> str | None:
+        """本轮用户消息 id，供上下文快照关联。"""
+        return self._turn_user_message_id
+
+    def full_messages(self, task_id: str) -> list[dict]:
+        """本轮结束时引擎里的完整消息列表（深拷贝）。"""
+        engine = self._engines.get(task_id)
+        if not engine:
+            return []
+        return copy.deepcopy(getattr(engine, "_messages", None) or [])
 
     def set_assistant_content(self, content: str) -> None:
         """设置 assistant 回复内容（由 TaskManager 在任务完成后调用）。"""

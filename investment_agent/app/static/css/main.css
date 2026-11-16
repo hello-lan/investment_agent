@@ -247,10 +247,21 @@ body.left-split-resizing {
   flex-wrap: wrap;
 }
 .composer-attachments[hidden] { display: none !important; }
+.composer-stack {
+  width: 100%;
+  max-width: 720px;
+}
 .composer-row {
   display: flex;
   align-items: flex-end;
   gap: 6px;
+}
+.context-mode-text {
+  margin: 6px 12px 0;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--c-text-3);
+  pointer-events: none;
 }
 .file-chip {
   max-width: 260px;

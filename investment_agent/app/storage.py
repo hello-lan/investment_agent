@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -19,17 +20,25 @@ class SqliteStorage:
 
     async def create_or_get_session(
         self, session_id: str, agent_id: str | None, title: str,
+        context_mode: str | None = None,
     ) -> str:
         """创建或复用会话，返回 session_id。"""
+        mode = context_mode if context_mode in ("chat", "full") else None
         async with get_db() as db:
             row = await db.execute("SELECT id FROM sessions WHERE id = ?", (session_id,))
             exists = await row.fetchone()
             if not exists:
                 now = datetime.now(timezone.utc).isoformat()
                 await db.execute(
-                    "INSERT INTO sessions (id, agent_id, title, status, created_at) "
-                    "VALUES (?, ?, ?, 'active', ?)",
-                    (session_id, agent_id, title[:50], now),
+                    "INSERT INTO sessions (id, agent_id, title, status, context_mode, created_at) "
+                    "VALUES (?, ?, ?, 'active', ?, ?)",
+                    (session_id, agent_id, title[:50], mode or "chat", now),
+                )
+                await db.commit()
+            elif mode:
+                await db.execute(
+                    "UPDATE sessions SET context_mode = ? WHERE id = ?",
+                    (mode, session_id),
                 )
                 await db.commit()
         return session_id
@@ -62,8 +71,92 @@ class SqliteStorage:
             await db.commit()
         return msg_id
 
-    async def load_messages(self, session_id: str) -> list[dict]:
-        """加载会话的所有历史消息，合并连续同角色消息避免重试累积。"""
+    async def get_context_mode(self, session_id: str) -> str:
+        """查询会话的上下文回放方式。缺省为 chat。"""
+        async with get_db() as db:
+            row = await db.execute(
+                "SELECT context_mode FROM sessions WHERE id = ?", (session_id,),
+            )
+            result = await row.fetchone()
+        if not result:
+            return "chat"
+        mode = result["context_mode"] or "chat"
+        return mode if mode in ("chat", "full") else "chat"
+
+    async def set_context_mode(self, session_id: str, mode: str) -> None:
+        """设置会话的上下文回放方式。"""
+        if mode not in ("chat", "full"):
+            raise ValueError(f"invalid context mode: {mode}")
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE sessions SET context_mode = ? WHERE id = ?",
+                (mode, session_id),
+            )
+            await db.commit()
+
+    async def latest_user_message_id(self, session_id: str) -> str | None:
+        """最近一条用户消息的 id。"""
+        async with get_db() as db:
+            row = await db.execute(
+                "SELECT id FROM messages WHERE session_id = ? AND role = 'user' "
+                "ORDER BY created_at DESC LIMIT 1",
+                (session_id,),
+            )
+            result = await row.fetchone()
+        return result["id"] if result else None
+
+    async def save_context_snapshot(
+        self, session_id: str, user_message_id: str | None, messages: list,
+    ) -> None:
+        """保存一轮结束时模型实际看到的完整消息。"""
+        if not messages:
+            return
+        snap_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        payload = json.dumps(messages, ensure_ascii=False)
+        async with get_db() as db:
+            await db.execute(
+                "INSERT INTO context_snapshots "
+                "(id, session_id, user_message_id, messages, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (snap_id, session_id, user_message_id, payload, now),
+            )
+            await db.commit()
+
+    async def load_messages(self, session_id: str, mode: str | None = None) -> list[dict]:
+        """加载历史。chat 只含可见对话；full 用最新快照，并接上快照之后的新消息。"""
+        if mode is None:
+            mode = await self.get_context_mode(session_id)
+        visible = await self._load_visible_rows(session_id)
+        if mode != "full":
+            return self._dedupe_consecutive(visible)
+
+        snapshot = await self._latest_snapshot(session_id)
+        if not snapshot:
+            return self._dedupe_consecutive(visible)
+
+        try:
+            messages = json.loads(snapshot["messages"] or "[]")
+        except json.JSONDecodeError:
+            logger.warning("context snapshot JSON invalid for session %s", session_id)
+            return self._dedupe_consecutive(visible)
+        if not isinstance(messages, list):
+            return self._dedupe_consecutive(visible)
+
+        snap_at = snapshot["created_at"] or ""
+        async with get_db() as db:
+            cursor = await db.execute(
+                "SELECT role, content FROM messages "
+                "WHERE session_id = ? AND created_at > ? ORDER BY created_at",
+                (session_id, snap_at),
+            )
+            tail = await cursor.fetchall()
+        for r in tail:
+            if r["role"] in ("user", "assistant"):
+                messages.append({"role": r["role"], "content": r["content"] or ""})
+        return messages
+
+    async def _load_visible_rows(self, session_id: str) -> list[dict]:
         async with get_db() as db:
             cursor = await db.execute(
                 "SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at",
@@ -74,7 +167,16 @@ class SqliteStorage:
         for r in rows:
             if r["role"] in ("user", "assistant"):
                 messages.append({"role": r["role"], "content": r["content"] or ""})
-        return self._dedupe_consecutive(messages)
+        return messages
+
+    async def _latest_snapshot(self, session_id: str):
+        async with get_db() as db:
+            row = await db.execute(
+                "SELECT messages, created_at FROM context_snapshots "
+                "WHERE session_id = ? ORDER BY created_at DESC LIMIT 1",
+                (session_id,),
+            )
+            return await row.fetchone()
 
     @staticmethod
     def _dedupe_consecutive(messages: list[dict]) -> list[dict]:
