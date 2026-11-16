@@ -319,6 +319,7 @@ function selectAgent(id, silent){
     currentSessionId = null;
     document.getElementById('messages').innerHTML = _welcomeHtml();
     resetUsageStats();
+    setUserMsgCount(0);
   }
   loadSessions();
 }
@@ -432,8 +433,144 @@ async function loadSessions(){
   list.innerHTML = html;
 }
 
+function _userMsgCountEl(){
+  let el = document.getElementById('userMsgCount');
+  if (!el) {
+    el = document.createElement('span');
+    el.id = 'userMsgCount';
+    el.hidden = true;
+    el.textContent = '0';
+    const main = document.querySelector('.main') || document.body;
+    main.insertBefore(el, main.firstChild);
+  }
+  return el;
+}
+
+function getUserMsgCount(){
+  const n = parseInt(_userMsgCountEl().textContent, 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function setUserMsgCount(n){
+  const v = Math.max(0, Number(n) || 0);
+  _userMsgCountEl().textContent = String(v);
+}
+
+function incrementUserMsgCount(){
+  setUserMsgCount(getUserMsgCount() + 1);
+}
+
+function _countUserMessages(messages){
+  return (messages || []).filter(m => m && m.role === 'user').length;
+}
+
 function _sessionRowEl(sid){
   return document.querySelector('.session-row[data-sid="' + sid + '"]');
+}
+
+function _setActiveSession(sid){
+  document.querySelectorAll('.session-row.active').forEach(el => {
+    if (!sid || el.getAttribute('data-sid') !== sid) el.classList.remove('active');
+  });
+  if (!sid) return;
+  const row = _sessionRowEl(sid);
+  if (row) row.classList.add('active');
+}
+
+function _updateHistoryCount(){
+  const countEl = document.getElementById('historyCount');
+  if (!countEl) return;
+  const n = currentAgentId
+    ? allSessions.filter(s => s.agent_id === currentAgentId).length
+    : 0;
+  countEl.textContent = n ? String(n) : '';
+}
+
+function _markSessionRunning(sid){
+  const s = allSessions.find(x => x.id === sid);
+  if (s) {
+    s.status = 'running';
+    if (currentTaskId) s.current_task_id = currentTaskId;
+  }
+  const row = _sessionRowEl(sid);
+  if (!row) return;
+  row.classList.add('is-running');
+  row.classList.remove('is-naming');
+  const titleEl = row.querySelector('.sess-title');
+  if (!titleEl) return;
+  const old = titleEl.querySelector('.running-spinner');
+  if (old) old.remove();
+  const spin = document.createElement('span');
+  spin.className = 'running-spinner';
+  spin.setAttribute('aria-hidden', 'true');
+  titleEl.insertBefore(spin, titleEl.firstChild);
+}
+
+function _clearSessionRunning(sid){
+  const s = allSessions.find(x => x.id === sid);
+  if (s && s.status === 'running') {
+    s.status = 'active';
+    s.current_task_id = null;
+  }
+  const row = sid ? _sessionRowEl(sid) : null;
+  if (!row) return;
+  row.classList.remove('is-running');
+  const spin = row.querySelector('.running-spinner:not(.title-spinner)');
+  if (spin) spin.remove();
+}
+
+function _insertSessionRow(session){
+  const list = document.getElementById('historyList');
+  if (!list) return;
+  const empty = list.querySelector('.history-empty');
+  if (empty) empty.remove();
+
+  let label = null;
+  for (const el of list.children) {
+    if (el.classList && el.classList.contains('history-group-label') && el.textContent === _SESSION_GROUP_LABELS.today) {
+      label = el;
+      break;
+    }
+  }
+  if (!label) {
+    label = document.createElement('div');
+    label.className = 'history-group-label';
+    label.textContent = _SESSION_GROUP_LABELS.today;
+    list.prepend(label);
+  }
+  label.insertAdjacentHTML('afterend', _renderSessionRow(session));
+  _updateHistoryCount();
+}
+
+function _ensureSessionRow(session){
+  const idx = allSessions.findIndex(x => x.id === session.id);
+  if (idx >= 0) Object.assign(allSessions[idx], session);
+  else allSessions.unshift(session);
+  const stored = allSessions.find(x => x.id === session.id) || session;
+  if (currentAgentId && stored.agent_id && stored.agent_id !== currentAgentId) return;
+  if (!_sessionRowEl(stored.id)) _insertSessionRow(stored);
+}
+
+function _activateSentSession(sessionId, previewText){
+  const existing = allSessions.find(x => x.id === sessionId);
+  if (existing) {
+    existing.status = 'running';
+    if (currentTaskId) existing.current_task_id = currentTaskId;
+    _setActiveSession(sessionId);
+    _markSessionRunning(sessionId);
+    return;
+  }
+  const title = (previewText || '').trim().slice(0, 50) || '未命名';
+  _ensureSessionRow({
+    id: sessionId,
+    agent_id: currentAgentId,
+    title: title,
+    status: 'running',
+    current_task_id: currentTaskId,
+    created_at: new Date().toISOString(),
+    context_mode: currentContextMode,
+  });
+  _setActiveSession(sessionId);
 }
 
 function _markSessionNaming(sid){
@@ -475,8 +612,7 @@ function _applySessionTitle(sid, title){
 
 async function maybeGenerateSessionTitle(sessionId){
   if (!sessionId) return;
-  const userCount = document.querySelectorAll('#messages .msg.user').length;
-  if (userCount > TITLE_GENERATE_MAX_USER_MSGS) return;
+  if (getUserMsgCount() > TITLE_GENERATE_MAX_USER_MSGS) return;
 
   const seq = (_titleGenSeq[sessionId] || 0) + 1;
   _titleGenSeq[sessionId] = seq;
@@ -503,6 +639,7 @@ async function loadSession(sid){
   _closeStreamConnection();
 
   currentSessionId = sid;
+  _setActiveSession(sid);
   _showSpinner('messages', '加载会话中...');
 
   // 检查是否是运行中的会话
@@ -538,9 +675,10 @@ async function loadSession(sid){
     totalOutputTokens = sess.output_tokens || 0;
     updateStats();
     setRunning(false);
-    loadSessions();
+    setUserMsgCount(_countUserMessages(data.messages));
   } catch(e) {
     console.error('loadSession', e);
+    setUserMsgCount(0);
   }
 }
 
@@ -551,6 +689,7 @@ async function deleteSession(sid){
     currentSessionId = null;
     document.getElementById('messages').innerHTML = _welcomeHtml();
     resetUsageStats();
+    setUserMsgCount(0);
   }
   loadSessions();
 }
@@ -562,8 +701,9 @@ function newSession(){
   updateContextModeChip();
   document.getElementById('messages').innerHTML = _welcomeHtml();
   resetUsageStats();
+  setUserMsgCount(0);
   setRunning(false);
-  loadSessions();
+  _setActiveSession(null);
 }
 
 /* ====== Chat ====== */
@@ -747,13 +887,15 @@ function _closeStreamConnection(){
 
 function finishStream(){
   _closeStreamConnection();
-  setRunning(false); loadSessions();
+  setRunning(false);
+  if (currentSessionId) _clearSessionRunning(currentSessionId);
 }
 
 function stopTask(){
   if (currentTaskId) fetch('/api/chat/' + currentTaskId + '/interrupt', {method:'POST'});
   _closeStreamConnection();
   removeThinking(); setRunning(false);
+  if (currentSessionId) _clearSessionRunning(currentSessionId);
 }
 
 /* ====== 共享 SSE 事件处理 ====== */
@@ -941,11 +1083,7 @@ async function retryTask(){
 async function reconnectToTask(sessionId, taskId){
   currentSessionId = sessionId;
   currentTaskId = taskId;
-
-  // 更新会话高亮
-  document.querySelectorAll('.session-row').forEach(el => el.classList.remove('active'));
-  const row = document.querySelector(`.session-row[data-sid="${sessionId}"]`);
-  if (row) row.classList.add('active');
+  _setActiveSession(sessionId);
 
   // 加载历史消息
   const c = document.getElementById('messages');
@@ -961,8 +1099,10 @@ async function reconnectToTask(sessionId, taskId){
       if (m.role === 'user') appendUserMsg(m.content);
       else if (m.role === 'assistant') appendAssistantMsg(m.content);
     });
+    setUserMsgCount(_countUserMessages(data.messages));
   } catch(e) {
     console.error('reconnectToTask: load messages failed', e);
+    setUserMsgCount(0);
   }
 
   // 设置运行状态
@@ -977,7 +1117,7 @@ async function reconnectToTask(sessionId, taskId){
     setState: (updates) => Object.assign(currentStreamState, updates),
   });
 
-  loadSessions();
+  _markSessionRunning(sessionId);
 }
 
 /* ====== 快捷命令 ====== */
@@ -1742,6 +1882,8 @@ async function sendMessage(){
   clearFile();
   currentTaskId = data.task_id;
   currentSessionId = data.session_id;
+  incrementUserMsgCount();
+  _activateSentSession(data.session_id, text);
 
   currentStreamState = _createStreamState(null);
 
@@ -1749,9 +1891,6 @@ async function sendMessage(){
     getState: () => currentStreamState,
     setState: (updates) => Object.assign(currentStreamState, updates),
   });
-
-  // 刷新会话列表以显示运行中状态
-  loadSessions();
 }
 
 function handleKey(e){
