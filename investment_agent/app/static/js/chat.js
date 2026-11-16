@@ -1,4 +1,4 @@
-let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,totalCacheReadTokens=0,totalCacheCreationTokens=0,totalCostUsd=0,totalCurrency='USD',currentAgentId=null,currentModelId=null,currentContextMode='chat',currentFile=null,currentStreamState=null;
+let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,currentAgentId=null,currentModelId=null,currentContextMode='chat',currentFile=null,currentStreamState=null;
 let allSessions=[],agentMap={},modelMap={},modelList=[];
 let userScrolledUp=false, hasNewContentSinceScroll=false;
 
@@ -245,23 +245,12 @@ function _showSpinner(containerId, text){
 
 /* ====== Agent list ====== */
 
-function _agentSkillsCount(agent){
-  try {
-    return Array.isArray(agent.skills) ? agent.skills.length : JSON.parse(agent.skills || '[]').length;
-  } catch(e){
-    return 0;
-  }
-}
-
 async function loadAgents(){
   try {
     const agents = await fetch('/api/agents').then(r => r.json());
     Object.keys(agentMap).forEach(k => { delete agentMap[k]; });
     agents.forEach((a) => { agentMap[a.id] = a; });
-    if (!agents.length) {
-      document.getElementById('agentContext').style.display = 'none';
-      return agents;
-    }
+    if (!agents.length) return agents;
     if (!currentAgentId && agents[0]) {
       selectAgent(agents[0].id, true);
     } else if (currentAgentId && agentMap[currentAgentId]) {
@@ -277,10 +266,6 @@ async function loadAgents(){
 function resetUsageStats(){
   totalInputTokens = 0;
   totalOutputTokens = 0;
-  totalCacheReadTokens = 0;
-  totalCacheCreationTokens = 0;
-  totalCostUsd = 0;
-  totalCurrency = 'USD';
   updateStats();
 }
 
@@ -315,18 +300,6 @@ function _refreshAgentModelUI(){
     nameEl.textContent = agent.name;
   }
   if (modelEl) modelEl.textContent = _effectiveModelLabel();
-
-  const ctx = document.getElementById('agentContext');
-  if (ctx) {
-    ctx.style.display = '';
-    document.getElementById('ctxAgentName').textContent = agent.name;
-    const skillsCount = _agentSkillsCount(agent);
-    const modelLabel = currentModelId
-      ? (_effectiveModelLabel() + '（覆盖）')
-      : _agentBoundModelLabel(agent);
-    document.getElementById('ctxAgentDetail').textContent =
-      '模型 ' + modelLabel + ' · 挂载 ' + skillsCount + ' 个 Skill';
-  }
 }
 
 function selectAgent(id, silent){
@@ -485,16 +458,11 @@ async function loadSession(sid){
       if (m.role === 'user') appendUserMsg(m.content);
       else if (m.role === 'assistant') appendAssistantMsg(m.content);
     });
-    // 设置会话累计 token 统计
     const sess = data.session || {};
     currentContextMode = sess.context_mode === 'full' ? 'full' : 'chat';
     updateContextModeChip();
     totalInputTokens = sess.input_tokens || 0;
     totalOutputTokens = sess.output_tokens || 0;
-    totalCacheReadTokens = sess.cache_read_tokens || 0;
-    totalCacheCreationTokens = sess.cache_creation_tokens || 0;
-    totalCostUsd = sess.cost_usd || 0;
-    totalCurrency = sess.currency || 'USD';
     updateStats();
     setRunning(false);
     loadSessions();
@@ -684,38 +652,11 @@ function showThinking(){
 
 function removeThinking(){ const el = document.getElementById('thinking'); if (el) el.remove(); }
 
-function updateStats(override){
-  const inp = override?.input ?? totalInputTokens;
-  const out = override?.output ?? totalOutputTokens;
-  const cost = override?.cost ?? totalCostUsd;
-  const cacheRead = override?.cacheRead ?? totalCacheReadTokens;
-  const cacheCreation = override?.cacheCreation ?? totalCacheCreationTokens;
-  const currency = override?.currency ?? totalCurrency;
-  document.getElementById('statInput').textContent = inp.toLocaleString();
-  document.getElementById('statOutput').textContent = out.toLocaleString();
-
-  // 缓存命中
-  const cacheReadRow = document.getElementById('statCacheReadRow');
-  const cacheReadVal = document.getElementById('statCacheRead');
-  if (cacheRead > 0) {
-    if (cacheReadRow) cacheReadRow.style.display = '';
-    if (cacheReadVal) cacheReadVal.textContent = cacheRead.toLocaleString();
-  } else {
-    if (cacheReadRow) cacheReadRow.style.display = 'none';
-  }
-
-  // 缓存未命中（写入）
-  const cacheMissRow = document.getElementById('statCacheMissRow');
-  const cacheMissVal = document.getElementById('statCacheMiss');
-  if (cacheCreation > 0) {
-    if (cacheMissRow) cacheMissRow.style.display = '';
-    if (cacheMissVal) cacheMissVal.textContent = cacheCreation.toLocaleString();
-  } else {
-    if (cacheMissRow) cacheMissRow.style.display = 'none';
-  }
-
-  const symbol = currency === 'CNY' ? '¥' : '$';
-  document.getElementById('statCost').textContent = cost > 0 ? symbol + cost.toFixed(4) : '-';
+function updateStats(){
+  const inputEl = document.getElementById('statInput');
+  const outputEl = document.getElementById('statOutput');
+  if (inputEl) inputEl.textContent = totalInputTokens.toLocaleString();
+  if (outputEl) outputEl.textContent = totalOutputTokens.toLocaleString();
 }
 
 function setRunning(r){
@@ -817,14 +758,6 @@ function _handleStreamEvent(ev, state){
     } else { removeThinking(); }
     totalInputTokens += (ev.usage?.input_tokens || 0);
     totalOutputTokens += (ev.usage?.output_tokens || 0);
-    // 缓存统计：优先使用事件中嵌入的信息（由 task_manager 注入），fallback 到 usage
-    totalCacheReadTokens += (ev.cache_read_tokens || ev.usage?.cache_read_tokens || 0);
-    totalCacheCreationTokens += (ev.cache_creation_tokens || ev.usage?.cache_creation_tokens || 0);
-    // 费用：由 task_manager 注入，累加到当前会话总计
-    if (ev.cost != null) {
-      totalCostUsd += Number(ev.cost);
-      totalCurrency = ev.currency || 'USD';
-    }
     updateStats(); finishStream();
   } else if (ev.type === 'interrupted'){
     _finalizeAssistantRender(s);

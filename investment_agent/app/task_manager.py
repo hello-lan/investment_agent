@@ -153,14 +153,8 @@ class TaskManager:
             # 终端事件 → cost + cache hooks + 更新会话统计
             if event_type in ("done", "error", "interrupted") and not cost_logged:
                 await self._fire_terminal_hooks(hooks, state.engine, state.last_step, event)
-                cost_info = await self._update_session_usage(state, event)
+                await self._update_session_usage(state, event)
                 cost_logged = True
-                # 将 cost + cache 信息注入终端事件，前端可据此更新用量面板
-                if cost_info and event_type == "done":
-                    event["cost"] = cost_info["cost"]
-                    event["currency"] = cost_info["currency"]
-                    event["cache_read_tokens"] = cost_info["cache_read_tokens"]
-                    event["cache_creation_tokens"] = cost_info["cache_creation_tokens"]
 
             # 缓冲渲染事件并广播给订阅者（包括子Agent事件）
             if event_type in _RENDER_EVENTS or event_type.startswith("sub_"):
@@ -306,8 +300,8 @@ class TaskManager:
         except Exception:
             logger.debug("on_cache_metrics hook failed", exc_info=True)
 
-    async def _update_session_usage(self, state: _TaskState, event: dict) -> dict | None:
-        """将本次任务的 token 用量累加到 sessions 表。返回 cost 信息用于注入前端事件。"""
+    async def _update_session_usage(self, state: _TaskState, event: dict) -> None:
+        """将本次任务的 token 用量累加到 sessions 表。"""
         usage = event.get("usage", {})
         engine = state.engine
         own_in = engine.total_input_tokens + getattr(engine, "billed_input_tokens", 0)
@@ -315,7 +309,7 @@ class TaskManager:
         input_tokens = usage.get("input_tokens", own_in)
         output_tokens = usage.get("output_tokens", own_out)
         if not input_tokens and not output_tokens:
-            return None
+            return
 
         cache_read = state.engine.total_cache_read_tokens
         cache_create = state.engine.total_cache_creation_tokens
@@ -343,13 +337,6 @@ class TaskManager:
             )
         except Exception:
             logger.debug("update_session_usage failed for task %s", state.task_id, exc_info=True)
-
-        return {
-            "cost": cost_usd,
-            "currency": currency,
-            "cache_read_tokens": cache_read,
-            "cache_creation_tokens": cache_create,
-        }
 
     async def _cleanup_later(self, task_id: str) -> None:
         """延迟清理任务状态和缓冲。"""

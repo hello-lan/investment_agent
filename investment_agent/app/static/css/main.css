@@ -61,11 +61,10 @@
   /* Transitions */
   --ease: 0.15s ease;
 
-  /* Layout — 三栏固定比例（源自原 340 / 剩余 / 280，约 17:41:14） */
+  /* Layout — 左栏与对话区。原三栏 17:41:14，右栏宽度并入对话区，左栏占比不变 */
   --layout-left-fr: 17;
-  --layout-main-fr: 41;
-  --layout-right-fr: 14;
-  --left-panel-width: calc(100% * var(--layout-left-fr) / (var(--layout-left-fr) + var(--layout-main-fr) + var(--layout-right-fr)));
+  --layout-main-fr: 55;
+  --left-panel-width: calc(100% * var(--layout-left-fr) / (var(--layout-left-fr) + var(--layout-main-fr)));
 }
 
 /* ========================================
@@ -144,10 +143,13 @@ body.left-split-resizing {
 .main { flex: var(--layout-main-fr) 1 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 .main.drag-over::after { content: '拖放文件到此处上传'; position: absolute; inset: 0; background: rgba(238,240,247,0.95); border: 2px dashed var(--c-accent); border-radius: var(--r-lg); display: flex; align-items: center; justify-content: center; font-size: var(--fs-lg); color: var(--c-accent-text); font-weight: 500; z-index: 20; pointer-events: none; }
 
-.center-header { padding: 8px 20px; background: var(--c-surface); border-bottom: 1px solid var(--c-divider); font-size: var(--fs-sm); color: var(--c-text-3); }
+.center-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 20px; background: var(--c-surface); border-bottom: 1px solid var(--c-divider); font-size: var(--fs-sm); color: var(--c-text-3); }
 .center-header strong { color: var(--c-text-1); font-weight: 600; }
+.center-header .center-header-meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .center-header .center-model { color: var(--c-text-4); }
 .center-header .center-model strong { color: var(--c-text-2); }
+.center-header .center-header-usage { flex-shrink: 0; display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.center-header .center-usage-sep { color: var(--c-text-4); }
 
 /* ---- Messages ---- */
 .messages { flex: 1; overflow-y: auto; padding: 20px 20px 28px; display: flex; flex-direction: column; gap: 12px; position: relative; background: var(--c-bg); }
@@ -375,24 +377,6 @@ body.left-split-resizing {
 }
 .btn-stop:hover { background: #a93226; }
 .btn-stop:active { transform: scale(0.95); }
-
-/* ========================================
-   Right Panel
-   ======================================== */
-.right-panel { flex: var(--layout-right-fr) 1 0; min-width: 0; background: var(--c-surface); border-left: 1px solid var(--c-border); display: flex; flex-direction: column; overflow: hidden; }
-
-/* ---- Usage Stats ---- */
-.usage-panel { padding: 16px; border-bottom: 1px solid var(--c-divider); }
-.usage-panel h4 { font-size: var(--fs-sm); font-weight: 600; margin-bottom: 10px; color: var(--c-text-2); letter-spacing: 0.02em; }
-.stat-row { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: var(--fs-sm); color: var(--c-text-3); }
-.stat-val { font-weight: 600; color: var(--c-text-1); font-variant-numeric: tabular-nums; }
-.usage-panel .total-row { border-top: 1px solid var(--c-divider); margin-top: 4px; padding-top: 10px; }
-.usage-panel .total-row .stat-val { color: var(--c-primary); font-size: 15px; }
-
-/* ---- Agent Context ---- */
-.agent-context { padding: 10px 16px; background: var(--c-primary-lighter); border-bottom: 1px solid var(--c-divider); font-size: var(--fs-sm); color: var(--c-text-3); }
-.agent-context .agent-name { font-weight: 600; color: var(--c-text-1); font-size: var(--fs-base); }
-.agent-context .agent-detail { margin-top: 2px; line-height: var(--lh-base); }
 
 /* ---- History Panel (ChatGPT / Claude style) ---- */
 .history-panel { display: flex; flex-direction: column; overflow: hidden; }
