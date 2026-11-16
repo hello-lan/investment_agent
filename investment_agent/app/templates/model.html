@@ -1,14 +1,17 @@
 {% extends "base.html" %}
 {% block title %}模型 — 投研 Agent{% endblock %}
 {% block head %}
-<link rel="stylesheet" href="/static/css/settings.css">
+<link rel="stylesheet" href="/static/css/settings.css?v=3">
 {% endblock %}
 {% block content %}
 <div class="container">
 
   <div class="card">
     <div class="card-header">
-      <h3>模型配置</h3>
+      <div>
+        <h3>模型配置</h3>
+        <div class="hint">辅助模型用于会话标题、内容压缩、财报解析等平台辅助任务，同时只能指定一个。</div>
+      </div>
       <button class="btn btn-primary btn-sm" onclick="openModal()">+ 添加模型</button>
     </div>
     <div class="card-body">
@@ -173,5 +176,5 @@ document.addEventListener('DOMContentLoaded', function() {
     togglePricingFields();
 });
 </script>
-<script src="/static/js/model.js?v=2"></script>
+<script src="/static/js/model.js?v=4"></script>
 {% endblock %}

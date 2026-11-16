@@ -7,6 +7,7 @@ const BADGE = {
 
 let modelList = [];
 let defaultModelId = '';
+let utilityModelId = '';
 
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -26,6 +27,7 @@ async function loadAll() {
   const models = await fetch('/api/settings/models').then(r => r.json());
   modelList = models.list || [];
   defaultModelId = models.default || '';
+  utilityModelId = models.utility || '';
 
   renderModelList();
 }
@@ -43,6 +45,7 @@ function renderModelList() {
         <div class="model-name">
           ${esc(m.name)}
           ${m.id === defaultModelId ? '<span class="default-tag">默认</span>' : ''}
+          ${m.id === utilityModelId ? '<span class="utility-tag">辅助</span>' : ''}
         </div>
         <div class="model-meta">
           ${m.base_url ? esc(m.base_url) + ' · ' : ''}model: ${esc(m.model)}
@@ -59,6 +62,11 @@ function renderModelList() {
         </div>
       </div>
       <div class="model-actions">
+        <label class="utility-switch" title="用于会话标题、内容压缩、财报解析等平台辅助任务">
+          <input type="checkbox" ${m.id === utilityModelId ? 'checked' : ''} onchange="setUtility('${esc(m.id)}', this)">
+          <span class="utility-slider"></span>
+          <span class="utility-switch-label">辅助</span>
+        </label>
         ${m.id !== defaultModelId ? `<button class="btn btn-ghost btn-sm" onclick="setDefault('${esc(m.id)}')">设为默认</button>` : ''}
         <button class="btn btn-test btn-sm" onclick="testModel('${esc(m.id)}')">测试</button>
         <button class="btn btn-ghost btn-sm" onclick="openModal('${esc(m.id)}')">编辑</button>
@@ -76,6 +84,34 @@ async function setDefault(id) {
   });
   defaultModelId = id;
   renderModelList();
+}
+
+async function setUtility(id, input) {
+  if (id === utilityModelId) {
+    input.checked = true;
+    return;
+  }
+  input.disabled = true;
+  try {
+    const res = await fetch('/api/settings/models/utility', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model_id: id}),
+    });
+    if (!res.ok) {
+      input.checked = false;
+      const data = await res.json().catch(() => ({}));
+      alert(data.detail || '设置辅助模型失败');
+      return;
+    }
+    utilityModelId = id;
+    renderModelList();
+  } catch (e) {
+    input.checked = false;
+    alert('设置辅助模型失败');
+  } finally {
+    input.disabled = false;
+  }
 }
 
 function openModal(id) {

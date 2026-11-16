@@ -32,11 +32,12 @@ class ModelEntry(BaseModel):
 async def list_models():
     async with get_db() as db:
         cursor = await db.execute(
-            "SELECT id, name, type, model, base_url, is_default, input_price, output_price, currency, enable_cache, cache_read_price, cache_creation_price FROM models ORDER BY created_at"
+            "SELECT id, name, type, model, base_url, is_default, is_utility, input_price, output_price, currency, enable_cache, cache_read_price, cache_creation_price FROM models ORDER BY created_at"
         )
         rows = await cursor.fetchall()
     return {
         "default": next((r["id"] for r in rows if r["is_default"]), None),
+        "utility": next((r["id"] for r in rows if r["is_utility"]), None),
         "list": [dict(r) for r in rows],
     }
 
@@ -50,12 +51,12 @@ async def add_model(body: ModelEntry):
         row = await db.execute("SELECT id FROM models WHERE id = ?", (mid,))
         if await row.fetchone():
             raise HTTPException(status_code=409, detail=f"Model id '{mid}' already exists.")
-        # 首个模型自动成为默认
+        # 首个模型自动成为默认模型，同时也是辅助模型
         count = await db.execute("SELECT COUNT(*) FROM models")
         is_first = (await count.fetchone())[0] == 0
         await db.execute(
-            "INSERT INTO models (id, name, type, api_key, model, base_url, is_default, input_price, output_price, currency, enable_cache, cache_read_price, cache_creation_price, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (mid, body.name, body.type, body.api_key, body.model, body.base_url, 1 if is_first else 0, body.input_price, body.output_price, body.currency, body.enable_cache, body.cache_read_price, body.cache_creation_price, now),
+            "INSERT INTO models (id, name, type, api_key, model, base_url, is_default, is_utility, input_price, output_price, currency, enable_cache, cache_read_price, cache_creation_price, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (mid, body.name, body.type, body.api_key, body.model, body.base_url, 1 if is_first else 0, 1 if is_first else 0, body.input_price, body.output_price, body.currency, body.enable_cache, body.cache_read_price, body.cache_creation_price, now),
         )
         await db.commit()
     return {"id": mid}
@@ -68,6 +69,20 @@ async def set_default_model(body: dict):
     async with get_db() as db:
         await db.execute("UPDATE models SET is_default = 0")
         await db.execute("UPDATE models SET is_default = 1 WHERE id = ?", (model_id,))
+        await db.commit()
+    return {"success": True}
+
+
+@router.put("/models/utility")
+async def set_utility_model(body: dict):
+    """设置辅助模型：确认目标存在后，先全部置 0，再把目标置 1。"""
+    model_id = body.get("model_id", "")
+    async with get_db() as db:
+        row = await db.execute("SELECT id FROM models WHERE id = ?", (model_id,))
+        if not await row.fetchone():
+            raise HTTPException(status_code=404, detail="Model not found")
+        await db.execute("UPDATE models SET is_utility = 0")
+        await db.execute("UPDATE models SET is_utility = 1 WHERE id = ?", (model_id,))
         await db.commit()
     return {"success": True}
 
@@ -92,15 +107,23 @@ async def update_model(model_id: str, body: ModelEntry):
 
 @router.delete("/models/{model_id}")
 async def delete_model(model_id: str):
-    """删除模型：如果删除的是默认模型，自动将第一个剩余模型设为默认"""
+    """删除模型：默认模型、辅助模型被删时，各自把剩余模型里最早的一条接上"""
     async with get_db() as db:
-        row = await db.execute("SELECT is_default FROM models WHERE id = ?", (model_id,))
+        row = await db.execute(
+            "SELECT is_default, is_utility FROM models WHERE id = ?", (model_id,)
+        )
         m = await row.fetchone()
         await db.execute("DELETE FROM models WHERE id = ?", (model_id,))
         # 删除默认模型时，将第一个剩余模型提升为默认
         if m and m["is_default"]:
             await db.execute(
                 "UPDATE models SET is_default = 1 WHERE id = (SELECT id FROM models LIMIT 1)"
+            )
+        # 删除辅助模型时，将创建时间最早的剩余模型提升为辅助模型
+        if m and m["is_utility"]:
+            await db.execute(
+                "UPDATE models SET is_utility = 1 WHERE id = "
+                "(SELECT id FROM models ORDER BY created_at LIMIT 1)"
             )
         await db.commit()
     return {"success": True}

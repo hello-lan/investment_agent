@@ -62,6 +62,7 @@ async def init_db() -> None:
                 model       TEXT NOT NULL,        -- 模型名称（如 claude-sonnet-4-6）
                 base_url    TEXT DEFAULT '',      -- API 基础地址
                 is_default  INTEGER DEFAULT 0,    -- 是否默认模型（0=否 1=是）
+                is_utility  INTEGER DEFAULT 0,    -- 是否辅助模型（0=否 1=是，全表最多一个）
                 input_price  REAL,                -- 输入价格（每百万 token）
                 output_price REAL,                -- 输出价格（每百万 token）
                 currency     TEXT DEFAULT 'USD',  -- 计价货币（USD / CNY）
@@ -663,6 +664,7 @@ async def init_db() -> None:
             ("models", "enable_cache", "INTEGER DEFAULT 1"),
             ("models", "cache_read_price", "REAL"),
             ("models", "cache_creation_price", "REAL"),
+            ("models", "is_utility", "INTEGER DEFAULT 0"),
             ("subagents", "runtime_config", "TEXT"),
         ]
         await _ensure_columns(db, column_migrations)
@@ -724,8 +726,22 @@ async def init_db() -> None:
         )
         await db.commit()
 
+        # 辅助模型：没有任何 is_utility=1 时，把最早创建的一条标上（与列表顺序一致）
+        await db.execute(
+            """
+            UPDATE models SET is_utility = 1
+            WHERE NOT EXISTS (SELECT 1 FROM models WHERE is_utility = 1)
+              AND id = (SELECT id FROM models ORDER BY created_at LIMIT 1)
+            """
+        )
+        await db.commit()
+
         # ── 创建查询优化索引（IF NOT EXISTS 确保幂等）──────────────
         await db.executescript("""
+            -- 辅助模型最多一个（部分唯一索引；写入须先全部置 0 再置 1）
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_models_one_utility
+                ON models(is_utility) WHERE is_utility = 1;
+
             -- cost_log 索引：支持 JOIN 条件、WHERE 过滤、ORDER BY
             CREATE INDEX IF NOT EXISTS idx_cost_session_task
                 ON cost_log(session_id, task_id);
