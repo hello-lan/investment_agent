@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from ...agent.context.auxiliary_tasks import TITLE_MAX_CHARS, generate_session_title
+from ..config_factory import get_utility_provider
 from ..db import get_db
 
 
@@ -87,3 +89,40 @@ class SessionService:
                 "DELETE FROM sessions WHERE id = ?", (session_id,)
             )
             await db.commit()
+
+    @staticmethod
+    async def generate_title(session_id: str) -> str:
+        """读取本 session 全部用户消息，调用辅助模型生成标题并写回。
+
+        Raises:
+            LookupError: 会话不存在
+            ValueError: 无用户消息，或未配置辅助模型
+        """
+        async with get_db() as db:
+            cursor = await db.execute(
+                "SELECT id FROM sessions WHERE id = ?", (session_id,)
+            )
+            if not await cursor.fetchone():
+                raise LookupError("Session not found")
+            cursor = await db.execute(
+                "SELECT content FROM messages "
+                "WHERE session_id = ? AND role = 'user' ORDER BY created_at",
+                (session_id,),
+            )
+            rows = await cursor.fetchall()
+
+        texts = [r["content"] or "" for r in rows]
+        if not any(t.strip() for t in texts):
+            raise ValueError("没有可用于生成标题的用户消息")
+
+        provider = await get_utility_provider()
+        title = await generate_session_title(provider, texts)
+        title = (title or "未命名")[:TITLE_MAX_CHARS]
+
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE sessions SET title = ? WHERE id = ?",
+                (title, session_id),
+            )
+            await db.commit()
+        return title

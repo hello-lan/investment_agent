@@ -1108,6 +1108,9 @@ body.file-drawer-resizing iframe {
 .session-row.is-running:hover,
 .session-row.is-running:focus-visible { background: #fcefcf; }
 .session-row.is-running .sess-title { color: var(--c-warning); }
+.session-row.is-naming .title-spinner {
+  border-top-color: var(--c-primary);
+}
 
 /* ========================================
    Legacy sidebar styles (unused but preserved)

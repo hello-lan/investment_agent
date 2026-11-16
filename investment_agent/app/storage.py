@@ -219,6 +219,15 @@ class SqliteStorage:
                 cfg = await row.fetchone()
         return dict(cfg) if cfg else None
 
+    async def get_utility_model_config(self) -> dict | None:
+        """查询辅助模型配置（is_utility=1）。未设置则返回 None。"""
+        async with get_db() as db:
+            row = await db.execute(
+                "SELECT * FROM models WHERE is_utility = 1 LIMIT 1"
+            )
+            cfg = await row.fetchone()
+        return dict(cfg) if cfg else None
+
     async def get_workflow_config(self, workflow_id: str) -> dict | None:
         """查询 workflow 配置。"""
         async with get_db() as db:

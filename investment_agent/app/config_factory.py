@@ -23,16 +23,8 @@ from .storage import SqliteStorage
 _storage = SqliteStorage()
 
 
-async def get_provider(model_id: str | None = None) -> ModelProvider:
-    """从数据库 models 表读取配置，创建对应的 ModelProvider 实例。
-
-    复用 SqliteStorage.get_model_config 的查询逻辑，避免重复。
-    """
-    cfg = await _storage.get_model_config(model_id)
-
-    if not cfg:
-        raise ValueError("No model configured. Please add a model in Settings.")
-
+def _provider_from_config(cfg: dict) -> ModelProvider:
+    """由 models 表行构造 ModelProvider。"""
     if cfg["type"] == ProviderType.ANTHROPIC:
         provider = ClaudeProvider(api_key=cfg["api_key"], model=cfg["model"])
     else:
@@ -52,6 +44,27 @@ async def get_provider(model_id: str | None = None) -> ModelProvider:
         provider.supports_cache_control = True
 
     return provider
+
+
+async def get_provider(model_id: str | None = None) -> ModelProvider:
+    """从数据库 models 表读取配置，创建对应的 ModelProvider 实例。
+
+    复用 SqliteStorage.get_model_config 的查询逻辑，避免重复。
+    """
+    cfg = await _storage.get_model_config(model_id)
+
+    if not cfg:
+        raise ValueError("No model configured. Please add a model in Settings.")
+
+    return _provider_from_config(cfg)
+
+
+async def get_utility_provider() -> ModelProvider:
+    """读取 is_utility=1 的辅助模型并构造 Provider。未配置时抛出 ValueError。"""
+    cfg = await _storage.get_utility_model_config()
+    if not cfg:
+        raise ValueError("未配置辅助模型，请在模型页指定一个辅助模型。")
+    return _provider_from_config(cfg)
 
 
 def _normalize_loop_mode(value, workflow_id: str | None = None) -> str:

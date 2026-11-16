@@ -6,6 +6,10 @@ const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const ALLOWED_EXTS = new Set(['.txt','.md','.pdf','.xlsx','.xls','.docx','.doc']);
 const STREAM_RENDER_INTERVAL_MS = 60;
 const DATA_PATH_RE = /data[/\\](?:[^/\\\s`'"<>|]+[/\\])+[^/\\\s`'"<>|]+[/\\]?/gi;
+const TITLE_GENERATE_MAX_USER_MSGS = 3;
+const _titleGenerating = new Set();
+const _titleGenSeq = Object.create(null);
+const _titleOverrides = Object.create(null);
 
 let _drawerNavStack = [];
 let _drawerEscBound = false;
@@ -377,9 +381,12 @@ function _formatSessionTime(iso){
 function _renderSessionRow(s){
   const active = s.id === currentSessionId ? ' active' : '';
   const running = s.status === 'running';
-  const runningCls = running ? ' is-running' : '';
-  const spinner = running ? '<span class="running-spinner" aria-hidden="true"></span>' : '';
-  const title = s.title || '未命名';
+  const naming = !running && _titleGenerating.has(s.id);
+  const runningCls = running ? ' is-running' : (naming ? ' is-naming' : '');
+  const spinner = running
+    ? '<span class="running-spinner" aria-hidden="true"></span>'
+    : (naming ? '<span class="running-spinner title-spinner" aria-hidden="true"></span>' : '');
+  const title = _titleOverrides[s.id] || s.title || '未命名';
   const safeTitle = escapeHtml(title).replace(/"/g, '&quot;');
   const time = _formatSessionTime(s.created_at);
   return `<div class="session-row${active}${runningCls}" data-sid="${s.id}" role="button" tabindex="0" onclick="loadSession('${s.id}')" title="${safeTitle}">
@@ -423,6 +430,72 @@ async function loadSessions(){
     html += _renderSessionRow(s);
   });
   list.innerHTML = html;
+}
+
+function _sessionRowEl(sid){
+  return document.querySelector('.session-row[data-sid="' + sid + '"]');
+}
+
+function _markSessionNaming(sid){
+  const row = _sessionRowEl(sid);
+  if (!row || row.classList.contains('is-running')) return;
+  row.classList.add('is-naming');
+  const titleEl = row.querySelector('.sess-title');
+  if (titleEl && !titleEl.querySelector('.title-spinner')) {
+    const spin = document.createElement('span');
+    spin.className = 'running-spinner title-spinner';
+    spin.setAttribute('aria-hidden', 'true');
+    titleEl.insertBefore(spin, titleEl.firstChild);
+  }
+}
+
+function _clearSessionNaming(sid){
+  const row = _sessionRowEl(sid);
+  if (!row) return;
+  row.classList.remove('is-naming');
+  const spin = row.querySelector('.title-spinner');
+  if (spin) spin.remove();
+}
+
+function _applySessionTitle(sid, title){
+  _titleGenerating.delete(sid);
+  const display = (title || '').trim() || '未命名';
+  _titleOverrides[sid] = display;
+  const s = allSessions.find(x => x.id === sid);
+  if (s) s.title = display;
+  const row = _sessionRowEl(sid);
+  if (!row) return;
+  row.classList.remove('is-naming');
+  row.setAttribute('title', display);
+  const textEl = row.querySelector('.sess-title-text');
+  if (textEl) textEl.textContent = display;
+  const spin = row.querySelector('.title-spinner');
+  if (spin) spin.remove();
+}
+
+async function maybeGenerateSessionTitle(sessionId){
+  if (!sessionId) return;
+  const userCount = document.querySelectorAll('#messages .msg.user').length;
+  if (userCount > TITLE_GENERATE_MAX_USER_MSGS) return;
+
+  const seq = (_titleGenSeq[sessionId] || 0) + 1;
+  _titleGenSeq[sessionId] = seq;
+  _titleGenerating.add(sessionId);
+  _markSessionNaming(sessionId);
+
+  try {
+    const res = await fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/title', {
+      method: 'POST',
+    });
+    if (_titleGenSeq[sessionId] !== seq) return;
+    if (!res.ok) throw new Error('title http ' + res.status);
+    const data = await res.json();
+    _applySessionTitle(sessionId, data.title || '');
+  } catch (e) {
+    if (_titleGenSeq[sessionId] !== seq) return;
+    _titleGenerating.delete(sessionId);
+    _clearSessionNaming(sessionId);
+  }
 }
 
 async function loadSession(sid){
@@ -759,6 +832,7 @@ function _handleStreamEvent(ev, state){
     totalInputTokens += (ev.usage?.input_tokens || 0);
     totalOutputTokens += (ev.usage?.output_tokens || 0);
     updateStats(); finishStream();
+    maybeGenerateSessionTitle(currentSessionId);
   } else if (ev.type === 'interrupted'){
     _finalizeAssistantRender(s);
     removeThinking();
