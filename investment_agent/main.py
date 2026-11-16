@@ -35,7 +35,6 @@ TABS = [
     {"label": "Workflow", "href": "/workflows"},
     {"label": "Skills", "href": "/skills"},
     {"label": "模型", "href": "/model"},
-    {"label": "文件", "href": "/files"},
     {"label": "看板", "href": "/dashboard"},
     {"label": "排雷", "href": "/risk"},
     {"label": "统计", "href": "/observability"},

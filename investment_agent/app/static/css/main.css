@@ -70,10 +70,68 @@ body { font-family: var(--ff-body); background: var(--c-bg); height: 100vh; disp
 .layout { display: flex; flex: 1; overflow: hidden; }
 
 /* ========================================
-   Left Panel — History Sessions
+   Left Panel — History + Files
    ======================================== */
-.left-panel { width: 280px; min-width: 280px; background: var(--c-surface); border-right: 1px solid var(--c-border); display: flex; flex-direction: column; overflow: hidden; }
-.left-panel .history-panel { flex: 1; overflow-y: auto; display: flex; flex-direction: column; min-height: 0; }
+.left-panel {
+  --left-panel-width: 280px;
+  width: var(--left-panel-width);
+  min-width: var(--left-panel-width);
+  background: var(--c-surface);
+  border-right: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+/* 仅从目录树打开抽屉时：左栏浮到遮罩之上，可继续点选切换 */
+body.file-drawer-from-tree .left-panel {
+  z-index: 920;
+}
+body.file-drawer-from-tree .files-panel {
+  box-shadow: inset 0 0 0 1px var(--c-accent-light);
+}
+.left-panel .history-panel {
+  flex: 0 0 55%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 120px;
+}
+.left-panel .files-panel {
+  flex: 1 1 45%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 120px;
+  border-top: 1px solid var(--c-divider);
+}
+.left-split-resizer {
+  flex: 0 0 4px;
+  cursor: row-resize;
+  background: transparent;
+  position: relative;
+  z-index: 2;
+}
+.left-split-resizer::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 1px;
+  height: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background var(--ease);
+}
+.left-split-resizer:hover::after,
+.left-panel.is-split-resizing .left-split-resizer::after {
+  background: var(--c-border);
+}
+body.left-split-resizing {
+  cursor: row-resize !important;
+  user-select: none !important;
+}
 
 /* ========================================
    Main — Chat Area
@@ -219,28 +277,227 @@ body { font-family: var(--ff-body); background: var(--c-bg); height: 100vh; disp
 .agent-context .agent-name { font-weight: 600; color: var(--c-text-1); font-size: var(--fs-base); }
 .agent-context .agent-detail { margin-top: 2px; line-height: var(--lh-base); }
 
-/* ---- History Panel ---- */
-.history-panel { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
-.history-header { padding: 12px 16px; font-size: var(--fs-sm); font-weight: 600; color: var(--c-text-3); border-bottom: 1px solid var(--c-divider); letter-spacing: 0.02em; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.history-header .count { font-weight: 400; color: var(--c-text-5); margin-left: 4px; }
-.btn-new-session { background: transparent; color: var(--c-text-4); border: 1px solid var(--c-border-light); border-radius: var(--r-sm); padding: 2px 10px; font-size: var(--fs-md); line-height: 1.2; cursor: pointer; flex-shrink: 0; transition: all var(--ease); font-weight: 400; }
-.btn-new-session:hover { background: var(--c-primary-lighter); color: var(--c-primary); border-color: var(--c-primary-light); }
+/* ---- History Panel (ChatGPT / Claude style) ---- */
+.history-panel { display: flex; flex-direction: column; overflow: hidden; }
+.history-header {
+  padding: 10px 10px 8px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-text-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.history-header .count {
+  font-weight: 500;
+  color: var(--c-text-5);
+  margin-left: 4px;
+  font-size: 10px;
+  vertical-align: middle;
+}
+.btn-new-session {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-primary-lighter);
+  color: var(--c-text-2);
+  border: none;
+  border-radius: var(--r-md);
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--ease), color var(--ease);
+  font-weight: 500;
+}
+.btn-new-session:hover { background: var(--c-primary-light); color: var(--c-primary); }
 
-.history-list { flex: 1; overflow-y: auto; }
-.session-row { padding: 10px 16px; border-bottom: 1px solid var(--c-divider); cursor: pointer; transition: background var(--ease); }
-.session-row:hover { background: var(--c-primary-lighter); }
-.session-row.active { background: var(--c-primary-light); box-shadow: inset 3px 0 0 var(--c-primary); }
-.session-row .sess-title { font-size: var(--fs-base); font-weight: 500; color: var(--c-text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.session-row .sess-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
-.session-row .sess-meta { font-size: var(--fs-xs); color: var(--c-text-4); }
-.session-row .sess-preview { font-size: var(--fs-xs); color: var(--c-text-4); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.session-row .sess-actions { display: flex; gap: 6px; flex-shrink: 0; }
-.session-row .sess-actions button { font-size: var(--fs-xs); padding: 3px 10px; border-radius: var(--r-sm); cursor: pointer; border: none; transition: all var(--ease); font-weight: 500; }
-.session-row .btn-continue { background: transparent; color: var(--c-text-3); border: 1px solid var(--c-border) !important; }
-.session-row .btn-continue:hover { background: var(--c-primary-lighter); color: var(--c-primary); border-color: var(--c-primary-light) !important; }
-.session-row .btn-del { background: var(--c-surface); color: var(--c-danger); border: 1px solid var(--c-danger-border) !important; }
-.session-row .btn-del:hover { background: var(--c-danger-bg); }
-.history-empty { text-align: center; color: var(--c-text-5); margin-top: 60px; font-size: var(--fs-base); }
+.history-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 6px 8px;
+}
+.history-group-label {
+  padding: 10px 8px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--c-text-4);
+  letter-spacing: 0.04em;
+  text-transform: none;
+  user-select: none;
+}
+.history-group-label:first-child { padding-top: 2px; }
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  padding: 6px 8px;
+  margin-bottom: 1px;
+  border-radius: var(--r-md);
+  border: none;
+  cursor: pointer;
+  transition: background var(--ease);
+  outline: none;
+}
+.session-row:hover,
+.session-row:focus-visible { background: var(--c-primary-lighter); }
+.session-row.active {
+  background: var(--c-primary-light);
+}
+.session-row.active .sess-title {
+  font-weight: 600;
+  color: var(--c-text-1);
+}
+.session-row .sess-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 400;
+  color: var(--c-text-2);
+  line-height: 1.35;
+}
+.session-row .sess-title-text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-row .sess-meta {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--c-text-5);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  transition: opacity var(--ease);
+}
+.session-row .btn-del {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  margin-right: -4px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--c-text-4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--ease), background var(--ease), color var(--ease);
+}
+.session-row:hover .sess-meta,
+.session-row:focus-within .sess-meta {
+  opacity: 0;
+  width: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+.session-row:hover .btn-del,
+.session-row:focus-within .btn-del,
+.session-row.active .btn-del {
+  opacity: 1;
+  pointer-events: auto;
+}
+.session-row .btn-del:hover {
+  background: var(--c-danger-bg);
+  color: var(--c-danger);
+}
+.history-empty {
+  text-align: center;
+  color: var(--c-text-5);
+  margin-top: 36px;
+  font-size: var(--fs-sm);
+  padding: 0 12px;
+  line-height: 1.5;
+}
+
+/* ---- Files Panel (left bottom) ---- */
+.files-header {
+  padding: 10px 16px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--c-text-3);
+  border-bottom: 1px solid var(--c-divider);
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.files-header .count { font-weight: 400; color: var(--c-text-5); font-size: var(--fs-xs); }
+.chat-file-tree { flex: 1; overflow-y: auto; min-height: 0; padding: 4px 0; }
+.chat-file-tree .files-empty {
+  text-align: center;
+  color: var(--c-text-5);
+  font-size: var(--fs-sm);
+  padding: 24px 12px;
+}
+.chat-file-tree .tree-item { cursor: pointer; user-select: none; }
+.chat-file-tree .tree-row {
+  display: flex;
+  align-items: center;
+  padding: 5px 12px;
+  font-size: var(--fs-sm);
+  gap: 4px;
+  white-space: nowrap;
+  color: var(--c-text-2);
+  transition: background var(--ease);
+}
+.chat-file-tree .tree-row:hover { background: var(--c-primary-lighter); }
+.chat-file-tree .tree-row.active {
+  background: var(--c-primary-light);
+  color: var(--c-text-1);
+  box-shadow: inset 3px 0 0 var(--c-primary);
+}
+.chat-file-tree .tree-row .arrow {
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 9px;
+  color: var(--c-text-4);
+  transition: transform 0.15s;
+}
+.chat-file-tree .tree-row .arrow.open { transform: rotate(90deg); }
+.chat-file-tree .tree-row .icon {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.chat-file-tree .tree-row .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+.chat-file-tree .tree-row .size {
+  font-size: 10px;
+  color: var(--c-text-5);
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+.chat-file-tree .tree-children { display: none; }
+.chat-file-tree .tree-children.open { display: block; }
+.chat-file-tree .tree-loading {
+  font-size: var(--fs-xs);
+  color: var(--c-text-5);
+  padding: 4px 12px;
+}
 
 /* ========================================
    Markdown Content (inside assistant bubbles)
@@ -336,12 +593,19 @@ body { font-family: var(--ff-body); background: var(--c-bg); height: 100vh; disp
 /* ---- File preview drawer ---- */
 .file-drawer-overlay {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgba(26, 26, 46, 0.35);
   z-index: 900;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, left 0.2s ease;
   pointer-events: none;
+}
+/* 目录树打开：遮罩避开左栏；聊天 path-chip 打开：全屏遮罩盖住左栏 */
+body.file-drawer-from-tree .file-drawer-overlay {
+  left: 280px;
 }
 .file-drawer-overlay.open {
   opacity: 1;
@@ -358,7 +622,7 @@ body { font-family: var(--ff-body); background: var(--c-bg); height: 100vh; disp
   background: var(--c-surface);
   border-left: 1px solid var(--c-border);
   box-shadow: -4px 0 24px rgba(26, 26, 46, 0.12);
-  z-index: 901;
+  z-index: 910;
   display: flex;
   flex-direction: column;
   transform: translateX(100%);
@@ -593,8 +857,19 @@ body.file-drawer-resizing iframe {
 /* ========================================
    Running Session Indicator
    ======================================== */
-.running-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--c-border); border-top-color: var(--c-primary); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 4px; }
-.session-row.is-running { box-shadow: inset 3px 0 0 var(--c-running); }
+.running-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--c-border);
+  border-top-color: var(--c-running);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+.session-row.is-running { background: var(--c-warning-bg); }
+.session-row.is-running:hover,
+.session-row.is-running:focus-visible { background: #fcefcf; }
 .session-row.is-running .sess-title { color: var(--c-warning); }
 
 /* ========================================

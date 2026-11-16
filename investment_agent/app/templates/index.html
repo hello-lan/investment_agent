@@ -7,13 +7,23 @@
 <div class="layout">
 
   <aside class="left-panel">
-    <div class="history-panel">
+    <div class="history-panel" id="historyPanel">
       <div class="history-header">
-        <span>历史会话 <span class="count" id="historyCount"></span></span>
+        <span>会话 <span class="count" id="historyCount"></span></span>
         <button type="button" class="btn-new-session" onclick="newSession()" title="新对话">+</button>
       </div>
       <div class="history-list" id="historyList">
         <div class="history-empty">选择 Agent 后显示历史会话</div>
+      </div>
+    </div>
+    <div class="left-split-resizer" id="leftSplitResizer" title="拖动调整高度" role="separator" aria-orientation="horizontal"></div>
+    <div class="files-panel" id="filesPanel">
+      <div class="files-header">
+        <span>文件</span>
+        <span class="count" id="chatFileCount"></span>
+      </div>
+      <div class="chat-file-tree" id="chatFileTree">
+        <div class="files-empty">加载中...</div>
       </div>
     </div>
   </aside>

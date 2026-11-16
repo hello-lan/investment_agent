@@ -14,6 +14,17 @@ const DRAWER_MIN_WIDTH = 320;
 const DRAWER_MAX_WIDTH_RATIO = 0.92;
 let _drawerResizing = false;
 let _drawerCurrentFile = null;
+/** 抽屉打开来源：'tree' 目录树 | 'chat' 对话路径（默认） */
+let _drawerOpenSource = 'chat';
+let _drawerOutsideBound = false;
+
+const LEFT_SPLIT_KEY = 'leftPanelHistoryRatio';
+const LEFT_SPLIT_DEFAULT = 0.55;
+const LEFT_SPLIT_MIN_PX = 120;
+let _leftSplitResizing = false;
+let _chatFileLoadedPaths = Object.create(null);
+let _chatFileActiveRow = null;
+let _chatFileCount = 0;
 
 function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
@@ -345,6 +356,61 @@ async function loadModels(){
 
 /* ====== Sessions (right panel) ====== */
 
+function _sessionGroupKey(iso){
+  const d = new Date(String(iso || '').replace(/-/g, '/'));
+  if (isNaN(d.getTime())) return 'earlier';
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startThat = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((startToday - startThat) / 86400000);
+  if (diffDays <= 0) return 'today';
+  if (diffDays === 1) return 'yesterday';
+  if (diffDays < 7) return 'week';
+  if (diffDays < 30) return 'month';
+  return 'earlier';
+}
+
+const _SESSION_GROUP_LABELS = {
+  today: '今天',
+  yesterday: '昨天',
+  week: '近 7 天',
+  month: '近 30 天',
+  earlier: '更早',
+};
+
+function _formatSessionTime(iso){
+  const raw = String(iso || '');
+  const d = new Date(raw.replace(/-/g, '/'));
+  if (!isNaN(d.getTime())) {
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const group = _sessionGroupKey(iso);
+    if (group === 'today' || group === 'yesterday') return hh + ':' + mm;
+    const yyyy = d.getFullYear();
+    const mo = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return yyyy + '-' + mo + '-' + day;
+  }
+  return raw.slice(5, 16) || '';
+}
+
+function _renderSessionRow(s){
+  const active = s.id === currentSessionId ? ' active' : '';
+  const running = s.status === 'running';
+  const runningCls = running ? ' is-running' : '';
+  const spinner = running ? '<span class="running-spinner" aria-hidden="true"></span>' : '';
+  const title = s.title || '未命名';
+  const safeTitle = escapeHtml(title).replace(/"/g, '&quot;');
+  const time = _formatSessionTime(s.created_at);
+  return `<div class="session-row${active}${runningCls}" data-sid="${s.id}" role="button" tabindex="0" onclick="loadSession('${s.id}')" title="${safeTitle}">
+    <div class="sess-title">${spinner}<span class="sess-title-text">${escapeHtml(title)}</span></div>
+    <span class="sess-meta">${escapeHtml(time)}</span>
+    <button type="button" class="btn-del" onclick="event.stopPropagation();deleteSession('${s.id}')" aria-label="删除会话" title="删除">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+    </button>
+  </div>`;
+}
+
 async function loadSessions(){
   const list = document.getElementById('historyList');
   const countEl = document.getElementById('historyCount');
@@ -359,33 +425,24 @@ async function loadSessions(){
     ? allSessions.filter(s => s.agent_id === currentAgentId)
     : [];
 
-  countEl.textContent = filtered.length ? '共 ' + filtered.length + ' 条' : '';
+  countEl.textContent = filtered.length ? String(filtered.length) : '';
 
   if (!filtered.length) {
     list.innerHTML = '<div class="history-empty">暂无历史会话</div>';
     return;
   }
 
-  list.innerHTML = filtered.map(s => {
-    const active = s.id === currentSessionId ? ' active' : '';
-    const running = s.status === 'running';
-    const runningCls = running ? ' is-running' : '';
-    const spinner = running ? '<span class="running-spinner"></span>' : '';
-    const title = s.title || '未命名';
-    const date = (s.created_at || '').slice(0, 16);
-    const preview = s.preview ? '<div class="sess-preview">' + escapeHtml(s.preview) + '</div>' : '';
-    return `<div class="session-row${active}${runningCls}" data-sid="${s.id}" onclick="loadSession('${s.id}')">
-      <div class="sess-title">${spinner}${escapeHtml(title)}</div>
-      ${preview}
-      <div class="sess-bottom">
-        <span class="sess-meta">${date}</span>
-        <div class="sess-actions">
-          <button class="btn-continue" onclick="event.stopPropagation();loadSession('${s.id}')">${running ? '查看进度' : '继续对话'}</button>
-          <button class="btn-del" onclick="event.stopPropagation();deleteSession('${s.id}')">删除</button>
-        </div>
-      </div>
-    </div>`;
-  }).join('');
+  let html = '';
+  let lastGroup = null;
+  filtered.forEach(s => {
+    const group = _sessionGroupKey(s.created_at);
+    if (group !== lastGroup) {
+      html += '<div class="history-group-label">' + _SESSION_GROUP_LABELS[group] + '</div>';
+      lastGroup = group;
+    }
+    html += _renderSessionRow(s);
+  });
+  list.innerHTML = html;
 }
 
 async function loadSession(sid){
@@ -1906,10 +1963,42 @@ function _setDrawerHeader(name, apiPath){
   if (els.back) els.back.style.display = _drawerNavStack.length > 1 ? '' : 'none';
 }
 
+function _setDrawerOpenSource(source){
+  _drawerOpenSource = source === 'tree' ? 'tree' : 'chat';
+  document.body.classList.toggle('file-drawer-from-tree', _drawerOpenSource === 'tree');
+}
+
+function _onDrawerOutsideClick(e){
+  if (_drawerOpenSource !== 'tree') return;
+  const els = _drawerEls();
+  if (!els.drawer || !els.drawer.classList.contains('open')) return;
+  if (e.target.closest('#fileDrawer')) return;
+  if (e.target.closest('#filesPanel')) return;
+  closeFileDrawer();
+}
+
+function _bindDrawerOutsideClick(){
+  if (_drawerOutsideBound) return;
+  _drawerOutsideBound = true;
+  // 延后绑定，避免打开抽屉的同一次点击立刻触发关闭
+  window.setTimeout(function(){
+    if (!_drawerOutsideBound) return;
+    document.addEventListener('click', _onDrawerOutsideClick);
+  }, 0);
+}
+
+function _unbindDrawerOutsideClick(){
+  if (!_drawerOutsideBound) return;
+  document.removeEventListener('click', _onDrawerOutsideClick);
+  _drawerOutsideBound = false;
+}
+
 function openFileDrawer(){
   const els = _drawerEls();
   if (!els.drawer || !els.overlay) return;
   _applyDrawerWidth();
+  document.body.classList.add('file-drawer-open');
+  document.body.classList.toggle('file-drawer-from-tree', _drawerOpenSource === 'tree');
   els.overlay.hidden = false;
   requestAnimationFrame(function(){
     els.overlay.classList.add('open');
@@ -1920,6 +2009,8 @@ function openFileDrawer(){
     _drawerEscBound = true;
     document.addEventListener('keydown', _onDrawerKeydown);
   }
+  if (_drawerOpenSource === 'tree') _bindDrawerOutsideClick();
+  else _unbindDrawerOutsideClick();
 }
 
 function closeFileDrawer(){
@@ -1928,11 +2019,15 @@ function closeFileDrawer(){
   els.overlay.classList.remove('open');
   els.drawer.classList.remove('open');
   els.drawer.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('file-drawer-open', 'file-drawer-from-tree');
+  _drawerOpenSource = 'chat';
+  _unbindDrawerOutsideClick();
   window.setTimeout(function(){
     if (!els.drawer.classList.contains('open')) els.overlay.hidden = true;
   }, 220);
   _drawerNavStack = [];
   _clearDrawerToolbar();
+  _clearChatFileTreeActive();
   if (_drawerEscBound) {
     document.removeEventListener('keydown', _onDrawerKeydown);
     _drawerEscBound = false;
@@ -2060,6 +2155,7 @@ async function _loadDrawerTarget(apiPath, ftype, pushStack){
   }
   _drawerShowLoading();
   openFileDrawer();
+  _syncChatFileTreeActive(path, kind);
   try {
     if (kind === 'folder') {
       const entries = await _fetchChildren(path);
@@ -2074,6 +2170,7 @@ async function _loadDrawerTarget(apiPath, ftype, pushStack){
       const entries = await _fetchChildren(path);
       if (_drawerNavStack.length) _drawerNavStack[_drawerNavStack.length - 1].ftype = 'folder';
       _renderDirListing(entries, path);
+      _syncChatFileTreeActive(path, 'folder');
     }
   } catch (err) {
     _setDrawerHeader(path.split('/').pop() || '预览', path);
@@ -2081,8 +2178,10 @@ async function _loadDrawerTarget(apiPath, ftype, pushStack){
   }
 }
 
-function openPathInDrawer(apiPath, ftype){
+function openPathInDrawer(apiPath, ftype, source){
   _drawerNavStack = [];
+  _setDrawerOpenSource(source || 'chat');
+  _syncChatFileTreeActive(apiPath, ftype);
   _loadDrawerTarget(apiPath, ftype, true);
 }
 
@@ -2186,9 +2285,299 @@ function _initFileDrawer(){
       if (!chip || !messages.contains(chip)) return;
       e.preventDefault();
       e.stopPropagation();
-      openPathInDrawer(chip.dataset.path || '', chip.dataset.ftype || '');
+      openPathInDrawer(chip.dataset.path || '', chip.dataset.ftype || '', 'chat');
     });
   }
+}
+
+/* ====== 左栏：历史 / 文件 分割与文件树 ====== */
+
+function _chatFileIcon(entry){
+  if (entry.type === 'dir') return '📁';
+  const ext = entry.ext || _pathExt(entry.name || '');
+  if (ext === '.pdf') return '📄';
+  if (ext === '.md' || ext === '.markdown') return '📝';
+  if (ext === '.html' || ext === '.htm') return '🌐';
+  if (ext === '.json') return '{ }';
+  if (ext === '.py') return '🐍';
+  if (ext === '.log') return '📋';
+  return '📃';
+}
+
+function _updateChatFileCount(){
+  const el = document.getElementById('chatFileCount');
+  if (!el) return;
+  el.textContent = _chatFileCount > 0 ? (_chatFileCount + ' 个') : '';
+}
+
+function _clearChatFileTreeActive(){
+  if (_chatFileActiveRow) {
+    _chatFileActiveRow.classList.remove('active');
+    _chatFileActiveRow = null;
+  }
+}
+
+function _setChatFileTreeActiveRow(row){
+  if (_chatFileActiveRow) _chatFileActiveRow.classList.remove('active');
+  _chatFileActiveRow = row || null;
+  if (_chatFileActiveRow) _chatFileActiveRow.classList.add('active');
+}
+
+function _syncChatFileTreeActive(apiPath, ftype){
+  const tree = document.getElementById('chatFileTree');
+  if (!tree) return;
+  const path = String(apiPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  if (!path || ftype === 'folder') {
+    _clearChatFileTreeActive();
+    return;
+  }
+  let found = null;
+  tree.querySelectorAll('.tree-row[data-type="file"]').forEach(function(row){
+    if (row.dataset.path === path) found = row;
+  });
+  if (found) _setChatFileTreeActiveRow(found);
+  else _clearChatFileTreeActive();
+}
+
+function _createChatFileRow(node, level){
+  const div = document.createElement('div');
+  div.className = 'tree-item';
+
+  const row = document.createElement('div');
+  row.className = 'tree-row';
+  row.style.paddingLeft = (10 + level * 14) + 'px';
+  row.dataset.path = node.path || '';
+  row.dataset.type = node.type || '';
+
+  const arrow = document.createElement('span');
+  arrow.className = 'arrow';
+
+  const icon = document.createElement('span');
+  icon.className = 'icon';
+  icon.textContent = _chatFileIcon(node);
+
+  const name = document.createElement('span');
+  name.className = 'name';
+  name.textContent = node.name || '';
+  name.title = node.name || '';
+
+  const size = document.createElement('span');
+  size.className = 'size';
+
+  row.appendChild(arrow);
+  row.appendChild(icon);
+  row.appendChild(name);
+  row.appendChild(size);
+  div.appendChild(row);
+
+  if (node.type === 'dir') {
+    arrow.textContent = '▶';
+    const childrenEl = document.createElement('div');
+    childrenEl.className = 'tree-children';
+    div.appendChild(childrenEl);
+
+    const loadingEl = document.createElement('div');
+    loadingEl.className = 'tree-loading';
+    loadingEl.textContent = '加载中...';
+    loadingEl.style.display = 'none';
+    loadingEl.style.paddingLeft = (10 + (level + 1) * 14) + 'px';
+    childrenEl.appendChild(loadingEl);
+
+    row.addEventListener('click', function(e){
+      e.stopPropagation();
+      const isOpen = childrenEl.classList.contains('open');
+      if (isOpen) {
+        childrenEl.classList.remove('open');
+        arrow.classList.remove('open');
+        loadingEl.style.display = 'none';
+        return;
+      }
+      if (_chatFileLoadedPaths[node.path]) {
+        childrenEl.classList.add('open');
+        arrow.classList.add('open');
+        return;
+      }
+      if (node.hasChildren) {
+        arrow.classList.add('open');
+        loadingEl.style.display = 'block';
+        _loadChatFileChildren(node.path, childrenEl, loadingEl, level + 1);
+        return;
+      }
+      _chatFileLoadedPaths[node.path] = true;
+      childrenEl.classList.add('open');
+      arrow.classList.add('open');
+    });
+  }
+
+  if (node.type === 'file') {
+    size.textContent = _formatSize(node.size);
+    row.addEventListener('click', function(e){
+      e.stopPropagation();
+      _setChatFileTreeActiveRow(row);
+      openPathInDrawer(node.path, _inferPathFtype(node.name || node.path || ''), 'tree');
+    });
+  }
+
+  return div;
+}
+
+function _loadChatFileChildren(dirPath, childrenEl, loadingEl, level){
+  fetch('/api/files/children?path=' + encodeURIComponent(dirPath || ''))
+    .then(function(res){
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    })
+    .then(function(nodes){
+      _chatFileLoadedPaths[dirPath] = true;
+      loadingEl.style.display = 'none';
+      (nodes || []).forEach(function(n){
+        if (n.type === 'file') _chatFileCount += 1;
+      });
+      _updateChatFileCount();
+      (nodes || []).forEach(function(node){
+        childrenEl.appendChild(_createChatFileRow(node, level));
+      });
+      childrenEl.classList.add('open');
+    })
+    .catch(function(err){
+      loadingEl.style.display = 'block';
+      loadingEl.textContent = '加载失败: ' + (err.message || '未知错误');
+      loadingEl.style.color = 'var(--c-danger)';
+    });
+}
+
+function _renderChatFileTree(nodes){
+  const tree = document.getElementById('chatFileTree');
+  if (!tree) return;
+  tree.innerHTML = '';
+  _chatFileCount = 0;
+  _chatFileActiveRow = null;
+  if (!nodes || !nodes.length) {
+    tree.innerHTML = '<div class="files-empty">暂无文件</div>';
+    _updateChatFileCount();
+    return;
+  }
+  nodes.forEach(function(n){
+    if (n.type === 'file') _chatFileCount += 1;
+  });
+  _updateChatFileCount();
+  nodes.forEach(function(node){
+    tree.appendChild(_createChatFileRow(node, 0));
+  });
+}
+
+function initChatFileTree(){
+  const tree = document.getElementById('chatFileTree');
+  if (!tree) return;
+  _chatFileLoadedPaths = Object.create(null);
+  tree.innerHTML = '<div class="files-empty">加载中...</div>';
+  fetch('/api/files/children')
+    .then(function(res){
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    })
+    .then(function(data){ _renderChatFileTree(data); })
+    .catch(function(err){
+      tree.innerHTML = '<div class="files-empty">加载失败: ' + escapeHtml(err.message || '') + '</div>';
+    });
+}
+
+function _clampHistoryRatio(ratio, panelHeight){
+  let r = Number(ratio);
+  if (!isFinite(r)) r = LEFT_SPLIT_DEFAULT;
+  const h = panelHeight || 0;
+  if (h > LEFT_SPLIT_MIN_PX * 2 + 4) {
+    const minR = LEFT_SPLIT_MIN_PX / h;
+    const maxR = 1 - (LEFT_SPLIT_MIN_PX + 4) / h;
+    r = Math.min(maxR, Math.max(minR, r));
+  } else {
+    r = Math.min(0.8, Math.max(0.2, r));
+  }
+  return r;
+}
+
+function _readHistoryRatio(){
+  try {
+    const raw = localStorage.getItem(LEFT_SPLIT_KEY);
+    if (raw == null) return LEFT_SPLIT_DEFAULT;
+    return _clampHistoryRatio(parseFloat(raw));
+  } catch (_) {
+    return LEFT_SPLIT_DEFAULT;
+  }
+}
+
+function _applyLeftSplitRatio(ratio){
+  const panel = document.querySelector('.left-panel');
+  const history = document.getElementById('historyPanel');
+  const files = document.getElementById('filesPanel');
+  const resizer = document.getElementById('leftSplitResizer');
+  if (!panel || !history || !files) return;
+  const panelH = panel.getBoundingClientRect().height;
+  const resizerH = resizer ? (resizer.offsetHeight || 4) : 4;
+  const usable = Math.max(0, panelH - resizerH);
+  const r = _clampHistoryRatio(ratio, usable || panelH);
+  const historyH = Math.round(r * usable);
+  history.style.flex = '0 0 ' + historyH + 'px';
+  files.style.flex = '1 1 auto';
+  return r;
+}
+
+function _initLeftSplitResize(){
+  const panel = document.querySelector('.left-panel');
+  const history = document.getElementById('historyPanel');
+  const resizer = document.getElementById('leftSplitResizer');
+  if (!panel || !history || !resizer) return;
+
+  _applyLeftSplitRatio(_readHistoryRatio());
+
+  function onMove(e){
+    if (!_leftSplitResizing) return;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const rect = panel.getBoundingClientRect();
+    const resizerH = resizer.offsetHeight || 4;
+    const usable = Math.max(1, rect.height - resizerH);
+    const ratio = (clientY - rect.top) / usable;
+    _applyLeftSplitRatio(ratio);
+    if (e.cancelable) e.preventDefault();
+  }
+
+  function onUp(){
+    if (!_leftSplitResizing) return;
+    _leftSplitResizing = false;
+    panel.classList.remove('is-split-resizing');
+    document.body.classList.remove('left-split-resizing');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    document.removeEventListener('touchmove', onMove);
+    document.removeEventListener('touchend', onUp);
+    const rect = panel.getBoundingClientRect();
+    const hRect = history.getBoundingClientRect();
+    const resizerH = resizer.offsetHeight || 4;
+    const usable = Math.max(1, rect.height - resizerH);
+    const ratio = _clampHistoryRatio(hRect.height / usable, usable);
+    _applyLeftSplitRatio(ratio);
+    try { localStorage.setItem(LEFT_SPLIT_KEY, String(ratio)); } catch (_) {}
+  }
+
+  function onDown(e){
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    _leftSplitResizing = true;
+    panel.classList.add('is-split-resizing');
+    document.body.classList.add('left-split-resizing');
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onUp);
+  }
+
+  resizer.addEventListener('mousedown', onDown);
+  resizer.addEventListener('touchstart', onDown, { passive: false });
+
+  window.addEventListener('resize', function(){
+    _applyLeftSplitRatio(_readHistoryRatio());
+  });
 }
 
 /* ====== 页面初始化 ====== */
@@ -2197,6 +2586,8 @@ window.addEventListener('DOMContentLoaded', () => {
   _initScrollListener();
   _initDragDrop();
   _initFileDrawer();
+  _initLeftSplitResize();
+  initChatFileTree();
   const params = new URLSearchParams(location.search);
   const sid = params.get('session');
   const aid = params.get('agent');
