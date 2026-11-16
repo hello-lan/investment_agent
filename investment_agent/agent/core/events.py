@@ -131,11 +131,16 @@ _DETAIL_BUILDERS: dict[str, Callable[[dict], dict]] = {
 
 def _build_sub_detail(event_type: str, event: dict) -> dict | None:
     """构建子Agent事件（前缀 "sub_"）的 trace_detail。"""
-    base = {
-        "delegate_id": event.get("delegate_id"),
-        "depth": event.get("depth"),
-        "agent_type": event.get("agent_type"),
-    }
+    base: dict = {"delegate_id": event.get("delegate_id")}
+    if event.get("label"):
+        base["label"] = event.get("label")
+    base["depth"] = event.get("depth")
+    base["agent_type"] = event.get("agent_type")
+    if "agent_start" in event_type:
+        preview = event.get("task_preview")
+        if preview:
+            base["task_preview"] = str(preview)[:200]
+        return base
     if "tool_call" in event_type:
         return {**base, "tool": event.get("tool"), "input": event.get("input")}
     if "tool_result" in event_type:

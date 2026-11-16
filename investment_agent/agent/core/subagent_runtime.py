@@ -52,7 +52,9 @@ def build_subagent_tool_schema(definition: dict) -> dict:
     }
 
 
-def _forward_event(event: dict, subagent_id: str, depth: int) -> dict | str | None:
+def _forward_event(
+    event: dict, subagent_id: str, depth: int, label: str = "",
+) -> dict | str | None:
     event_type = event.get("type", "")
     prefix = "sub_" * depth
 
@@ -66,6 +68,8 @@ def _forward_event(event: dict, subagent_id: str, depth: int) -> dict | str | No
         forwarded.setdefault("delegate_id", subagent_id)
         forwarded.setdefault("depth", depth)
         forwarded.setdefault("agent_type", _SUBAGENT_TYPE)
+        if label:
+            forwarded.setdefault("label", label)
         return forwarded
 
     forwarded = dict(event)
@@ -73,6 +77,8 @@ def _forward_event(event: dict, subagent_id: str, depth: int) -> dict | str | No
     forwarded.setdefault("delegate_id", subagent_id)
     forwarded.setdefault("depth", depth)
     forwarded.setdefault("agent_type", _SUBAGENT_TYPE)
+    if label:
+        forwarded.setdefault("label", label)
     return forwarded
 
 
@@ -296,11 +302,24 @@ async def run_defined_subagent(
         ],
     }]
     depth = parent.subagent_depth + 1
+    label = (request.definition.get("name") or subagent_id or "").strip() or "子Agent"
+    if len(label) > 80:
+        label = label[:79] + "…"
+    prefix = "sub_" * depth
     result_text = ""
+
+    yield {
+        "type": f"{prefix}agent_start",
+        "delegate_id": subagent_id,
+        "depth": depth,
+        "agent_type": _SUBAGENT_TYPE,
+        "label": label,
+        "task_preview": (request.task or "")[:200],
+    }
 
     try:
         async for event in child.run(child_messages):
-            forwarded = _forward_event(event, subagent_id, depth)
+            forwarded = _forward_event(event, subagent_id, depth, label=label)
             if forwarded == EventType.DONE:
                 break
             if forwarded == EventType.ERROR:

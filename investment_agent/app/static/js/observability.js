@@ -39,6 +39,54 @@ function shortId(id) {
   return id.length > 8 ? id.slice(0, 8) + '…' : id;
 }
 
+function shortDelegateId(id) {
+  if (!id || id === '__unknown_sub__') return '未命名';
+  var idx = id.lastIndexOf('_');
+  var tail = idx >= 0 ? id.slice(idx + 1) : id;
+  return tail.length > 8 ? tail.slice(0, 8) : tail;
+}
+
+function isSubEvent(step) {
+  return !!(step && step.event_type && step.event_type.indexOf('sub_') !== -1);
+}
+
+function isLlmRequest(eventType) {
+  return eventType === 'llm_request' || (eventType && eventType.indexOf('llm_request') !== -1);
+}
+
+function stepField(step, key) {
+  if (step && step[key] != null && step[key] !== '') return step[key];
+  var d = parseDetail(step && step.detail);
+  if (d[key] != null && d[key] !== '') return d[key];
+  return null;
+}
+
+function llmRequestSummary(step, detailObj) {
+  var total = step.message_count != null ? step.message_count
+    : (detailObj.message_count != null ? detailObj.message_count
+      : (detailObj.messages ? detailObj.messages.length : 0));
+  var text = '📤 → 上下文 ' + total + ' 条';
+  var added = step.added_count != null ? step.added_count : detailObj.added_count;
+  if (detailObj.kind === 'delta' && added != null) text += '，本步新增 ' + added + ' 条';
+  else if (detailObj.kind === 'snapshot') text += '（快照）';
+  return { text: text, total: total };
+}
+
+function messageNote(detailObj) {
+  var total = detailObj.message_count != null ? detailObj.message_count
+    : (detailObj.messages ? detailObj.messages.length : 0);
+  var html = '<div class="obs-msg-note">上下文共 ' + total + ' 条';
+  if (detailObj.kind === 'delta' && detailObj.added_count != null) {
+    html += '，本步新增 ' + detailObj.added_count + ' 条';
+  } else if (detailObj.kind === 'snapshot') {
+    html += '（快照）';
+  } else if (detailObj.added_count != null && detailObj.kind !== 'snapshot') {
+    html += '，本步新增 ' + detailObj.added_count + ' 条';
+  }
+  html += '</div>';
+  return html;
+}
+
 function parseDetail(d) {
   if (!d) return {};
   try { return JSON.parse(d); } catch (e) { return {}; }
@@ -48,12 +96,13 @@ function agentTypeBadge(type) {
   if (!type) return '';
   var colors = {
     delegate: 'background:#fef3c7;color:#92400e;',
+    subagent: 'background:#e0e7ff;color:#3730a3;',
     clone: 'background:#fef3c7;color:#92400e;',
     serial: 'background:#dbeafe;color:#1e40af;',
     concurrent: 'background:#e0e7ff;color:#3730a3;',
   };
   var style = colors[type] || 'background:#f3f4f6;color:#374151;';
-  var label = { delegate: '委派', clone: '分身', serial: '串行', concurrent: '并发' };
+  var label = { delegate: '委派', subagent: '子Agent', clone: '分身', serial: '串行', concurrent: '并发' };
   return '<span class="obs-agent-type" style="' + style + '">' + esc(label[type] || type) + '</span>';
 }
 
@@ -633,11 +682,70 @@ function renderTaskAccordion(steps, autoOpen) {
   });
 
   // Step rows (exclude context_budget, it's already shown as a card)
+  html += renderTaskSteps(steps);
+
+  html += '</div></div>';
+  return html;
+}
+
+function renderTaskSteps(steps) {
+  var groups = new Map();
   steps.forEach(function(s) {
-    if (s.event_type === 'context_budget') return;
-    html += buildStepRow(s);
+    if (!isSubEvent(s)) return;
+    var id = stepField(s, 'delegate_id') || '__unknown_sub__';
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push(s);
   });
 
+  var placed = {};
+  var html = '';
+  steps.forEach(function(s) {
+    if (s.event_type === 'context_budget') return;
+    if (isSubEvent(s)) {
+      var id = stepField(s, 'delegate_id') || '__unknown_sub__';
+      if (placed[id]) return;
+      placed[id] = true;
+      html += renderSubagentCard(id, groups.get(id));
+      return;
+    }
+    html += buildStepRow(s);
+  });
+  return html;
+}
+
+function renderSubagentCard(delegateId, events) {
+  var start = null;
+  var body = [];
+  (events || []).forEach(function(s) {
+    if (s.event_type && s.event_type.indexOf('agent_start') !== -1) {
+      if (!start) start = s;
+      return;
+    }
+    body.push(s);
+  });
+  var meta = start || (events && events[0]) || {};
+  var detail = parseDetail(meta.detail);
+  var label = stepField(meta, 'label') || '子Agent';
+  var agentType = stepField(meta, 'agent_type') || '';
+  var depth = stepField(meta, 'depth');
+  var preview = detail.task_preview || '';
+  var typeClass = agentType === 'subagent' ? ' obs-sub-defined' : ' obs-sub-delegate';
+  var depthNum = parseInt(depth, 10);
+  if (isNaN(depthNum) || depthNum < 1) depthNum = 1;
+  var depthClass = ' depth-' + Math.min(depthNum, 4);
+
+  var html = '<div class="obs-sub-card open' + typeClass + depthClass + '" data-delegate="' + esc(delegateId) + '">';
+  html += '<div class="obs-sub-header">';
+  html += '<span class="obs-sub-arrow">▸</span>';
+  html += agentTypeBadge(agentType);
+  html += '<span class="obs-sub-label" title="' + esc(label) + '">' + esc(label) + '</span>';
+  if (depth != null) html += '<span class="obs-sub-depth">深度 ' + esc(String(depth)) + '</span>';
+  html += '<span class="obs-sub-id" title="' + esc(delegateId) + '">' + esc(shortDelegateId(delegateId)) + '</span>';
+  html += '<span class="obs-sub-count">' + body.length + ' 个事件</span>';
+  html += '</div>';
+  if (preview) html += '<div class="obs-sub-preview">' + esc(preview) + '</div>';
+  html += '<div class="obs-sub-body">';
+  body.forEach(function(s) { html += buildStepRow(s, true); });
   html += '</div></div>';
   return html;
 }
@@ -670,6 +778,15 @@ function renderContextBudget(detailJson) {
 }
 
 function handleTraceClick(e) {
+  var subHeader = e.target.closest('.obs-sub-header');
+  if (subHeader) {
+    var subCard = subHeader.parentElement;
+    if (subCard && subCard.classList.contains('obs-sub-card')) {
+      subCard.classList.toggle('open');
+    }
+    return;
+  }
+
   // Accordion header click (session or task level)
   var header = e.target.closest('.obs-acc-header');
   if (header) {
@@ -718,9 +835,9 @@ async function fetchAndExpandRow(row) {
     var detailObj = parseDetail(data.detail);
     var expandHtml = '';
 
-    if (data.event_type === 'llm_request') {
+    if (isLlmRequest(data.event_type)) {
       if (detailObj.messages && detailObj.messages.length) {
-        expandHtml = buildMessagesExpand(detailObj.messages);
+        expandHtml = buildMessagesExpand(detailObj.messages, messageNote(detailObj));
       }
     } else if (data.event_type === 'llm_response') {
       expandHtml = buildResponseExpand(detailObj);
@@ -734,8 +851,6 @@ async function fetchAndExpandRow(row) {
       expandHtml = buildSubToolExpand(detailObj, 'input');
     } else if (data.event_type.indexOf('tool_result') !== -1) {
       expandHtml = buildSubToolExpand(detailObj, 'output');
-    } else if (data.event_type.indexOf('llm_request') !== -1) {
-      expandHtml = buildSubLlmExpand(detailObj, 'messages');
     } else if (data.event_type.indexOf('llm_response') !== -1) {
       expandHtml = buildSubLlmExpand(detailObj, 'response');
     }
@@ -761,8 +876,10 @@ async function fetchAndExpandRow(row) {
   }
 }
 
-function buildStepRow(step) {
-  var cat = evtCategory(step.event_type);
+function buildStepRow(step, inSubcard) {
+  var shownType = step.event_type || '';
+  if (inSubcard) shownType = shownType.replace(/^(sub_)+/, '');
+  var cat = evtCategory(inSubcard ? shownType : step.event_type);
   var timeStr = formatFullTime(step.created_at);
   var stepNum = step.step != null ? step.step : '—';
   var detailText = '';
@@ -814,23 +931,29 @@ function buildStepRow(step) {
     }
   } else if (step.event_type.indexOf('tool_call') !== -1 && detailObj.tool) {
     var subPrefix = step.event_type.replace(/tool_call.*$/, '');
-    detailText = '[' + (subPrefix || 'sub_').replace(/_/g, ' ').trim() + '] ' + detailObj.tool;
+    detailText = detailObj.tool;
+    if (!inSubcard) {
+      detailText = '[' + (subPrefix || 'sub_').replace(/_/g, ' ').trim() + '] ' + detailText;
+    }
     if (detailObj.input) {
       var subInputStr = typeof detailObj.input === 'string' ? detailObj.input : JSON.stringify(detailObj.input);
       detailText += ' (' + subInputStr.slice(0, 80) + (subInputStr.length > 80 ? '...' : '') + ')';
     }
-    if (detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
-    if (detailObj.agent_type) detailText += ' ' + agentTypeBadge(detailObj.agent_type);
+    if (!inSubcard && detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
+    if (!inSubcard && detailObj.agent_type) detailText += ' ' + agentTypeBadge(detailObj.agent_type);
     rowClass += ' obs-expandable';
     expandHtml = buildSubToolExpand(detailObj, 'input');
   } else if (step.event_type.indexOf('tool_result') !== -1 && detailObj.tool) {
     var subPrefix2 = step.event_type.replace(/tool_result.*$/, '');
-    detailText = '[' + (subPrefix2 || 'sub_').replace(/_/g, ' ').trim() + '] ' + detailObj.tool + ' → ' + esc(String(detailObj.output || '').slice(0, 100));
+    detailText = detailObj.tool + ' → ' + esc(String(detailObj.output || '').slice(0, 100));
+    if (!inSubcard) {
+      detailText = '[' + (subPrefix2 || 'sub_').replace(/_/g, ' ').trim() + '] ' + detailText;
+    }
     if (detailObj.duration_ms != null) {
       hasDuration = true;
     }
-    if (detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
-    if (detailObj.agent_type) detailText += ' ' + agentTypeBadge(detailObj.agent_type);
+    if (!inSubcard && detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
+    if (!inSubcard && detailObj.agent_type) detailText += ' ' + agentTypeBadge(detailObj.agent_type);
     rowClass += ' obs-expandable';
     expandHtml = buildSubToolExpand(detailObj, 'output');
   } else if (step.event_type === 'cache_metrics') {
@@ -840,12 +963,20 @@ function buildStepRow(step) {
     detailText = '完成 — 输入 ' + formatNum(u.input_tokens) + ' / 输出 ' + formatNum(u.output_tokens);
     if (u.cache_read_tokens) detailText += ' / cache读 ' + formatNum(u.cache_read_tokens);
     if (u.cache_creation_tokens) detailText += ' / cache写 ' + formatNum(u.cache_creation_tokens);
-  } else if (step.event_type === 'llm_request') {
-    var msgCount = detailObj.messages ? detailObj.messages.length : 0;
-    detailText = '📤 → ' + msgCount + ' 条消息';
-    if (msgCount > 0) {
+  } else if (isLlmRequest(step.event_type)) {
+    var summary = llmRequestSummary(step, detailObj);
+    detailText = summary.text;
+    if (!inSubcard && step.event_type !== 'llm_request') {
+      var subPrefix3 = step.event_type.replace(/llm_request.*$/, '');
+      detailText = '[' + (subPrefix3 || 'sub_').replace(/_/g, ' ').trim() + '] ' + detailText;
+      if (detailObj.agent_type) detailText += ' ' + agentTypeBadge(detailObj.agent_type);
+    }
+    if (summary.total > 0 || (detailObj.messages && detailObj.messages.length)) {
       rowClass += ' obs-expandable';
-      expandHtml = buildMessagesExpand(detailObj.messages);
+      var incremental = detailObj.kind === 'snapshot' || detailObj.kind === 'delta';
+      if (!incremental && detailObj.messages && detailObj.messages.length && (step.detail_size || 0) <= _DETAIL_TRUNCATE_LIMIT) {
+        expandHtml = buildMessagesExpand(detailObj.messages, messageNote(detailObj));
+      }
     }
   } else if (step.event_type === 'llm_response') {
     detailText = '📥 ← 输入 ' + formatNum(detailObj.input_tokens) + ' / 输出 ' + formatNum(detailObj.output_tokens);
@@ -858,23 +989,16 @@ function buildStepRow(step) {
       rowClass += ' obs-expandable';
       expandHtml = buildResponseExpand(detailObj);
     }
-  } else if (step.event_type.indexOf('llm_request') !== -1) {
-    var msgCount = detailObj.messages ? detailObj.messages.length : 0;
-    var subPrefix3 = step.event_type.replace(/llm_request.*$/, '');
-    detailText = '[' + (subPrefix3 || 'sub_').replace(/_/g, ' ').trim() + '] 📤 → ' + msgCount + ' 条消息';
-    if (detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
-    if (detailObj.agent_type) detailText += ' ' + agentTypeBadge(detailObj.agent_type);
-    if (msgCount > 0) {
-      rowClass += ' obs-expandable';
-      expandHtml = buildSubLlmExpand(detailObj, 'messages');
-    }
   } else if (step.event_type.indexOf('llm_response') !== -1) {
     var subPrefix4 = step.event_type.replace(/llm_response.*$/, '');
-    detailText = '[' + (subPrefix4 || 'sub_').replace(/_/g, ' ').trim() + '] 📥 ← 输入 ' + formatNum(detailObj.input_tokens) + ' / 输出 ' + formatNum(detailObj.output_tokens);
+    detailText = '📥 ← 输入 ' + formatNum(detailObj.input_tokens) + ' / 输出 ' + formatNum(detailObj.output_tokens);
+    if (!inSubcard) {
+      detailText = '[' + (subPrefix4 || 'sub_').replace(/_/g, ' ').trim() + '] ' + detailText;
+    }
     if (detailObj.cache_read_tokens) detailText += ' / cache读 ' + formatNum(detailObj.cache_read_tokens);
     if (detailObj.cache_creation_tokens) detailText += ' / cache写 ' + formatNum(detailObj.cache_creation_tokens);
-    if (detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
-    if (detailObj.agent_type) detailText += ' ' + agentTypeBadge(detailObj.agent_type);
+    if (!inSubcard && detailObj.depth != null) detailText += ' | depth=' + detailObj.depth;
+    if (!inSubcard && detailObj.agent_type) detailText += ' ' + agentTypeBadge(detailObj.agent_type);
     if (detailObj.tool_calls && detailObj.tool_calls.length) {
       detailText += ' / 调用 ' + detailObj.tool_calls.map(function(tc) { return tc.name; }).join(', ');
     }
@@ -885,9 +1009,6 @@ function buildStepRow(step) {
   }
 
   var expandIcon = '';
-  if (rowClass.indexOf('obs-expandable') !== -1) {
-    expandIcon = '<span class="obs-step-expand-icon">▸</span>';
-  }
 
   var durationHtml = '';
   if (hasDuration) {
@@ -896,6 +1017,9 @@ function buildStepRow(step) {
 
   var detailSize = step.detail_size || 0;
   var isTruncated = detailSize > _DETAIL_TRUNCATE_LIMIT;
+  var wantsFoldedMessages = isLlmRequest(step.event_type)
+    && rowClass.indexOf('obs-expandable') !== -1
+    && !expandHtml;
 
   // detail 被截断导致 detailObj 为空 → 对可展开的事件类型强制标记 expandable
   if (!expandHtml && isTruncated) {
@@ -908,13 +1032,20 @@ function buildStepRow(step) {
     }
   }
 
-  // detail 被截断 → 标记懒加载，点击时按需获取完整数据
+  // 截断的 detail，或增量 llm_request，点击时向接口要折叠后的完整消息
   var isLazy = false;
-  if (rowClass.indexOf('obs-expandable') !== -1 && !expandHtml && isTruncated) {
+  if (rowClass.indexOf('obs-expandable') !== -1 && !expandHtml && (isTruncated || wantsFoldedMessages)) {
+    var lazyHint = wantsFoldedMessages && !isTruncated
+      ? '点击展开查看截至本步的完整上下文'
+      : '点击展开加载完整数据 (' + formatNum(detailSize) + ' chars)';
     expandHtml = '<div class="obs-step-expand"><div class="obs-step-expand-inner">' +
-      '<div style="color:#aaa;font-size:11px;padding:4px 0;">点击展开加载完整数据 (' + formatNum(detailSize) + ' chars)</div>' +
+      '<div style="color:#aaa;font-size:11px;padding:4px 0;">' + lazyHint + '</div>' +
       '</div></div>';
     isLazy = true;
+  }
+
+  if (rowClass.indexOf('obs-expandable') !== -1) {
+    expandIcon = '<span class="obs-step-expand-icon">▸</span>';
   }
 
   var dataSizeAttr = isLazy ? ' data-lazy="1"' : '';
@@ -924,7 +1055,7 @@ function buildStepRow(step) {
     '<div class="obs-step-main">' +
     '<span class="obs-step-num">' + stepNum + '</span>' +
     '<span class="obs-step-time">' + esc(timeStr) + '</span>' +
-    '<span class="obs-step-badge-wrap"><span class="obs-evt-badge obs-evt-' + cat + '">' + esc(step.event_type) + '</span></span>' +
+    '<span class="obs-step-badge-wrap"><span class="obs-evt-badge obs-evt-' + cat + '">' + esc(shownType) + '</span></span>' +
     '<span class="obs-step-detail">' + detailText + durationHtml + '</span>' +
     expandIcon +
     '</div>' +
@@ -932,8 +1063,13 @@ function buildStepRow(step) {
     '</div>';
 }
 
-function buildMessagesExpand(messages) {
+function buildMessagesExpand(messages, note) {
   var html = '<div class="obs-step-expand"><div class="obs-step-expand-inner">';
+  if (note) html += note;
+  if (!messages || !messages.length) {
+    html += '<div style="color:#aaa;font-size:11px;">无消息</div></div></div>';
+    return html;
+  }
   messages.forEach(function(msg, i) {
     var role = msg.role || 'unknown';
     var content = msg.content;
@@ -1200,6 +1336,31 @@ function updateSessionHeader(sessionEl, taskMap) {
   }
 }
 
+function insertSubStep(taskBody, step) {
+  var id = stepField(step, 'delegate_id') || '__unknown_sub__';
+  var card = taskBody.querySelector('.obs-sub-card[data-delegate="' + CSS.escape(id) + '"]');
+  if (!card) {
+    taskBody.insertAdjacentHTML('afterbegin', renderSubagentCard(id, [step]));
+    return;
+  }
+  if (step.event_type && step.event_type.indexOf('agent_start') !== -1) {
+    var detail = parseDetail(step.detail);
+    if (detail.task_preview && !card.querySelector(':scope > .obs-sub-preview')) {
+      var header = card.querySelector(':scope > .obs-sub-header');
+      if (header) {
+        header.insertAdjacentHTML('afterend', '<div class="obs-sub-preview">' + esc(detail.task_preview) + '</div>');
+      }
+    }
+    return;
+  }
+  var body = card.querySelector(':scope > .obs-sub-body');
+  if (body) body.insertAdjacentHTML('afterbegin', buildStepRow(step, true));
+  var countEl = card.querySelector('.obs-sub-count');
+  if (countEl && body) {
+    countEl.textContent = body.querySelectorAll('.obs-step-row').length + ' 个事件';
+  }
+}
+
 function mergeNewTraces(newRows) {
   var elContent = document.getElementById('traceContent');
   var grouped = groupTraces(newRows);
@@ -1233,6 +1394,10 @@ function mergeNewTraces(newRows) {
       steps.forEach(function(s) {
         if (s.event_type === 'context_budget') return;
         if (existingIds[s.id]) return;
+        if (isSubEvent(s)) {
+          insertSubStep(taskBody, s);
+          return;
+        }
         taskBody.insertAdjacentHTML('afterbegin', buildStepRow(s));
       });
     });

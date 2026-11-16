@@ -6,6 +6,7 @@ from fastapi import APIRouter, Query, HTTPException
 from fastapi.responses import Response
 
 from ..db import get_db
+from ..observability.message_trace import fold_messages
 
 router = APIRouter(prefix="/api/observability", tags=["observability"])
 
@@ -101,6 +102,12 @@ async def get_traces(
             ELSE SUBSTR(t.detail, 1, {_DETAIL_TRUNCATE_LIMIT})
         END AS detail,
         COALESCE(t.detail_size, LENGTH(t.detail)) AS detail_size,
+        json_extract(t.detail, '$.delegate_id') AS delegate_id,
+        json_extract(t.detail, '$.label') AS label,
+        json_extract(t.detail, '$.agent_type') AS agent_type,
+        json_extract(t.detail, '$.depth') AS depth,
+        json_extract(t.detail, '$.message_count') AS message_count,
+        json_extract(t.detail, '$.added_count') AS added_count,
         c.model, c.input_tokens, c.output_tokens
     FROM trace_log t
     LEFT JOIN cost_log c ON t.session_id = c.session_id AND t.task_id = c.task_id"""
@@ -138,13 +145,83 @@ async def get_trace_detail(trace_id: str):
 
     if not row:
         raise HTTPException(status_code=404, detail="trace not found")
-    return dict(row)
+    result = dict(row)
+    if "llm_request" in (result.get("event_type") or ""):
+        folded = await _reconstruct_request_detail(result)
+        result["detail"] = json.dumps(folded, ensure_ascii=False)
+    return result
+
+
+def _detail_delegate_id(detail) -> str:
+    if isinstance(detail, dict):
+        return detail.get("delegate_id") or ""
+    return ""
+
+
+async def _reconstruct_request_detail(row: dict) -> dict:
+    """把同一对话流从早到晚折到当前这条，填回完整 messages。"""
+    this_detail = _parse_detail_json(row.get("detail"))
+    if not isinstance(this_detail, dict):
+        return {"raw": this_detail}
+
+    delegate_id = _detail_delegate_id(this_detail)
+    sql = """SELECT id, detail
+        FROM trace_log
+        WHERE session_id = ? AND task_id = ? AND event_type = ?
+        ORDER BY created_at ASC, id ASC"""
+    async with get_db() as db:
+        cursor = await db.execute(
+            sql,
+            (row.get("session_id"), row.get("task_id"), row.get("event_type")),
+        )
+        rows = await cursor.fetchall()
+
+    prior: list[dict] = []
+    current = this_detail
+    for item in rows:
+        parsed = _parse_detail_json(item["detail"])
+        if not isinstance(parsed, dict):
+            continue
+        if _detail_delegate_id(parsed) != delegate_id:
+            continue
+        if item["id"] == row["id"]:
+            current = parsed
+            break
+        prior.append(parsed)
+
+    folded_before = fold_messages(prior)
+    folded = fold_messages(prior + [current])
+    out = dict(current)
+    out["messages"] = folded
+    out["message_count"] = len(folded)
+    if current.get("kind") == "delta":
+        out["added_count"] = len(current.get("messages") or [])
+    elif current.get("kind") == "snapshot":
+        out["added_count"] = len(current.get("messages") or [])
+    else:
+        out["added_count"] = max(0, len(folded) - len(folded_before))
+    return out
 
 
 # ── /export/traces（按会话导出完整链路日志 JSON） ───────────────────────────
 
-# llm_request / sub_llm_request 的 detail.messages 逐步累积，导出时只保留最全一条
-_CUMULATIVE_REQUEST_TYPES = frozenset({"llm_request", "sub_llm_request"})
+# 无 kind 的旧版 llm_request 仍是整份累积，导出时每条对话流只留最长一条
+def _is_legacy_request(item: dict) -> bool:
+    et = item.get("event_type") or ""
+    if "llm_request" not in et:
+        return False
+    detail = item.get("detail")
+    if not isinstance(detail, dict):
+        return True
+    return detail.get("kind") not in ("snapshot", "delta")
+
+
+def _is_incremental_request(item: dict) -> bool:
+    et = item.get("event_type") or ""
+    if "llm_request" not in et:
+        return False
+    detail = item.get("detail")
+    return isinstance(detail, dict) and detail.get("kind") in ("snapshot", "delta")
 
 
 def _parse_detail_json(detail: str | None):
@@ -171,32 +248,58 @@ def _request_stream_key(item: dict) -> tuple:
     )
 
 
-def _dedupe_cumulative_requests(traces: list[dict]) -> tuple[list[dict], int]:
-    """对累积型 request 事件，每条对话流只保留 detail 最大的一条。
-
-    Returns:
-        (去重后的 traces, 被丢弃的 request 条数)
-    """
+def _dedupe_legacy_requests(requests: list[dict]) -> tuple[list[dict], int]:
+    """旧版累积型 request：每条对话流只保留 detail 最大的一条。"""
     best: dict[tuple, tuple[int, dict]] = {}
-    others: list[dict] = []
-    cumulative_count = 0
-
-    for item in traces:
-        et = item.get("event_type") or ""
-        if et not in _CUMULATIVE_REQUEST_TYPES:
-            others.append(item)
-            continue
-        cumulative_count += 1
+    for item in requests:
         size = int(item.get("detail_size") or 0)
         key = _request_stream_key(item)
         prev = best.get(key)
         if prev is None or size >= prev[0]:
             best[key] = (size, item)
+    kept = [v[1] for v in best.values()]
+    return kept, len(requests) - len(kept)
 
-    kept_requests = [v[1] for v in best.values()]
-    merged = others + kept_requests
+
+def _attach_folded_context(items: list[dict]) -> None:
+    """对话流最后一条挂上折叠后的完整 messages，中间条保持增量。"""
+    if not items:
+        return
+    folded = fold_messages([
+        it["detail"] for it in items if isinstance(it.get("detail"), dict)
+    ])
+    last = items[-1]
+    detail = dict(last.get("detail") or {})
+    if detail.get("kind") == "delta":
+        detail["delta_messages"] = detail.get("messages")
+    detail["messages"] = folded
+    detail["message_count"] = len(folded)
+    detail["folded"] = True
+    last["detail"] = detail
+
+
+def _prepare_export_traces(traces: list[dict]) -> tuple[list[dict], int]:
+    """旧数据去重；增量数据保留，并在每条流的最后一条放上完整上下文。"""
+    others: list[dict] = []
+    legacy: list[dict] = []
+    incremental: dict[tuple, list[dict]] = {}
+
+    for item in traces:
+        if _is_incremental_request(item):
+            incremental.setdefault(_request_stream_key(item), []).append(item)
+        elif _is_legacy_request(item):
+            legacy.append(item)
+        else:
+            others.append(item)
+
+    kept_legacy, dropped = _dedupe_legacy_requests(legacy)
+    incremental_out: list[dict] = []
+    for items in incremental.values():
+        _attach_folded_context(items)
+        incremental_out.extend(items)
+
+    merged = others + kept_legacy + incremental_out
     merged.sort(key=lambda x: (x.get("created_at") or "", x.get("id") or ""))
-    dropped = cumulative_count - len(kept_requests)
     return merged, dropped
 
 
@@ -206,8 +309,8 @@ async def export_traces(
 ):
     """导出指定会话的链路日志为 JSON（detail 不截断）。
 
-    llm_request / sub_llm_request 的 messages 每步累积重叠，导出时每条对话流
-    只保留 detail 最大的一条；其余事件（tool_call/response 等）原样保留。
+    旧版 llm_request 仍按对话流只保留最长一条。增量记录全部保留，
+    每条对话流的最后一条 messages 为折叠后的完整上下文。
     成本信息单独放在 costs 字段，避免 JOIN 到每条 trace 造成冗余。
     """
     trace_sql = """SELECT
@@ -241,7 +344,7 @@ async def export_traces(
         item["detail"] = _parse_detail_json(item.get("detail"))
         raw_traces.append(item)
 
-    traces, dropped_requests = _dedupe_cumulative_requests(raw_traces)
+    traces, dropped_requests = _prepare_export_traces(raw_traces)
     costs = [dict(r) for r in cost_rows]
 
     payload = {
@@ -251,8 +354,10 @@ async def export_traces(
         "count_before_dedupe": len(raw_traces),
         "dropped_cumulative_requests": dropped_requests,
         "dedupe_note": (
-            "llm_request/sub_llm_request 的 messages 逐步累积，"
-            "每条对话流仅保留 detail 最全的一条；分析用最终上下文即可"
+            "无 kind 的旧版 llm_request 仍按对话流只保留 detail 最大的一条。"
+            "增量记录（kind=snapshot/delta）全部保留；"
+            "每条对话流最后一条的 messages 是折叠后的完整上下文，"
+            "若该条原为 delta，原增量在 delta_messages。"
         ),
         "costs": costs,
         "traces": traces,

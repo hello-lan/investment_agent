@@ -5,6 +5,9 @@ from datetime import datetime, timezone
 
 from ..db import get_db
 
+# 同一批 flush 共用一个时间戳时，折叠增量会乱序。按微秒严格递增。
+_trace_clock = 0
+
 
 _TRACE_INSERT_SQL = """
 INSERT INTO trace_log (
@@ -12,6 +15,19 @@ INSERT INTO trace_log (
     detail, detail_size, created_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
+
+
+def _next_created_at() -> str:
+    """生成可按字符串排序、且互不重复的 UTC 时间戳。"""
+    global _trace_clock
+    now = datetime.now(timezone.utc)
+    micros = int(now.timestamp() * 1_000_000)
+    if micros <= _trace_clock:
+        micros = _trace_clock + 1
+    _trace_clock = micros
+    seconds, frac = divmod(micros, 1_000_000)
+    dt = datetime.fromtimestamp(seconds, tz=timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{frac:06d}+00:00"
 
 
 def _safe_detail(detail: dict | None) -> str:
@@ -24,7 +40,6 @@ def _safe_detail(detail: dict | None) -> str:
 async def log_trace_batch(entries: Iterable[dict]) -> None:
     """批量记录 trace 事件，降低高频事件的 SQLite commit 次数。"""
     rows = []
-    now = datetime.now(timezone.utc).isoformat()
     for entry in entries:
         detail_str = _safe_detail(entry.get("detail"))
         rows.append(
@@ -37,7 +52,7 @@ async def log_trace_batch(entries: Iterable[dict]) -> None:
                 entry.get("event_type", "unknown"),
                 detail_str,
                 len(detail_str),
-                now,
+                _next_created_at(),
             ),
         )
 

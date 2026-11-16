@@ -119,6 +119,7 @@ def forward_event(
     prefix: str,
     delegate_id: str,
     depth: int,
+    label: str = "",
 ) -> dict | str | None:
     """将子引擎事件转换为带前缀的转发事件。
 
@@ -139,13 +140,16 @@ def forward_event(
     # 查 dispatch table
     forwarder = _FORWARDERS.get(event_type)
     if forwarder is not None:
-        return forwarder(event, prefix, delegate_id, depth)
+        result = forwarder(event, prefix, delegate_id, depth)
+    elif event_type.startswith("sub_"):
+        # 嵌套子Agent事件透传；已有 label 时不覆盖
+        result = _fwd_nested(event, prefix, delegate_id, depth)
+    else:
+        return None
 
-    # 嵌套子Agent事件透传
-    if event_type.startswith("sub_"):
-        return _fwd_nested(event, prefix, delegate_id, depth)
-
-    return None
+    if isinstance(result, dict) and label and not result.get("label"):
+        result["label"] = label
+    return result
 
 
 # ── 子引擎工厂 ───────────────────────────────────────────────────────
@@ -359,6 +363,18 @@ async def run_delegate_task(
     }]
     depth = parent.subagent_depth + 1
     prefix = "sub_" * depth
+    label = "、".join(skill_names) if skill_names else "DelegateTask"
+    if len(label) > 80:
+        label = label[:79] + "…"
+
+    yield {
+        "type": f"{prefix}agent_start",
+        "delegate_id": delegate_id,
+        "depth": depth,
+        "agent_type": _AGENT_TYPE,
+        "label": label,
+        "task_preview": (prompt or "")[:200],
+    }
 
     _log.info(
         "[Delegate:%s] 开始运行: skills=%s, prompt_len=%d, child_budget=%d",
@@ -374,7 +390,7 @@ async def run_delegate_task(
                 child_steps = event.get("step", child_steps)
             if event.get("type") == "tool_call":
                 child_tool_calls += 1
-            forwarded = forward_event(event, prefix, delegate_id, depth)
+            forwarded = forward_event(event, prefix, delegate_id, depth, label=label)
             if forwarded == EventType.DONE:
                 break
             elif forwarded == EventType.ERROR:

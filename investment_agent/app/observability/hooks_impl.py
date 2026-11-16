@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from .cost_tracker import log_cost
+from .message_trace import compact_request, is_llm_request_event
 from .trace import log_trace_batch
 
 _TRACE_FLUSH_SIZE = 20
@@ -29,6 +30,8 @@ class ObservabilityHooks:
         self.session_id = session_id
         self.agent_name = agent_name
         self._trace_buffer: list[dict[str, Any]] = []
+        # (event_type, delegate_id) -> 该对话流上一份完整 messages
+        self._request_state: dict[tuple[str, str], list] = {}
 
     async def _buffer_trace(
         self,
@@ -65,6 +68,8 @@ class ObservabilityHooks:
     ) -> None:
         if detail is None:
             return
+        if is_llm_request_event(event_type):
+            detail = compact_request(self._request_state, event_type, detail)
         await self._buffer_trace(step, event_type, detail)
 
     async def on_cost(

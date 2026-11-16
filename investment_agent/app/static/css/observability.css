@@ -160,6 +160,49 @@
   border-radius: 8px;
 }
 
+/* ── 子 Agent 卡片 ── */
+.obs-sub-card {
+  margin: 8px 16px 8px 48px;
+  border: 1px solid #e7e5e4;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.obs-sub-card.depth-2 { margin-left: 72px; }
+.obs-sub-card.depth-3 { margin-left: 96px; }
+.obs-sub-card.depth-4 { margin-left: 120px; }
+.obs-sub-delegate { border-left: 3px solid #d97706; background: #fffbeb; }
+.obs-sub-defined { border-left: 3px solid #4f46e5; background: #eef2ff; }
+.obs-sub-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; cursor: pointer; user-select: none;
+}
+.obs-sub-header:hover { filter: brightness(0.98); }
+.obs-sub-arrow {
+  width: 12px; flex-shrink: 0; color: #aaa; font-size: 10px;
+  display: inline-block; transition: transform .12s;
+}
+.obs-sub-card.open > .obs-sub-header .obs-sub-arrow { transform: rotate(90deg); }
+.obs-sub-label {
+  font-size: 12px; font-weight: 600; color: #444;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 280px;
+}
+.obs-sub-depth, .obs-sub-id, .obs-sub-count {
+  font-size: 11px; color: #888; flex-shrink: 0;
+}
+.obs-sub-id { font-family: "SF Mono", "Fira Code", monospace; }
+.obs-sub-count { margin-left: auto; }
+.obs-sub-preview {
+  padding: 0 12px 8px 32px; font-size: 11px; color: #666;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.obs-sub-body { display: none; background: #fff; }
+.obs-sub-card.open > .obs-sub-body { display: block; }
+.obs-sub-body .obs-step-main { padding-left: 28px; }
+.obs-msg-note {
+  font-size: 11px; color: #666; margin-bottom: 8px;
+}
+
 /* ── 消息内容展示 ── */
 .obs-msg-item { margin-bottom: 10px; }
 .obs-msg-item:last-child { margin-bottom: 0; }
