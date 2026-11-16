@@ -7,9 +7,14 @@
 <div class="layout">
 
   <aside class="left-panel">
-    <div class="left-header">Agent 列表</div>
-    <div class="agent-list" id="agentList">
-      <div class="agent-empty">暂无 Agent，请先在 <a href="/agents">Agent 配置</a> 页创建</div>
+    <div class="history-panel">
+      <div class="history-header">
+        <span>历史会话 <span class="count" id="historyCount"></span></span>
+        <button type="button" class="btn-new-session" onclick="newSession()" title="新对话">+</button>
+      </div>
+      <div class="history-list" id="historyList">
+        <div class="history-empty">选择 Agent 后显示历史会话</div>
+      </div>
     </div>
   </aside>
 
@@ -38,7 +43,7 @@
         </div>
         <div class="slash-wrap">
           <div id="slashMenu" class="slash-menu" style="display:none" role="listbox"></div>
-          <textarea id="inputBox" rows="1" placeholder="输入分析请求，Shift+Enter 换行，Enter 发送..."
+          <textarea id="inputBox" rows="1" placeholder="输入分析请求，或输入 / 查看快捷命令..."
             onkeydown="handleKey(event)" oninput="onInputBoxInput(this)"></textarea>
         </div>
       </div>
@@ -60,15 +65,6 @@
     <div class="agent-context" id="agentContext" style="display:none">
       <div class="agent-name" id="ctxAgentName"></div>
       <div class="agent-detail" id="ctxAgentDetail"></div>
-    </div>
-
-    <div class="history-panel">
-      <div class="history-header">
-        历史会话 <span class="count" id="historyCount"></span>
-      </div>
-      <div class="history-list" id="historyList">
-        <div class="history-empty">选择 Agent 后显示历史会话</div>
-      </div>
     </div>
   </aside>
 

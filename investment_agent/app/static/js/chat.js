@@ -4,7 +4,6 @@ let userScrolledUp=false, hasNewContentSinceScroll=false;
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const ALLOWED_EXTS = new Set(['.txt','.md','.pdf','.xlsx','.xls','.docx','.doc']);
-const AGENT_ICONS = ['📊','🔍','💡','📈','🧠','⚡','🎯','🔬','💼','📋'];
 const STREAM_RENDER_INTERVAL_MS = 60;
 const DATA_PATH_RE = /data[/\\](?:[^/\\\s`'"<>|]+[/\\])+[^/\\\s`'"<>|]+[/\\]?/gi;
 
@@ -228,41 +227,32 @@ function _showSpinner(containerId, text){
 
 /* ====== Agent list ====== */
 
+function _agentSkillsCount(agent){
+  try {
+    return Array.isArray(agent.skills) ? agent.skills.length : JSON.parse(agent.skills || '[]').length;
+  } catch(e){
+    return 0;
+  }
+}
+
 async function loadAgents(){
-  const list = document.getElementById('agentList');
-  _showSkeleton('agentList', 3);
   try {
     const agents = await fetch('/api/agents').then(r => r.json());
-    agents.forEach((a, i) => { agentMap[a.id] = a; });
+    Object.keys(agentMap).forEach(k => { delete agentMap[k]; });
+    agents.forEach((a) => { agentMap[a.id] = a; });
     if (!agents.length) {
-      list.innerHTML = '<div class="agent-empty">暂无 Agent，请先在 <a href="/agents">Agent 配置</a> 页创建</div>';
       document.getElementById('agentContext').style.display = 'none';
-      return;
+      return agents;
     }
-    const currentId = currentAgentId || (agents[0] && agents[0].id);
-    list.innerHTML = agents.map((a, i) => {
-      const active = a.id === currentId ? ' active' : '';
-      const icon = AGENT_ICONS[i % AGENT_ICONS.length];
-      const modelName = (a.model_id || '未设置');
-      let skillsCount = 0;
-      try {
-        skillsCount = Array.isArray(a.skills) ? a.skills.length : JSON.parse(a.skills || '[]').length;
-      } catch(e){}
-      return `<div class="agent-item${active}" data-id="${a.id}" onclick="selectAgent('${a.id}')">
-        <div class="agent-icon">${icon}</div>
-        <div class="agent-info">
-          <div class="agent-name">${escapeHtml(a.name)}</div>
-          <div class="agent-meta">${escapeHtml(modelName)}${skillsCount ? ' · '+skillsCount+' Skills' : ''}</div>
-        </div>
-        <span class="agent-badge" id="badge-${a.id}">-</span>
-        <button class="btn-new-agent" onclick="event.stopPropagation();newSession()" title="新对话">+</button>
-      </div>`;
-    }).join('');
     if (!currentAgentId && agents[0]) {
       selectAgent(agents[0].id, true);
+    } else if (currentAgentId && agentMap[currentAgentId]) {
+      selectAgent(currentAgentId, true);
     }
+    return agents;
   } catch(e) {
-    list.innerHTML = '<div class="agent-empty">加载失败</div>';
+    console.error('loadAgents', e);
+    return [];
   }
 }
 
@@ -281,10 +271,6 @@ function selectAgent(id, silent){
   const agent = agentMap[id];
   if (!agent) return;
 
-  document.querySelectorAll('.agent-item').forEach(el => el.classList.remove('active'));
-  const item = document.querySelector(`.agent-item[data-id="${id}"]`);
-  if (item) item.classList.add('active');
-
   const header = document.getElementById('centerHeader');
   const nameEl = document.getElementById('centerAgentName');
   if (header && nameEl) {
@@ -296,12 +282,9 @@ function selectAgent(id, silent){
   if (ctx) {
     ctx.style.display = '';
     document.getElementById('ctxAgentName').textContent = agent.name;
-    let modelName = agent.model_id || '未设置模型';
-    let skillsCount = 0;
-    try {
-      skillsCount = Array.isArray(agent.skills) ? agent.skills.length : JSON.parse(agent.skills || '[]').length;
-    } catch(e){}
-    document.getElementById('ctxAgentDetail').textContent = '模型 ' + escapeHtml(modelName) + ' · 挂载 ' + skillsCount + ' 个 Skill';
+    const modelName = agent.model_id || '未设置模型';
+    const skillsCount = _agentSkillsCount(agent);
+    document.getElementById('ctxAgentDetail').textContent = '模型 ' + modelName + ' · 挂载 ' + skillsCount + ' 个 Skill';
   }
 
   if (!silent) {
@@ -323,16 +306,6 @@ async function loadSessions(){
   } catch(e) {
     allSessions = [];
   }
-
-  // update badges
-  const counts = {};
-  allSessions.forEach(s => {
-    if (s.agent_id) counts[s.agent_id] = (counts[s.agent_id] || 0) + 1;
-  });
-  Object.keys(agentMap).forEach(aid => {
-    const badge = document.getElementById('badge-' + aid);
-    if (badge) badge.textContent = counts[aid] || '0';
-  });
 
   const filtered = currentAgentId
     ? allSessions.filter(s => s.agent_id === currentAgentId)
@@ -869,16 +842,21 @@ async function reconnectToTask(sessionId, taskId){
 
 const SLASH_COMMANDS = [
   { name: '/clear', desc: '新建对话', run: () => newSession() },
+  { name: '/agent', desc: '切换 Agent', run: () => openAgentPicker() },
 ];
 
 let _slashMatches = [];
 let _slashIndex = 0;
 let _slashOpen = false;
+let _slashMode = 'commands'; // 'commands' | 'agents'
+let _agentPickerItems = [];
 
 function hideSlashMenu(){
   _slashOpen = false;
   _slashMatches = [];
   _slashIndex = 0;
+  _slashMode = 'commands';
+  _agentPickerItems = [];
   const menu = document.getElementById('slashMenu');
   if (menu){ menu.style.display = 'none'; menu.innerHTML = ''; }
 }
@@ -902,6 +880,8 @@ function updateSlashMenu(){
   const menu = document.getElementById('slashMenu');
   if (!input || !menu) return;
 
+  if (_slashMode === 'agents') return;
+
   const query = _slashQueryFromInput(input.value, input.selectionStart);
   const matches = _getSlashMatches(query);
   if (!matches.length){
@@ -916,6 +896,7 @@ function updateSlashMenu(){
     _slashIndex = Math.max(0, Math.min(_slashIndex, matches.length - 1));
   }
   _slashMatches = matches;
+  _slashMode = 'commands';
   _slashOpen = true;
 
   menu.innerHTML = matches.map((c, i) =>
@@ -927,7 +908,59 @@ function updateSlashMenu(){
   menu.style.display = '';
 }
 
+function _renderAgentPicker(){
+  const menu = document.getElementById('slashMenu');
+  if (!menu) return;
+
+  const hint = '<div class="slash-menu-hint">选择Agent, ↑↓选择，Enter确认</div>';
+
+  if (!_agentPickerItems.length) {
+    menu.innerHTML = hint +
+      '<div class="slash-item slash-item-empty">暂无 Agent，请先在 <a href="/agents">Agent 配置</a> 页创建</div>';
+    menu.style.display = '';
+    _slashOpen = true;
+    return;
+  }
+
+  _slashIndex = Math.max(0, Math.min(_slashIndex, _agentPickerItems.length - 1));
+  menu.innerHTML = hint + _agentPickerItems.map((a, i) => {
+    const active = i === _slashIndex ? ' active' : '';
+    const currentMark = a.id === currentAgentId
+      ? '<span class="slash-item-current">(当前)</span>'
+      : '';
+    return `<div class="slash-item${active}" role="option" data-idx="${i}"` +
+      ` onclick="selectSlashItem(${i})">` +
+      `<span class="slash-item-name">${escapeHtml(a.name)}</span>${currentMark}</div>`;
+  }).join('');
+  menu.style.display = '';
+  _slashOpen = true;
+}
+
+async function openAgentPicker(){
+  const input = document.getElementById('inputBox');
+  if (input){ input.value = ''; autoResize(input); }
+
+  const agents = Object.values(agentMap);
+  if (!agents.length) {
+    await loadAgents();
+  }
+  const list = Object.values(agentMap);
+  _slashMode = 'agents';
+  _agentPickerItems = list;
+  _slashMatches = [];
+  _slashIndex = Math.max(0, list.findIndex(a => a.id === currentAgentId));
+  if (_slashIndex < 0) _slashIndex = 0;
+  _renderAgentPicker();
+  if (input) input.focus();
+}
+
 function selectSlashItem(idx){
+  if (_slashMode === 'agents') {
+    if (idx < 0 || idx >= _agentPickerItems.length) return;
+    _slashIndex = idx;
+    confirmAgentPicker();
+    return;
+  }
   if (idx < 0 || idx >= _slashMatches.length) return;
   _slashIndex = idx;
   completeSlashCommand();
@@ -937,6 +970,10 @@ function completeSlashCommand(){
   const input = document.getElementById('inputBox');
   if (!input || !_slashMatches.length) return;
   const cmd = _slashMatches[_slashIndex] || _slashMatches[0];
+  if (cmd.name === '/agent') {
+    executeSlashCommand(cmd);
+    return;
+  }
   input.value = cmd.name;
   autoResize(input);
   hideSlashMenu();
@@ -945,21 +982,43 @@ function completeSlashCommand(){
   input.setSelectionRange(len, len);
 }
 
+function confirmAgentPicker(){
+  const agent = _agentPickerItems[_slashIndex] || _agentPickerItems[0];
+  const input = document.getElementById('inputBox');
+  if (input){ input.value = ''; autoResize(input); }
+  hideSlashMenu();
+  if (agent) selectAgent(agent.id);
+}
+
 function executeSlashCommand(cmd){
   const input = document.getElementById('inputBox');
   if (input){ input.value = ''; autoResize(input); }
+  if (cmd.name === '/agent') {
+    openAgentPicker();
+    return;
+  }
   hideSlashMenu();
   cmd.run();
 }
 
 function onInputBoxInput(el){
   autoResize(el);
+  if (_slashMode === 'agents') {
+    const v = el.value;
+    if (!v || v[0] !== '/') {
+      hideSlashMenu();
+      updateSlashMenu();
+      return;
+    }
+  }
   updateSlashMenu();
 }
 
 function _moveSlashSelection(delta){
-  if (!_slashOpen || !_slashMatches.length) return;
-  _slashIndex = (_slashIndex + delta + _slashMatches.length) % _slashMatches.length;
+  if (!_slashOpen) return;
+  const count = _slashMode === 'agents' ? _agentPickerItems.length : _slashMatches.length;
+  if (!count) return;
+  _slashIndex = (_slashIndex + delta + count) % count;
   const menu = document.getElementById('slashMenu');
   if (!menu) return;
   menu.querySelectorAll('.slash-item').forEach((el, i) => {
@@ -1034,13 +1093,21 @@ function handleKey(e){
   if (_slashOpen){
     if (e.key === 'ArrowDown'){ e.preventDefault(); _moveSlashSelection(1); return; }
     if (e.key === 'ArrowUp'){ e.preventDefault(); _moveSlashSelection(-1); return; }
-    if (e.key === 'Tab'){ e.preventDefault(); completeSlashCommand(); return; }
     if (e.key === 'Escape'){ e.preventDefault(); hideSlashMenu(); return; }
-    if (e.key === 'Enter' && !e.shiftKey){
-      e.preventDefault();
-      const cmd = _slashMatches[_slashIndex] || _slashMatches[0];
-      if (cmd){ executeSlashCommand(cmd); }
-      return;
+    if (_slashMode === 'agents'){
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)){
+        e.preventDefault();
+        confirmAgentPicker();
+        return;
+      }
+    } else {
+      if (e.key === 'Tab'){ e.preventDefault(); completeSlashCommand(); return; }
+      if (e.key === 'Enter' && !e.shiftKey){
+        e.preventDefault();
+        const cmd = _slashMatches[_slashIndex] || _slashMatches[0];
+        if (cmd){ executeSlashCommand(cmd); }
+        return;
+      }
     }
   }
   if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); }
