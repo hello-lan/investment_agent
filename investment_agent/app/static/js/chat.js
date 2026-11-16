@@ -519,8 +519,11 @@ function newSession(){
 function _append(html){
   const c = document.getElementById('messages');
   const d = document.createElement('div');
-  d.innerHTML = html; c.appendChild(d); c.scrollTop = c.scrollHeight;
-  return d;
+  d.innerHTML = html;
+  const node = d.firstElementChild || d;
+  c.appendChild(node);
+  c.scrollTop = c.scrollHeight;
+  return node;
 }
 
 function _fileExt(name){
