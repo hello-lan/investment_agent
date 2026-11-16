@@ -34,10 +34,12 @@ class ChatRequest(BaseModel):
     session_id: str | None = None
     message: str
     agent_id: str | None = None
+    model_id: str | None = None
 
 
 class RetryRequest(BaseModel):
     session_id: str
+    model_id: str | None = None
 
 
 # ── 请求解析（HTTP 层专属）────────────────────────────────────────────
@@ -45,24 +47,29 @@ class RetryRequest(BaseModel):
 
 async def _parse_request_payload(
     request: Request,
-) -> tuple[str | None, str, str | None, str | None, str | None]:
-    """解析请求体：支持 JSON 和 multipart/form-data（带文件上传）。"""
+) -> tuple[str | None, str, str | None, str | None, str | None, str | None]:
+    """解析请求体：支持 JSON 和 multipart/form-data（带文件上传）。
+
+    返回: session_id, message, agent_id, filename, file_text, model_id
+    """
     content_type = request.headers.get("content-type", "")
 
     if "application/json" in content_type:
         body = ChatRequest.model_validate(await request.json())
-        return body.session_id, body.message, body.agent_id, None, None
+        model_id = (body.model_id or "").strip() or None
+        return body.session_id, body.message, body.agent_id, None, None, model_id
 
     if "multipart/form-data" in content_type:
         form = await request.form()
         session_id = (form.get("session_id") or "").strip() or None
         message = str(form.get("message") or "").strip()
         agent_id = (form.get("agent_id") or "").strip() or None
+        model_id = (form.get("model_id") or "").strip() or None
         upload = form.get("file")
 
         filename_attr = getattr(upload, "filename", None)
         if not upload or not filename_attr:
-            return session_id, message, agent_id, None, None
+            return session_id, message, agent_id, None, None, model_id
 
         filename = normalize_name(str(filename_attr))
         ext = Path(filename).suffix.lower()
@@ -81,7 +88,7 @@ async def _parse_request_payload(
         if not file_text.strip():
             raise HTTPException(status_code=400, detail="文件内容为空或不可提取")
 
-        return session_id, message, agent_id, filename, file_text
+        return session_id, message, agent_id, filename, file_text, model_id
 
     raise HTTPException(status_code=415, detail="仅支持 application/json 或 multipart/form-data")
 
@@ -104,12 +111,12 @@ async def _start_background_task(
 @router.post("")
 async def start_chat(request: Request):
     """发起对话：解析请求，加载配置，创建引擎并在后台启动任务。"""
-    session_id, message, agent_id, filename, file_text = await _parse_request_payload(request)
+    session_id, message, agent_id, filename, file_text, model_id = await _parse_request_payload(request)
     final_message = build_user_message(message, filename, file_text)
     if not final_message.strip():
         raise HTTPException(status_code=400, detail="消息和文件不能同时为空")
 
-    config = await load_agent_run_config(agent_id)
+    config = await load_agent_run_config(agent_id, model_id=model_id)
     runner = AgentRunner(storage=SqliteStorage())
     task_id, session_id = await runner.start(
         session_id=session_id or str(uuid.uuid4()),
@@ -150,9 +157,10 @@ async def retry_chat(body: RetryRequest):
     if running_task:
         raise HTTPException(status_code=409, detail="该会话有正在运行的任务，无法重试")
 
-    # 加载会话的 agent 配置
+    # 加载会话的 agent 配置（可带会话级 model 覆盖）
     agent_id = await storage.get_session_agent_id(session_id)
-    config = await load_agent_run_config(agent_id)
+    model_id = (body.model_id or "").strip() or None
+    config = await load_agent_run_config(agent_id, model_id=model_id)
 
     runner = AgentRunner(storage=storage)
     task_id, session_id = await runner.setup(session_id, config)

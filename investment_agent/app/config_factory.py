@@ -206,7 +206,10 @@ def _parse_agent_fields(agent_row: dict | None) -> dict:
     }
 
 
-async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
+async def load_agent_run_config(
+    agent_id: str | None = None,
+    model_id: str | None = None,
+) -> AgentRunConfig:
     """加载并合并所有配置源，返回一次 Agent 运行所需的全部配置。
 
     合并来源：
@@ -214,6 +217,8 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
     2. agents 表（system_prompt, model_id, skills, engine_config, compress_config, temperature, max_single_turn_output_tokens）
     3. models 表（api_key, model, base_url, 定价）
     4. Skill 正文注入到 system prompt
+
+    model_id 若传入则覆盖 Agent 绑定模型（会话级临时切换，不写回 agents 表）。
     """
     # —— 加载 Agent DB 行 ——
     agent_row = None
@@ -227,7 +232,9 @@ async def load_agent_run_config(agent_id: str | None = None) -> AgentRunConfig:
     get_cache().set_ttl(ttl)
 
     # —— Provider ——
-    provider = await get_provider(fields["model_id"])
+    override = (model_id or "").strip() or None
+    effective_model_id = override or fields["model_id"]
+    provider = await get_provider(effective_model_id)
 
     # —— Context config ——
     context_cfg = _resolve_context_config(fields["compress_config"])

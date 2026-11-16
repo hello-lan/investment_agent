@@ -1,5 +1,5 @@
-let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,totalCacheReadTokens=0,totalCacheCreationTokens=0,totalCostUsd=0,totalCurrency='USD',currentAgentId=null,currentFile=null,currentStreamState=null;
-let allSessions=[],agentMap={};
+let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,totalCacheReadTokens=0,totalCacheCreationTokens=0,totalCostUsd=0,totalCurrency='USD',currentAgentId=null,currentModelId=null,currentFile=null,currentStreamState=null;
+let allSessions=[],agentMap={},modelMap={},modelList=[];
 let userScrolledUp=false, hasNewContentSinceScroll=false;
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
@@ -266,26 +266,59 @@ function resetUsageStats(){
   updateStats();
 }
 
-function selectAgent(id, silent){
-  currentAgentId = id;
-  const agent = agentMap[id];
+function _modelDisplayName(modelId){
+  if (!modelId) return '';
+  const m = modelMap[modelId];
+  return m ? (m.name || m.model || modelId) : modelId;
+}
+
+function _agentBoundModelLabel(agent){
+  if (!agent) return '系统默认';
+  const boundId = (agent.model_id || '').trim();
+  if (!boundId) return '系统默认';
+  return _modelDisplayName(boundId) || boundId;
+}
+
+function _effectiveModelLabel(){
+  if (currentModelId) return _modelDisplayName(currentModelId) || currentModelId;
+  const agent = currentAgentId ? agentMap[currentAgentId] : null;
+  return _agentBoundModelLabel(agent);
+}
+
+function _refreshAgentModelUI(){
+  const agent = currentAgentId ? agentMap[currentAgentId] : null;
   if (!agent) return;
 
   const header = document.getElementById('centerHeader');
   const nameEl = document.getElementById('centerAgentName');
+  const modelEl = document.getElementById('centerModelName');
   if (header && nameEl) {
     header.style.display = '';
     nameEl.textContent = agent.name;
   }
+  if (modelEl) modelEl.textContent = _effectiveModelLabel();
 
   const ctx = document.getElementById('agentContext');
   if (ctx) {
     ctx.style.display = '';
     document.getElementById('ctxAgentName').textContent = agent.name;
-    const modelName = agent.model_id || '未设置模型';
     const skillsCount = _agentSkillsCount(agent);
-    document.getElementById('ctxAgentDetail').textContent = '模型 ' + modelName + ' · 挂载 ' + skillsCount + ' 个 Skill';
+    const modelLabel = currentModelId
+      ? (_effectiveModelLabel() + '（覆盖）')
+      : _agentBoundModelLabel(agent);
+    document.getElementById('ctxAgentDetail').textContent =
+      '模型 ' + modelLabel + ' · 挂载 ' + skillsCount + ' 个 Skill';
   }
+}
+
+function selectAgent(id, silent){
+  currentAgentId = id;
+  const agent = agentMap[id];
+  if (!agent) return;
+
+  // 切换 Agent 时重置为该 Agent 绑定模型（默认）
+  currentModelId = null;
+  _refreshAgentModelUI();
 
   if (!silent) {
     currentSessionId = null;
@@ -293,6 +326,21 @@ function selectAgent(id, silent){
     resetUsageStats();
   }
   loadSessions();
+}
+
+async function loadModels(){
+  try {
+    const data = await fetch('/api/settings/models').then(r => r.json());
+    modelList = data.list || [];
+    Object.keys(modelMap).forEach(k => { delete modelMap[k]; });
+    modelList.forEach(m => { modelMap[m.id] = m; });
+    _refreshAgentModelUI();
+    return modelList;
+  } catch(e) {
+    console.error('loadModels', e);
+    modelList = [];
+    return [];
+  }
 }
 
 /* ====== Sessions (right panel) ====== */
@@ -761,10 +809,12 @@ async function retryTask(){
   resetUsageStats();
 
   try {
+    const retryBody = {session_id: currentSessionId};
+    if (currentModelId) retryBody.model_id = currentModelId;
     const res = await fetch('/api/chat/retry', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({session_id: currentSessionId}),
+      body: JSON.stringify(retryBody),
     });
     const data = await res.json();
 
@@ -843,13 +893,15 @@ async function reconnectToTask(sessionId, taskId){
 const SLASH_COMMANDS = [
   { name: '/clear', desc: '新建对话', run: () => newSession() },
   { name: '/agent', desc: '切换 Agent', run: () => openAgentPicker() },
+  { name: '/model', desc: '切换模型', run: () => openModelPicker() },
 ];
 
 let _slashMatches = [];
 let _slashIndex = 0;
 let _slashOpen = false;
-let _slashMode = 'commands'; // 'commands' | 'agents'
+let _slashMode = 'commands'; // 'commands' | 'agents' | 'models'
 let _agentPickerItems = [];
+let _modelPickerItems = [];
 
 function hideSlashMenu(){
   _slashOpen = false;
@@ -857,6 +909,7 @@ function hideSlashMenu(){
   _slashIndex = 0;
   _slashMode = 'commands';
   _agentPickerItems = [];
+  _modelPickerItems = [];
   const menu = document.getElementById('slashMenu');
   if (menu){ menu.style.display = 'none'; menu.innerHTML = ''; }
 }
@@ -880,7 +933,7 @@ function updateSlashMenu(){
   const menu = document.getElementById('slashMenu');
   if (!input || !menu) return;
 
-  if (_slashMode === 'agents') return;
+  if (_slashMode === 'agents' || _slashMode === 'models') return;
 
   const query = _slashQueryFromInput(input.value, input.selectionStart);
   const matches = _getSlashMatches(query);
@@ -954,11 +1007,72 @@ async function openAgentPicker(){
   if (input) input.focus();
 }
 
+function _renderModelPicker(){
+  const menu = document.getElementById('slashMenu');
+  if (!menu) return;
+
+  const hint = '<div class="slash-menu-hint">选择模型, ↑↓选择，Enter确认</div>';
+  _slashIndex = Math.max(0, Math.min(_slashIndex, _modelPickerItems.length - 1));
+  menu.innerHTML = hint + _modelPickerItems.map((item, i) => {
+    const active = i === _slashIndex ? ' active' : '';
+    const isCurrent = item.id === null
+      ? currentModelId === null
+      : item.id === currentModelId;
+    const currentMark = isCurrent
+      ? '<span class="slash-item-current">(当前)</span>'
+      : '';
+    const desc = item.desc
+      ? `<span class="slash-item-desc">${escapeHtml(item.desc)}</span>`
+      : '';
+    return `<div class="slash-item${active}" role="option" data-idx="${i}"` +
+      ` onclick="selectSlashItem(${i})">` +
+      `<span class="slash-item-name">${escapeHtml(item.name)}</span>${currentMark}${desc}</div>`;
+  }).join('');
+  menu.style.display = '';
+  _slashOpen = true;
+}
+
+async function openModelPicker(){
+  const input = document.getElementById('inputBox');
+  if (input){ input.value = ''; autoResize(input); }
+
+  if (!modelList.length) {
+    await loadModels();
+  }
+  const agent = currentAgentId ? agentMap[currentAgentId] : null;
+  const boundLabel = _agentBoundModelLabel(agent);
+  const items = [
+    { id: null, name: '默认', desc: boundLabel },
+    ...modelList.map(m => ({
+      id: m.id,
+      name: m.name || m.model || m.id,
+      desc: '',
+    })),
+  ];
+  _slashMode = 'models';
+  _modelPickerItems = items;
+  _slashMatches = [];
+  if (currentModelId === null) {
+    _slashIndex = 0;
+  } else {
+    const idx = items.findIndex(it => it.id === currentModelId);
+    _slashIndex = idx >= 0 ? idx : 0;
+  }
+  _renderModelPicker();
+  if (input) input.focus();
+}
+
 function selectSlashItem(idx){
   if (_slashMode === 'agents') {
     if (idx < 0 || idx >= _agentPickerItems.length) return;
     _slashIndex = idx;
     confirmAgentPicker();
+    return;
+  }
+  if (_slashMode === 'models') {
+    if (idx < 0 || idx >= _modelPickerItems.length) return;
+    _slashIndex = idx;
+    confirmModelPicker();
     return;
   }
   if (idx < 0 || idx >= _slashMatches.length) return;
@@ -970,7 +1084,7 @@ function completeSlashCommand(){
   const input = document.getElementById('inputBox');
   if (!input || !_slashMatches.length) return;
   const cmd = _slashMatches[_slashIndex] || _slashMatches[0];
-  if (cmd.name === '/agent') {
+  if (cmd.name === '/agent' || cmd.name === '/model') {
     executeSlashCommand(cmd);
     return;
   }
@@ -990,11 +1104,25 @@ function confirmAgentPicker(){
   if (agent) selectAgent(agent.id);
 }
 
+function confirmModelPicker(){
+  const item = _modelPickerItems[_slashIndex] || _modelPickerItems[0];
+  const input = document.getElementById('inputBox');
+  if (input){ input.value = ''; autoResize(input); }
+  hideSlashMenu();
+  if (!item) return;
+  currentModelId = item.id; // null = 默认
+  _refreshAgentModelUI();
+}
+
 function executeSlashCommand(cmd){
   const input = document.getElementById('inputBox');
   if (input){ input.value = ''; autoResize(input); }
   if (cmd.name === '/agent') {
     openAgentPicker();
+    return;
+  }
+  if (cmd.name === '/model') {
+    openModelPicker();
     return;
   }
   hideSlashMenu();
@@ -1003,7 +1131,7 @@ function executeSlashCommand(cmd){
 
 function onInputBoxInput(el){
   autoResize(el);
-  if (_slashMode === 'agents') {
+  if (_slashMode === 'agents' || _slashMode === 'models') {
     const v = el.value;
     if (!v || v[0] !== '/') {
       hideSlashMenu();
@@ -1016,7 +1144,9 @@ function onInputBoxInput(el){
 
 function _moveSlashSelection(delta){
   if (!_slashOpen) return;
-  const count = _slashMode === 'agents' ? _agentPickerItems.length : _slashMatches.length;
+  let count = _slashMatches.length;
+  if (_slashMode === 'agents') count = _agentPickerItems.length;
+  else if (_slashMode === 'models') count = _modelPickerItems.length;
   if (!count) return;
   _slashIndex = (_slashIndex + delta + count) % count;
   const menu = document.getElementById('slashMenu');
@@ -1054,14 +1184,17 @@ async function sendMessage(){
     const fd = new FormData();
     if (currentSessionId) fd.append('session_id', currentSessionId);
     if (currentAgentId) fd.append('agent_id', currentAgentId);
+    if (currentModelId) fd.append('model_id', currentModelId);
     fd.append('message', text);
     fd.append('file', currentFile);
     const res = await fetch('/api/chat',{ method:'POST', body:fd });
     data = await res.json();
   } else {
+    const payload = {session_id: currentSessionId, message: text, agent_id: currentAgentId};
+    if (currentModelId) payload.model_id = currentModelId;
     const res = await fetch('/api/chat',{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({session_id: currentSessionId, message: text, agent_id: currentAgentId}),
+      body: JSON.stringify(payload),
     });
     data = await res.json();
   }
@@ -1098,6 +1231,12 @@ function handleKey(e){
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)){
         e.preventDefault();
         confirmAgentPicker();
+        return;
+      }
+    } else if (_slashMode === 'models'){
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)){
+        e.preventDefault();
+        confirmModelPicker();
         return;
       }
     } else {
@@ -1721,7 +1860,8 @@ window.addEventListener('DOMContentLoaded', () => {
   const sid = params.get('session');
   const aid = params.get('agent');
   if (aid) currentAgentId = aid;
-  loadAgents().then(async () => {
+  Promise.all([loadAgents(), loadModels()]).then(async () => {
+    _refreshAgentModelUI();
     if (sid) {
       await loadSession(sid);
     } else {
