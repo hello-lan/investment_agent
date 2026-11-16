@@ -140,16 +140,6 @@ async def init_db() -> None:
                 created_at  TEXT                      -- 创建时间
             );
 
-            -- 断点续跑状态
-            CREATE TABLE IF NOT EXISTS checkpoints (
-                task_id    TEXT PRIMARY KEY,          -- 任务 ID
-                session_id TEXT,                      -- 所属会话 ID
-                step       INTEGER DEFAULT 0,         -- 当前步骤数
-                messages   TEXT,                      -- 消息快照（JSON）
-                status     TEXT DEFAULT 'running',    -- 状态（running=运行中 completed=已完成）
-                updated_at TEXT                       -- 更新时间
-            );
-
             -- Token 成本日志
             CREATE TABLE IF NOT EXISTS cost_log (
                 id            TEXT PRIMARY KEY,       -- 记录 ID

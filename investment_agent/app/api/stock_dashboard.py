@@ -14,7 +14,7 @@ from ..services.stock_data import (
 router = APIRouter(prefix="/api", tags=["stock-dashboard"])
 
 
-# ── 股票搜索（与旧版共用） ──────────────────────────────────
+# ── 股票搜索 ──────────────────────────────────────────────
 
 
 @router.get("/stocks/search")

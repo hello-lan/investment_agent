@@ -15,7 +15,6 @@ from .app.api.observability import router as observability_router
 from .app.api.tools import router as tools_router
 from .app.api.workflows import router as workflows_router
 from .app.api.stock_dashboard import router as stock_dashboard_router
-from .app.api.stock_dashboard_old import router as stock_dashboard_old_router
 from .app.api.risk_dashboard import router as risk_dashboard_router
 from .agent.skills.loader import init_skills_dir
 from .agent.tools.run_command import set_project_root
@@ -24,7 +23,6 @@ from .config import ROOT_DIR, resolve_skills_dir
 
 STATIC_DIR = ROOT_DIR / "investment_agent" / "app" / "static"
 TEMPLATE_DIR = ROOT_DIR / "investment_agent" / "app" / "templates"
-OUTPUT_DIR = ROOT_DIR / "output"
 DATA_DIR = ROOT_DIR / "data"
 
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
@@ -43,11 +41,9 @@ TABS = [
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动时初始化数据库、输出目录、Skills、全局依赖"""
+    """应用生命周期：启动时初始化数据库、Skills、全局依赖"""
     await init_db()
     await seed_default_subagents()
-    (OUTPUT_DIR / "reports").mkdir(parents=True, exist_ok=True)
-    (OUTPUT_DIR / "charts").mkdir(parents=True, exist_ok=True)
     # 注入 agent 包所需的全局依赖
     set_project_root(str(ROOT_DIR))
     init_skills_dir(resolve_skills_dir())
@@ -68,7 +64,6 @@ app.include_router(observability_router)
 app.include_router(tools_router)
 app.include_router(workflows_router)
 app.include_router(stock_dashboard_router)
-app.include_router(stock_dashboard_old_router)
 app.include_router(risk_dashboard_router)
 
 # —— 静态文件（前端 HTML/JS/CSS）——
@@ -114,11 +109,6 @@ async def dashboard_page(request: Request):
 @app.get("/risk")
 async def risk_page(request: Request):
     return templates.TemplateResponse("risk_dashboard.html", {"request": request, "tabs": TABS, "active_tab": "排雷"})
-
-
-@app.get("/dashboard-old")
-async def dashboard_old_page(request: Request):
-    return templates.TemplateResponse("stock_dashboard_old.html", {"request": request, "tabs": TABS, "active_tab": "看板"})
 
 
 @app.get("/observability")

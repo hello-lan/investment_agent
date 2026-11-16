@@ -34,8 +34,5 @@
   "db": {
     "type": "sqlite",
     "sqlite_path": "./data/agent.db"
-  },
-  "tools": {
-    "tushare_token": ""
   }
 }

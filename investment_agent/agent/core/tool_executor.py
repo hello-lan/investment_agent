@@ -32,13 +32,6 @@ class LoopDetector:
     """增强死循环检测：参数感知 + 振荡检测。"""
 
     _KEY_PARAMS: dict[str, list[str]] = {
-        "get_stock_info": ["symbol"],
-        "get_stock_price": ["symbol", "period"],
-        "get_income_statement": ["symbol", "report_type"],
-        "get_balance_sheet": ["symbol", "report_type"],
-        "get_cash_flow": ["symbol", "report_type"],
-        "get_valuation": ["symbol"],
-        "get_financial_indicators": ["symbol"],
         "run_command": ["command"],
         "run_python_script": ["script_path", "argv", "kwargs", "stdin"],
         "DelegateTask": ["task"],

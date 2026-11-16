@@ -1,6 +1,4 @@
 import json
-import os
-import shutil
 from pathlib import Path
 from functools import lru_cache
 
@@ -55,12 +53,4 @@ def resolve_subagents_dir(raw_dir: str | None = None) -> Path:
     if not path.is_absolute():
         path = ROOT_DIR / path
     return path
-
-
-def get_tushare_token() -> str:
-    """读取 tushare token，环境变量优先于 settings.json。"""
-    env_token = os.getenv("TUSHARE_TOKEN", "").strip()
-    if env_token:
-        return env_token
-    return str(get_settings().get("tools", {}).get("tushare_token", "") or "").strip()
 

@@ -284,8 +284,6 @@ class AgentRunner:
         )
         engine.storage = self._storage
         allowed_tools = registry.auto_bound_tools | set(config.tools)
-        # 内置通用 Subagent 工具已废弃，始终移除
-        allowed_tools = allowed_tools - {"Subagent"}
         enable_run_command = "run_command" in allowed_tools
         if config.loop_mode == LoopMode.PLAN_EXECUTE:
             allowed_tools = allowed_tools | {"DelegateTask"}

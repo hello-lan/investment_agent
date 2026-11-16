@@ -5,10 +5,8 @@
 """
 
 from .base import BaseTool
-from .registry import register_tool
 
 
-@register_tool
 class DelegateTaskTool(BaseTool):
     """将独立子任务委派给子Agent在隔离环境中执行。
 

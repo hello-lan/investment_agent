@@ -7,7 +7,6 @@ from .base_loop import BaseLoopEngine
 from .dual_loop import DualLoopEngine
 from .plan_execute_loop import PlanExecuteLoopEngine
 from .react_loop import ReactLoopEngine
-from .react_subagent_loop import ReactSubagentLoopEngine
 from .workflow_loop import WorkflowLoopEngine
 from .provider import ModelProvider
 

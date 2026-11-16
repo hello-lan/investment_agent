@@ -603,13 +603,3 @@ async def sync_stock_data(code: str) -> None:
         _set_sync_status(code, "error", "", str(e))
         logger.error(f"[stock_data] 同步失败 {code}: {e}")
         raise
-
-
-async def check_and_sync(code: str) -> dict:
-    needs = await _needs_update(code)
-    if needs:
-        existing = _get_sync_status(code)
-        if existing["status"] != "syncing":
-            asyncio.create_task(sync_stock_data(code))
-        return {"needs_update": True, "status": "updating"}
-    return {"needs_update": False, "status": "ready"}

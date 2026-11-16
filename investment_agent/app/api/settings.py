@@ -3,8 +3,6 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from ...config import get_settings, get_tushare_token, resolve_skills_dir, save_settings
-from ...agent.skills.loader import init_skills_dir
 from ..db import get_db
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -189,60 +187,3 @@ async def test_model(body: TestModelRequest):
     except Exception as e:
         _log.exception("Model connection test failed: %s", body.model_id)
         return _build_test_model_error(e)
-
-
-# ── Engine & Tools ────────────────────────────────────────────────────────────
-
-@router.get("")
-async def read_settings():
-    s = {k: v for k, v in get_settings().items() if k != "models"}
-    tools = dict(s.get("tools", {}))
-    tools["tushare_token"] = "***" if get_tushare_token() else ""
-    s["tools"] = tools
-    return s
-
-
-class EngineSettings(BaseModel):
-    max_steps: int | None = None
-    slow_think_interval: int | None = None
-    token_budget: int | None = None
-    subagent_token_budget: int | None = None
-    loop_detection_threshold: int | None = None
-
-
-@router.put("/engine")
-async def update_engine(body: EngineSettings):
-    s = get_settings()
-    engine = dict(s.get("engine", {}))
-    engine.update(body.model_dump(exclude_none=True))
-    s["engine"] = engine
-    save_settings(s)
-    return {"success": True}
-
-
-class ToolsSettings(BaseModel):
-    tushare_token: str = ""
-
-
-class SkillsSettings(BaseModel):
-    directory: str = "skills"
-
-
-@router.put("/skills")
-async def update_skills(body: SkillsSettings):
-    s = get_settings()
-    directory = (body.directory or "skills").strip() or "skills"
-    s["skills"] = {"directory": directory}
-    save_settings(s)
-    init_skills_dir(resolve_skills_dir(directory))
-    return {"success": True}
-
-
-@router.put("/tools")
-async def update_tools(body: ToolsSettings):
-    s = get_settings()
-    existing = s.get("tools", {})
-    token = existing.get("tushare_token", "") if body.tushare_token == "***" else body.tushare_token
-    s["tools"] = {"tushare_token": token}
-    save_settings(s)
-    return {"success": True}

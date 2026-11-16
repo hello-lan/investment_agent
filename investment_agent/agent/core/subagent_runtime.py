@@ -341,22 +341,3 @@ async def run_defined_subagent(
         "type": EventType._DELEGATE_DONE,
         "result": result_text.strip() or "(子Agent完成，无文本输出)",
     }
-
-
-# ── 兼容旧名（workflow / 旧调用点迁移期）────────────────────────────
-
-async def prepare_subagent_request(engine, tc) -> tuple[DefinedSubagentRequest, str] | str:
-    """兼容入口：若 tc 带 definition/subagent_name 则走定义路径。"""
-    name = tc.input.get("subagent_name") or tc.name
-    return await prepare_defined_subagent(engine, name, tc.input)
-
-
-async def run_subagent(parent, request, subagent_id: str) -> AsyncGenerator[dict, None]:
-    if isinstance(request, DefinedSubagentRequest):
-        async for event in run_defined_subagent(parent, request, subagent_id):
-            yield event
-        return
-    yield {
-        "type": EventType._DELEGATE_ERROR,
-        "message": "旧版安全文件 Subagent 已移除，请改用用户定义 Subagent",
-    }

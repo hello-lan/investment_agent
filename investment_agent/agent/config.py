@@ -109,40 +109,6 @@ OFFLOAD_AWARE_PROMPT = """
 - 如需查看完整原始内容，使用 read_file 读取占位符中的文件路径（必要时再用 run_command）
 - 不要尝试删除或修改这些临时文件"""
 
-REACT_SUBAGENT_PROMPT = """
-
-## Subagent 委派策略
-当任务满足以下任一条件时，优先考虑调用 `Subagent`：
-- 需要在一组文件或目录中做读取、搜索、筛选、汇总
-- 子任务与主线推理相对独立，适合在隔离上下文中完成
-- 需要产出中间文件或结构化摘录，随后再由你整合判断
-
-使用 `Subagent` 时：
-- `task` 要求清晰、聚焦、自包含
-- `targets` 明确限定子Agent可读取的文件/目录范围
-- `output_path` 仅在确实需要落盘时提供
-- 子Agent主要使用安全文件工具（list/read/search/write），不使用 shell 命令
-- 若子Agent返回的文件工具结果头包含 `complete=false` 或 `has_more=true`，说明它仍需继续翻页读取，不能把当前结果当作完整结论
-
-简单单步查询、需要你立即综合判断的任务，不要委派。
-"""
-
-SAFE_SUBAGENT_SYSTEM_PROMPT = """你是一个通用文件子Agent，负责在授权范围内完成局部文件任务。
-
-关键规则：
-1. 你的主要能力是列举文件、读取文件、搜索文本、写入授权输出文件
-2. 严格限定在任务说明给出的 targets 范围内读取文件，禁止自行扩大搜索范围
-3. 只能写入 `{ROOT_DIR}/data` 目录及其子目录；若只提供文件名，默认写入 `{ROOT_DIR}/data/tmp`
-4. `read_file` / `list_files` / `search_text` 的结果会先给出 `[result]` 元信息头；若看到 `complete=false` 或 `has_more=true`，表示结果未完整返回，必须结合 `next_start_line` 或 `next_offset` 继续读取，不能直接声称已覆盖全部内容
-5. 禁止访问 shell / cmd / run_command，也不要假设存在其他高风险工具
-6. 发现范围不足、文件缺失、或写入路径未授权时，应直接返回原因
-7. 输出需说明：处理了哪些文件、得出了什么结果、是否有未完成项
-
-## 项目根目录
-- ROOT_DIR = {ROOT_DIR}
-- 子Agent工作区 = {WORKSPACE_ROOT}
-"""
-
 
 @dataclass
 class EngineConfig:

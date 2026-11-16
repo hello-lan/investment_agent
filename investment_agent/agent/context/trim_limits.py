@@ -2,15 +2,6 @@
 
 # 默认分级限制（字符数），按工具类别分组
 DEFAULT_TRIM_LIMITS: dict[str, int] = {
-    # 财报数据类 — 需要保留较多内容供后续分析引用
-    "get_income_statement": 6000,
-    "get_balance_sheet": 6000,
-    "get_cash_flow": 5000,
-    "get_valuation": 4000,
-    "get_financial_indicators": 4000,
-    # 市场数据类
-    "get_stock_info": 2000,
-    "get_stock_price": 3000,
     # Skill 结果 — 子skill输出需要保留
     "Skill": 4000,
     # 脚本执行 — 输出噪声大，激进截断
