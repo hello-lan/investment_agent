@@ -61,6 +61,65 @@ function _msgIdentityHtml(role){
   '</div>';
 }
 
+function _msgCopyBtnHtml(){
+  return '<div class="msg-actions">' +
+    '<button type="button" class="btn-copy-msg" title="复制" aria-label="复制">' +
+      '<svg class="icon-copy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
+      '<svg class="icon-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>' +
+    '</button></div>';
+}
+
+function _setMsgCopyText(node, text){
+  if (node) node.dataset.copyText = String(text == null ? '' : text);
+}
+
+function _messageCopyText(msg){
+  if (!msg) return '';
+  if (typeof msg.dataset.copyText === 'string') return msg.dataset.copyText;
+  const body = msg.querySelector('.bubble-content') || msg.querySelector('.msg-bubble');
+  if (!body) return '';
+  const clone = body.cloneNode(true);
+  clone.querySelectorAll('.think-process, .thinking-inline').forEach(el => el.remove());
+  return (clone.innerText || '').replace(/\u00a0/g, ' ').trim();
+}
+
+function _copyViaTextarea(text){
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+  ta.remove();
+  return ok;
+}
+
+async function copyMessage(btn){
+  const msg = btn.closest('.msg');
+  const text = _messageCopyText(msg);
+  let ok = false;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    }
+  } catch (_) {}
+  if (!ok) ok = _copyViaTextarea(text);
+  if (!ok) return;
+  btn.classList.add('copied');
+  btn.title = '已复制';
+  btn.setAttribute('aria-label', '已复制');
+  clearTimeout(btn._copyTimer);
+  btn._copyTimer = setTimeout(function(){
+    btn.classList.remove('copied');
+    btn.title = '复制';
+    btn.setAttribute('aria-label', '复制');
+  }, 1500);
+}
+
 function _pathExt(name){
   const m = String(name || '').toLowerCase().match(/(\.[a-z0-9]+)$/);
   return m ? m[1] : '';
@@ -276,6 +335,7 @@ async function loadAgents(){
     const agents = await fetch('/api/agents').then(r => r.json());
     Object.keys(agentMap).forEach(k => { delete agentMap[k]; });
     agents.forEach((a) => { agentMap[a.id] = a; });
+    renderComposerAgents();
     if (!agents.length) return agents;
     if (!currentAgentId && agents[0]) {
       selectAgent(agents[0].id, true);
@@ -331,6 +391,7 @@ function _refreshAgentModelUI(){
 function selectAgent(id, silent){
   currentAgentId = id;
   const agent = agentMap[id];
+  renderComposerAgents();
   if (!agent) return;
 
   // 切换 Agent 时重置为该 Agent 绑定模型（默认）
@@ -344,6 +405,45 @@ function selectAgent(id, silent){
     setUserMsgCount(0);
   }
   loadSessions();
+}
+
+function renderComposerAgents(){
+  const el = document.getElementById('composerAgents');
+  if (!el) return;
+  const list = Object.values(agentMap)
+    .filter(a => a && a.show_in_composer)
+    .sort((a, b) => {
+      const sa = Number(a.composer_sort) || 0;
+      const sb = Number(b.composer_sort) || 0;
+      if (sa !== sb) return sa - sb;
+      return String(a.created_at || '').localeCompare(String(b.created_at || ''));
+    });
+  if (!list.length) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+  el.hidden = false;
+  el.innerHTML = list.map(a => {
+    const active = a.id === currentAgentId;
+    return '<button type="button" class="composer-agent-chip' + (active ? ' active' : '') +
+      '" data-agent-id="' + escapeHtml(a.id) + '" aria-pressed="' + (active ? 'true' : 'false') + '">' +
+      '<img alt="" src="' + escapeHtml(_agentAvatarSrc(a)) + '" onerror="this.onerror=null;this.src=\'' + DEFAULT_AGENT_AVATAR + '\'">' +
+      '<span>' + escapeHtml(a.name || 'Agent') + '</span>' +
+    '</button>';
+  }).join('');
+}
+
+function _initComposerAgents(){
+  const el = document.getElementById('composerAgents');
+  if (!el) return;
+  el.addEventListener('click', (e) => {
+    const btn = e.target.closest('.composer-agent-chip');
+    if (!btn) return;
+    const id = btn.getAttribute('data-agent-id');
+    if (!id || id === currentAgentId) return;
+    selectAgent(id);
+  });
 }
 
 async function loadModels(){
@@ -787,7 +887,9 @@ function clearFile(){
 
 function appendUserMsg(text){
   const w = document.getElementById('welcome'); if (w) w.remove();
-  return _append('<div class="msg user">' + _msgIdentityHtml('user') + '<div class="msg-bubble">' + linkifyDataPaths(escapeHtml(text)) + '</div></div>');
+  const node = _append('<div class="msg user">' + _msgIdentityHtml('user') + '<div class="msg-bubble">' + linkifyDataPaths(escapeHtml(text)) + '</div>' + _msgCopyBtnHtml() + '</div>');
+  _setMsgCopyText(node, text);
+  return node;
 }
 
 function updateUserMsgBubble(node, text){
@@ -795,10 +897,13 @@ function updateUserMsgBubble(node, text){
   const bubble = node.querySelector('.msg-bubble');
   if (!bubble) return;
   bubble.innerHTML = linkifyDataPaths(escapeHtml(text));
+  _setMsgCopyText(node, text);
 }
 
 function appendAssistantMsg(md){
-  return _append('<div class="msg assistant">' + _msgIdentityHtml('assistant') + '<div class="msg-bubble">' + renderMarkdown(md) + '</div></div>');
+  const node = _append('<div class="msg assistant">' + _msgIdentityHtml('assistant') + '<div class="msg-bubble">' + renderMarkdown(md) + '</div>' + _msgCopyBtnHtml() + '</div>');
+  _setMsgCopyText(node, md);
+  return node;
 }
 
 function _createReplyBlock(){
@@ -816,6 +921,7 @@ function _createReplyBlock(){
         '<div class="think-steps" style="display:none"></div>' +
       '</div>' +
     '</div>' +
+    _msgCopyBtnHtml() +
     '<div class="retry-area" style="display:none">' +
       '<button class="btn-retry" onclick="retryTask()">🔄 重试</button>' +
     '</div>';
@@ -953,6 +1059,7 @@ function _handleStreamEvent(ev, state){
     // 隐藏重试按钮（如果有）
     if (b.retryEl) b.retryEl.style.display = 'none';
     s.aText += ev.content;
+    _setMsgCopyText(b.container, s.aText);
     _scheduleAssistantRender(s, b.bodyEl);
     if (userScrolledUp) {
       hasNewContentSinceScroll = true;
@@ -2599,6 +2706,13 @@ function _initFileDrawer(){
   const messages = document.getElementById('messages');
   if (messages) {
     messages.addEventListener('click', function(e){
+      const copyBtn = e.target.closest('.btn-copy-msg');
+      if (copyBtn && messages.contains(copyBtn)) {
+        e.preventDefault();
+        e.stopPropagation();
+        copyMessage(copyBtn);
+        return;
+      }
       const chip = e.target.closest('.path-chip');
       if (!chip || !messages.contains(chip)) return;
       e.preventDefault();
@@ -3094,6 +3208,7 @@ window.addEventListener('DOMContentLoaded', () => {
   _initDragDrop();
   _initFileDrawer();
   _initLeftSplitResize();
+  _initComposerAgents();
   initChatFileTree();
   const params = new URLSearchParams(location.search);
   const sid = params.get('session');

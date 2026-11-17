@@ -11,6 +11,7 @@
 .agent-card .desc{font-size:13px;color:#666;margin-bottom:10px;min-height:36px;}
 .agent-card .meta{font-size:12px;color:#999;margin-bottom:12px;}
 .agent-card .actions{display:flex;gap:8px;}
+.agent-shortcut-tag{display:inline-block;font-size:10px;font-weight:600;color:#1a56db;background:#e8f0fe;border-radius:999px;padding:1px 7px;margin-left:6px;vertical-align:middle;}
 .btn-success{background:#e8f5e9;color:#2e7d32;border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;}
 .form-section-title{font-size:14px;font-weight:600;color:#333;margin:18px 0 8px;padding-bottom:6px;border-bottom:1px solid #eee;}
 .skill-list{border:1px solid #ddd;border-radius:6px;background:#fafafa;max-height:260px;overflow-y:auto;}
@@ -172,6 +173,23 @@
         <div class="form-row">
           <label>描述</label>
           <input type="text" id="agentDesc" placeholder="简短描述这个 Agent 的用途">
+        </div>
+        <div class="form-row">
+          <label class="toggle-label">
+            <span class="switch-text">
+              显示在聊天快捷栏
+              <span class="hint" style="margin-top:2px;">开启后，该 Agent 会出现在聊天输入框上方，点击即可切换。</span>
+            </span>
+            <span class="switch-control">
+              <input type="checkbox" id="agentShowInComposer" onchange="toggleComposerSort()">
+              <span class="switch-slider"></span>
+            </span>
+          </label>
+        </div>
+        <div class="form-row hidden" id="agentComposerSortRow">
+          <label>快捷栏排序</label>
+          <input type="number" id="agentComposerSort" value="0" step="1">
+          <div class="hint">数字小的排在前面，相同则按创建时间。</div>
         </div>
       </div>
     </div>

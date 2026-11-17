@@ -145,7 +145,7 @@ async function loadAgents(){
     <div class="agent-card">
       <div class="agent-card-head">
         <img class="agent-card-avatar" src="${esc(agentAvatarSrc(a))}" alt="" onerror="this.onerror=null;this.src='${DEFAULT_AGENT_AVATAR}'">
-        <h3>${esc(a.name)}</h3>
+        <h3>${esc(a.name)}${a.show_in_composer ? '<span class="agent-shortcut-tag">快捷</span>' : ''}</h3>
       </div>
       <div class="desc">${esc(a.description||'暂无描述')}</div>
       <div class="meta">模型：${esc(modelNameById(a.model_id))} · Subagent：${normalizeList(a.subagents).length}</div>
@@ -630,6 +630,9 @@ function openModal(agent){
   showAvatarPreview(agentAvatarSrc(agent));
   document.getElementById('agentName').value = agent?.name || '';
   document.getElementById('agentDesc').value = agent?.description || '';
+  document.getElementById('agentShowInComposer').checked = !!agent?.show_in_composer;
+  document.getElementById('agentComposerSort').value = agent?.composer_sort ?? 0;
+  toggleComposerSort();
   document.getElementById('agentPrompt').value = agent?.system_prompt || '';
   document.getElementById('agentModel').innerHTML = buildModelOptions(agent?.model_id || '');
   document.getElementById('agentTemp').value = agent?.temperature ?? 0.7;
@@ -644,6 +647,11 @@ function openModal(agent){
   switchTab('skills');
   switchCtxTab('preflight');
   document.getElementById('modalOverlay').classList.add('open');
+}
+
+function toggleComposerSort(){
+  const on = document.getElementById('agentShowInComposer').checked;
+  document.getElementById('agentComposerSortRow').classList.toggle('hidden', !on);
 }
 
 function closeModal(){
@@ -733,6 +741,8 @@ async function saveAgent(){
     compress_config: compressConfig,
     engine_config: engineConfig,
     avatar: pendingAvatarClear ? '' : currentAvatarPath,
+    show_in_composer: document.getElementById('agentShowInComposer').checked,
+    composer_sort: parseInt(document.getElementById('agentComposerSort').value, 10) || 0,
   };
 
   const url = id ? `/api/agents/${id}` : '/api/agents';

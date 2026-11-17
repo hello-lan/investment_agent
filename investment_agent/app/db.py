@@ -84,6 +84,8 @@ async def init_db() -> None:
                 compress_config TEXT,                 -- 上下文压缩配置（JSON）
                 engine_config TEXT,                   -- 引擎运行配置（JSON）
                 avatar        TEXT,                   -- 头像相对 data/ 的路径，空=默认头像
+                show_in_composer INTEGER DEFAULT 0,   -- 是否显示在聊天输入框上方快捷栏
+                composer_sort INTEGER DEFAULT 0,      -- 快捷栏排序，数字小的在前
                 created_at    TEXT,                   -- 创建时间
                 updated_at    TEXT                    -- 更新时间
             );
@@ -645,6 +647,8 @@ async def init_db() -> None:
             ("agents", "tools", "TEXT DEFAULT '[]'"),
             ("agents", "subagents", "TEXT DEFAULT '[]'"),
             ("agents", "avatar", "TEXT"),
+            ("agents", "show_in_composer", "INTEGER DEFAULT 0"),
+            ("agents", "composer_sort", "INTEGER DEFAULT 0"),
             ("sessions", "current_task_id", "TEXT"),
             ("sessions", "input_tokens", "INTEGER DEFAULT 0"),
             ("sessions", "output_tokens", "INTEGER DEFAULT 0"),

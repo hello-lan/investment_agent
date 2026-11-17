@@ -65,6 +65,11 @@
   --layout-left-fr: 17;
   --layout-main-fr: 55;
   --left-panel-width: calc(100% * var(--layout-left-fr) / (var(--layout-left-fr) + var(--layout-main-fr)));
+
+  /* 对话列与输入框同宽。视口变窄时先收两侧留白，留白降到下限后才缩小列宽。 */
+  --chat-column-max: 880px;
+  --chat-gutter-min: 20px;
+  --chat-gutter: max(var(--chat-gutter-min), calc((100% - var(--chat-column-max)) / 2));
 }
 
 /* ========================================
@@ -152,13 +157,13 @@ body.left-split-resizing {
 .center-header .center-usage-sep { color: var(--c-text-4); }
 
 /* ---- Messages ---- */
-.messages { flex: 1; overflow-y: auto; padding: 20px 20px 28px; display: flex; flex-direction: column; gap: 12px; position: relative; background: var(--c-bg); }
+.messages { flex: 1; overflow-y: auto; padding: 20px var(--chat-gutter) 28px; display: flex; flex-direction: column; gap: 12px; position: relative; background: var(--c-bg); }
 
 .btn-scroll-down { position: sticky; bottom: 10px; align-self: center; background: rgba(26,26,46,0.88); color: #fff; border: none; padding: 6px 16px; border-radius: var(--r-full); font-size: var(--fs-sm); font-weight: 500; cursor: pointer; z-index: 10; box-shadow: var(--sh-md); transition: background var(--ease); }
 .btn-scroll-down:hover { background: var(--c-primary-hover); }
 
 /* ---- Message Bubbles ---- */
-.msg { max-width: 80%; display: flex; flex-direction: column; gap: 6px; }
+.msg { max-width: 100%; display: flex; flex-direction: column; gap: 6px; }
 .msg.user { align-self: flex-end; }
 .msg.assistant { align-self: flex-start; }
 .msg-meta { display: flex; align-items: center; gap: 8px; }
@@ -169,13 +174,26 @@ body.left-split-resizing {
 .msg-bubble { padding: 10px 14px; border-radius: var(--r-lg); font-size: var(--fs-base); line-height: var(--lh-base); }
 .msg.user .msg-bubble { background: var(--c-primary); color: #fff; border-bottom-right-radius: 4px; }
 .msg.assistant .msg-bubble { background: var(--c-surface); border: 1px solid var(--c-border-light); border-bottom-left-radius: 4px; color: var(--c-text-1); }
+.msg-actions { display: flex; align-items: center; gap: 4px; }
+.msg.user .msg-actions { justify-content: flex-end; }
+.btn-copy-msg {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; border: none; border-radius: var(--r-sm);
+  background: transparent; color: var(--c-text-4); cursor: pointer;
+  transition: background var(--ease), color var(--ease);
+}
+.btn-copy-msg:hover { background: var(--c-primary-light); color: var(--c-text-2); }
+.btn-copy-msg.copied { color: var(--c-success); }
+.btn-copy-msg .icon-check { display: none; }
+.btn-copy-msg.copied .icon-copy { display: none; }
+.btn-copy-msg.copied .icon-check { display: block; }
 .msg-error, .msg-info { align-self: stretch; }
 
 /* ---- Tool Step & Slow Think ---- */
-.tool-step { background: var(--c-primary-lighter); border: 1px solid var(--c-border-light); border-radius: var(--r-md); padding: 10px 14px; font-size: var(--fs-sm); color: var(--c-text-2); max-width: 80%; align-self: flex-start; }
+.tool-step { background: var(--c-primary-lighter); border: 1px solid var(--c-border-light); border-radius: var(--r-md); padding: 10px 14px; font-size: var(--fs-sm); color: var(--c-text-2); max-width: 100%; align-self: flex-start; }
 .tool-step .tool-name { font-weight: 600; color: var(--c-primary); }
 .tool-step .tool-result { color: var(--c-text-3); margin-top: 4px; max-height: 80px; overflow: hidden; white-space: pre-wrap; }
-.slow-think { background: var(--c-warning-bg); border: 1px solid var(--c-warning-border); border-radius: var(--r-md); padding: 10px 14px; font-size: var(--fs-sm); color: var(--c-warning); max-width: 80%; align-self: flex-start; }
+.slow-think { background: var(--c-warning-bg); border: 1px solid var(--c-warning-border); border-radius: var(--r-md); padding: 10px 14px; font-size: var(--fs-sm); color: var(--c-warning); max-width: 100%; align-self: flex-start; }
 
 /* ---- Thinking Dots ---- */
 .thinking { display: flex; gap: 4px; padding: 12px 16px; align-self: flex-start; }
@@ -226,7 +244,7 @@ body.left-split-resizing {
    Input Area — ChatGPT-style composer
    ======================================== */
 .input-area {
-  padding: 8px 20px max(20px, env(safe-area-inset-bottom, 0px) + 12px);
+  padding: 8px var(--chat-gutter) max(20px, env(safe-area-inset-bottom, 0px) + 12px);
   background: var(--c-bg);
   border-top: none;
   display: flex;
@@ -234,7 +252,7 @@ body.left-split-resizing {
 }
 .composer {
   width: 100%;
-  max-width: 720px;
+  max-width: 100%;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
   border-radius: 24px;
@@ -256,7 +274,67 @@ body.left-split-resizing {
 .composer-attachments[hidden] { display: none !important; }
 .composer-stack {
   width: 100%;
-  max-width: 720px;
+  max-width: 100%;
+}
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 4px 8px;
+  min-width: 0;
+}
+.composer-agents {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+  scrollbar-width: none;
+}
+.composer-agents[hidden] { display: none !important; }
+.composer-agents::-webkit-scrollbar { display: none; }
+.composer-agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  max-width: 180px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  color: var(--c-text-1);
+  border-radius: var(--r-full);
+  padding: 4px 12px 4px 4px;
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background var(--ease), border-color var(--ease), color var(--ease);
+}
+.composer-agent-chip:hover {
+  border-color: var(--c-primary);
+  background: var(--c-primary-light);
+}
+.composer-agent-chip img {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--c-border-light);
+}
+.composer-agent-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-agent-chip.active {
+  background: var(--c-primary);
+  color: #fff;
+  border-color: var(--c-primary);
+}
+.composer-agent-chip.active:hover {
+  background: var(--c-primary-hover);
 }
 .composer-row {
   display: flex;
@@ -264,11 +342,13 @@ body.left-split-resizing {
   gap: 6px;
 }
 .context-mode-text {
-  margin: 6px 12px 0;
+  margin: 0 8px 0 auto;
+  flex-shrink: 0;
   font-size: var(--fs-sm);
   line-height: 1.4;
   color: var(--c-text-3);
   pointer-events: none;
+  white-space: nowrap;
 }
 .file-chip {
   max-width: 260px;

@@ -75,6 +75,11 @@ def _row_to_agent(row) -> dict:
     d["skills"] = _parse_json_list(d.get("skills"))
     d["tools"] = _parse_json_list(d.get("tools"))
     d["subagents"] = _parse_json_list(d.get("subagents"))
+    d["show_in_composer"] = bool(d.get("show_in_composer"))
+    try:
+        d["composer_sort"] = int(d.get("composer_sort") or 0)
+    except (TypeError, ValueError):
+        d["composer_sort"] = 0
     return d
 
 
@@ -88,7 +93,8 @@ class AgentService:
             cursor = await db.execute(
                 "SELECT id, name, description, system_prompt, model_id, "
                 "temperature, max_single_turn_output_tokens, skills, tools, subagents, "
-                "compress_config, engine_config, avatar, created_at, updated_at "
+                "compress_config, engine_config, avatar, show_in_composer, composer_sort, "
+                "created_at, updated_at "
                 "FROM agents ORDER BY created_at"
             )
             rows = await cursor.fetchall()
@@ -108,6 +114,8 @@ class AgentService:
         compress_config: dict | None = None,
         engine_config: dict | None = None,
         avatar: str = "",
+        show_in_composer: bool = False,
+        composer_sort: int = 0,
     ) -> str:
         """创建新 Agent，返回 agent_id。"""
         agent_id = str(uuid.uuid4())[:8]
@@ -117,8 +125,9 @@ class AgentService:
             await db.execute(
                 "INSERT INTO agents (id, name, description, system_prompt, "
                 "model_id, temperature, max_single_turn_output_tokens, skills, tools, subagents, "
-                "compress_config, engine_config, avatar, created_at, updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "compress_config, engine_config, avatar, show_in_composer, composer_sort, "
+                "created_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     agent_id, name, description, system_prompt,
                     model_id, temperature, max_single_turn_output_tokens,
@@ -128,6 +137,8 @@ class AgentService:
                     json.dumps(compress_config) if compress_config is not None else None,
                     json.dumps(engine_config) if engine_config is not None else None,
                     stored_avatar or None,
+                    1 if show_in_composer else 0,
+                    int(composer_sort or 0),
                     now, now,
                 ),
             )
@@ -159,6 +170,8 @@ class AgentService:
         compress_config: dict | None = None,
         engine_config: dict | None = None,
         avatar: str = "",
+        show_in_composer: bool = False,
+        composer_sort: int = 0,
     ) -> bool:
         """更新 Agent 配置，返回是否成功（False = 不存在）。"""
         now = datetime.now(timezone.utc).isoformat()
@@ -173,7 +186,8 @@ class AgentService:
             await db.execute(
                 "UPDATE agents SET name=?, description=?, system_prompt=?, "
                 "model_id=?, temperature=?, max_single_turn_output_tokens=?, skills=?, tools=?, "
-                "subagents=?, compress_config=?, engine_config=?, avatar=?, updated_at=? "
+                "subagents=?, compress_config=?, engine_config=?, avatar=?, "
+                "show_in_composer=?, composer_sort=?, updated_at=? "
                 "WHERE id=?",
                 (
                     name, description, system_prompt,
@@ -184,6 +198,8 @@ class AgentService:
                     json.dumps(compress_config) if compress_config is not None else None,
                     json.dumps(engine_config) if engine_config is not None else None,
                     stored_avatar or None,
+                    1 if show_in_composer else 0,
+                    int(composer_sort or 0),
                     now, agent_id,
                 ),
             )

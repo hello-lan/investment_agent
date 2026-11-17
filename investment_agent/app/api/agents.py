@@ -22,6 +22,8 @@ class AgentEntry(BaseModel):
     compress_config: dict | None = None
     engine_config: dict | None = None
     avatar: str = ""
+    show_in_composer: bool = False
+    composer_sort: int = 0
 
 
 @router.get("")
@@ -44,6 +46,8 @@ async def create_agent(body: AgentEntry):
         compress_config=body.compress_config,
         engine_config=body.engine_config,
         avatar=body.avatar,
+        show_in_composer=body.show_in_composer,
+        composer_sort=body.composer_sort,
     )
     return {"id": agent_id}
 
@@ -72,6 +76,8 @@ async def update_agent(agent_id: str, body: AgentEntry):
         compress_config=body.compress_config,
         engine_config=body.engine_config,
         avatar=body.avatar,
+        show_in_composer=body.show_in_composer,
+        composer_sort=body.composer_sort,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="Agent not found")
