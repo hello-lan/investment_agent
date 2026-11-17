@@ -13,9 +13,7 @@ from .app.api.skills import router as skills_router
 from .app.api.files import router as files_router
 from .app.api.observability import router as observability_router
 from .app.api.tools import router as tools_router
-from .app.api.workflows import router as workflows_router
 from .app.api.stock_dashboard import router as stock_dashboard_router
-from .app.api.risk_dashboard import router as risk_dashboard_router
 from .agent.skills.loader import init_skills_dir
 from .agent.tools.rag_retrieve import set_instance_loaders
 from .agent.tools.run_command import set_project_root
@@ -32,12 +30,10 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 TABS = [
     {"label": "对话", "href": "/"},
     {"label": "Agent", "href": "/agents"},
-    {"label": "Workflow", "href": "/workflows"},
     {"label": "Skills", "href": "/skills"},
     {"label": "工具", "href": "/tools"},
     {"label": "模型", "href": "/model"},
     {"label": "看板", "href": "/dashboard"},
-    {"label": "排雷", "href": "/risk"},
     {"label": "统计", "href": "/observability"},
 ]
 
@@ -66,9 +62,7 @@ app.include_router(skills_router)
 app.include_router(files_router)
 app.include_router(observability_router)
 app.include_router(tools_router)
-app.include_router(workflows_router)
 app.include_router(stock_dashboard_router)
-app.include_router(risk_dashboard_router)
 
 # —— 静态文件（前端 HTML/JS/CSS）——
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -83,11 +77,6 @@ async def index(request: Request):
 @app.get("/agents")
 async def agents_page(request: Request):
     return templates.TemplateResponse("agents.html", {"request": request, "tabs": TABS, "active_tab": "Agent"})
-
-
-@app.get("/workflows")
-async def workflows_page(request: Request):
-    return templates.TemplateResponse("workflows.html", {"request": request, "tabs": TABS, "active_tab": "Workflow"})
 
 
 @app.get("/skills")
@@ -105,19 +94,9 @@ async def settings_page(request: Request):
     return templates.TemplateResponse("model.html", {"request": request, "tabs": TABS, "active_tab": "模型"})
 
 
-@app.get("/files")
-async def files_page(request: Request):
-    return templates.TemplateResponse("files.html", {"request": request, "tabs": TABS, "active_tab": "文件"})
-
-
 @app.get("/dashboard")
 async def dashboard_page(request: Request):
     return templates.TemplateResponse("stock_dashboard.html", {"request": request, "tabs": TABS, "active_tab": "看板"})
-
-
-@app.get("/risk")
-async def risk_page(request: Request):
-    return templates.TemplateResponse("risk_dashboard.html", {"request": request, "tabs": TABS, "active_tab": "排雷"})
 
 
 @app.get("/observability")

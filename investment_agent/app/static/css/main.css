@@ -163,7 +163,8 @@ body.left-split-resizing {
 .btn-scroll-down:hover { background: var(--c-primary-hover); }
 
 /* ---- Message Bubbles ---- */
-.msg { max-width: 100%; display: flex; flex-direction: column; gap: 6px; }
+/* 气泡最大宽度小于对话列（与下方输入框同宽），两侧留出空隙 */
+.msg { max-width: 90%; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .msg.user { align-self: flex-end; }
 .msg.assistant { align-self: flex-start; }
 .msg-meta { display: flex; align-items: center; gap: 8px; }
@@ -171,7 +172,7 @@ body.left-split-resizing {
 .msg.assistant .msg-meta { align-self: flex-start; }
 .msg-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: var(--c-surface); flex-shrink: 0; }
 .msg-name { font-size: var(--fs-sm); color: var(--c-text-3); font-weight: 600; }
-.msg-bubble { padding: 10px 14px; border-radius: var(--r-lg); font-size: var(--fs-base); line-height: var(--lh-base); }
+.msg-bubble { padding: 10px 14px; border-radius: var(--r-lg); font-size: var(--fs-base); line-height: var(--lh-base); min-width: 0; overflow-wrap: break-word; }
 .msg.user .msg-bubble { background: var(--c-primary); color: #fff; border-bottom-right-radius: 4px; }
 .msg.assistant .msg-bubble { background: var(--c-surface); border: 1px solid var(--c-border-light); border-bottom-left-radius: 4px; color: var(--c-text-1); }
 .msg-actions { display: flex; align-items: center; gap: 4px; }

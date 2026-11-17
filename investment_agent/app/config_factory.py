@@ -67,12 +67,12 @@ async def get_utility_provider() -> ModelProvider:
     return _provider_from_config(cfg)
 
 
-def _normalize_loop_mode(value, workflow_id: str | None = None) -> str:
-    """标准化 loop_mode，兼容旧 workflow / react_subagent 数据。"""
+def _normalize_loop_mode(value) -> str:
+    """标准化 loop_mode，兼容已移除的 workflow 与旧 react_subagent 数据。"""
     if value == "react_subagent":
         return LoopMode.REACT
-    if value == LoopMode.WORKFLOW and not workflow_id:
-        return LoopMode.PLAN_EXECUTE
+    if value == "workflow":
+        return LoopMode.DUAL_LOOP
     try:
         return LoopMode(value)
     except (TypeError, ValueError):
@@ -100,7 +100,6 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
         "runtime_context_compression_enabled",
         True,
     )
-    workflow_id = _resolve_preferring_agent(agent_cfg, global_cfg, "workflow_id")
     context_trim_token_threshold = _resolve_preferring_agent(
         agent_cfg,
         global_cfg,
@@ -133,9 +132,7 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
         "slow_think_interval": _resolve_preferring_agent(agent_cfg, global_cfg, "slow_think_interval", 3),
         "loop_mode": _normalize_loop_mode(
             _resolve_preferring_agent(agent_cfg, global_cfg, "loop_mode", LoopMode.DUAL_LOOP),
-            workflow_id=workflow_id,
         ),
-        "workflow_id": workflow_id,
         "token_budget": _resolve_preferring_agent(agent_cfg, global_cfg, "token_budget", 100000),
         "subagent_token_budget": resolved_sub_budget,
         "subagent": subagent_block,
@@ -295,7 +292,6 @@ async def load_agent_run_config(
         offload_summary_chars=engine_params["offload_summary_chars"],
         planning_max_tokens=engine_params["planning_max_tokens"],
         subagent_workspace_dir=engine_params["subagent_workspace_dir"],
-        workflow_id=engine_params["workflow_id"],
         input_price=provider.input_price,
         output_price=provider.output_price,
         currency=provider.currency,

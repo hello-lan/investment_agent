@@ -275,7 +275,6 @@ class AgentRunner:
             offload_summary_chars=config.offload_summary_chars,
             planning_max_tokens=config.planning_max_tokens,
             subagent_workspace_dir=config.subagent_workspace_dir,
-            workflow_id=config.workflow_id,
         )
         engine = create_loop_engine(
             session_id=session_id,

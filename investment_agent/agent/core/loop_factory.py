@@ -7,7 +7,6 @@ from .base_loop import BaseLoopEngine
 from .dual_loop import DualLoopEngine
 from .plan_execute_loop import PlanExecuteLoopEngine
 from .react_loop import ReactLoopEngine
-from .workflow_loop import WorkflowLoopEngine
 from .provider import ModelProvider
 
 
@@ -17,7 +16,6 @@ _ENGINE_REGISTRY = {
     # 兼容旧 react_subagent：映射到普通 ReAct（用户定义 Subagent 由挂载驱动）
     LoopMode.REACT_SUBAGENT: ReactLoopEngine,
     LoopMode.PLAN_EXECUTE: PlanExecuteLoopEngine,
-    LoopMode.WORKFLOW: WorkflowLoopEngine,
 }
 
 

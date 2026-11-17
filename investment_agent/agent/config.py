@@ -130,7 +130,6 @@ class EngineConfig:
     offload_summary_chars: int = 200
     planning_max_tokens: int = PLANNING_MAX_TOKENS_DEFAULT  # 任务指令生成单轮输出上限
     subagent_workspace_dir: str = SUBAGENT_WORKSPACE_DIR_DEFAULT
-    workflow_id: str | None = None
 
 
 @dataclass
@@ -188,7 +187,6 @@ class AgentRunConfig:
     max_subagent_depth: int = 3
     max_parallel_subagents: int = MAX_PARALLEL_SUBAGENTS_DEFAULT
     subagent_workspace_dir: str = SUBAGENT_WORKSPACE_DIR_DEFAULT
-    workflow_id: str | None = None
 
     # ── Provider 定价信息 ──
     input_price: float | None = None

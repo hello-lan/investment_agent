@@ -4,7 +4,6 @@ from .engine import AgentEngine
 from .events import build_trace_detail
 from .plan_execute_loop import PlanExecuteLoopEngine
 from .react_loop import ReactLoopEngine
-from .workflow_loop import WorkflowLoopEngine
 from .task_planner import TaskPlanner
 from .tool_executor import (
     ToolExecutor,
@@ -17,7 +16,6 @@ __all__ = [
     "DualLoopEngine",
     "ReactLoopEngine",
     "PlanExecuteLoopEngine",
-    "WorkflowLoopEngine",
     "build_trace_detail",
     "TaskPlanner",
     "ToolExecutor",

@@ -3,7 +3,6 @@ function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 let availableModels = [];
 let availableSkills = [];
 let availableTools = [];
-let availableWorkflows = [];
 let availableSubagents = [];
 
 const FORBIDDEN_SUBAGENT_TOOLS = new Set(['DelegateTask', 'Subagent']);
@@ -103,15 +102,6 @@ async function loadToolsCatalog() {
   return availableTools;
 }
 
-async function loadWorkflowsCatalog() {
-  try {
-    availableWorkflows = await fetch('/api/workflows').then(r => r.json());
-  } catch {
-    availableWorkflows = [];
-  }
-  return availableWorkflows;
-}
-
 async function loadSubagentsCatalog() {
   try {
     availableSubagents = await fetch('/api/subagents').then(r => r.json());
@@ -133,7 +123,7 @@ function switchPage(page) {
 async function loadAgents(){
   await Promise.all([
     loadModels(), loadSkillsCatalog(), loadToolsCatalog(),
-    loadWorkflowsCatalog(), loadSubagentsCatalog(),
+    loadSubagentsCatalog(),
   ]);
   const agents = await fetch('/api/agents').then(r => r.json());
   const grid = document.getElementById('agentGrid');
@@ -227,16 +217,6 @@ function renderSkillOptions(selected = [], boxId = 'agentSkills') {
       </div>
     </div>`;
   }).join('');
-}
-
-function renderWorkflowOptions(selectedId = '') {
-  const select = document.getElementById('agentWorkflowSelect');
-  if (!select) return;
-  const options = ['<option value="">请选择 Workflow</option>'];
-  (availableWorkflows || []).forEach(w => {
-    options.push(`<option value="${esc(w.id)}" ${w.id === selectedId ? 'selected' : ''}>${esc(w.name)}</option>`);
-  });
-  select.innerHTML = options.join('');
 }
 
 function toolLabel(name) {
@@ -531,8 +511,6 @@ function updateLoopModeUI() {
   const mode = document.getElementById('agentLoopMode').value || 'dual_loop';
   const slowThinkRow = document.getElementById('agentSlowThinkRow');
   const slowThink = document.getElementById('agentSlowThink');
-  const workflowRow = document.getElementById('agentWorkflowRow');
-  const workflowSelect = document.getElementById('agentWorkflowSelect');
   const enabledModes = new Set(['dual_loop', 'plan_execute']);
   const slowThinkUseful = enabledModes.has(mode);
   if (slowThink) slowThink.disabled = !slowThinkUseful;
@@ -540,8 +518,6 @@ function updateLoopModeUI() {
     slowThinkRow.classList.toggle('hidden', !slowThinkUseful);
     slowThinkRow.style.opacity = '1';
   }
-  if (workflowRow) workflowRow.style.display = mode === 'workflow' ? '' : 'none';
-  if (workflowSelect) workflowSelect.disabled = mode !== 'workflow';
 }
 
 function fillEngineFields(cfg) {
@@ -552,7 +528,6 @@ function fillEngineFields(cfg) {
   const loopThreshold = document.getElementById('agentLoopThreshold');
   const maxSubagentDepth = document.getElementById('agentMaxSubagentDepth');
   const maxParallel = document.getElementById('agentMaxParallelSubagents');
-  const workflowSelect = document.getElementById('agentWorkflowSelect');
   const runtimeCompressionToggle = document.getElementById('agentRuntimeCompressionEnabled');
 
   if (!cfg) {
@@ -577,7 +552,6 @@ function fillEngineFields(cfg) {
     document.getElementById('agentOffloadSummaryChars').value = '';
     document.getElementById('agentTrimTokenThreshold').value = '';
     if (runtimeCompressionToggle) runtimeCompressionToggle.checked = false;
-    if (workflowSelect) workflowSelect.value = '';
     updateRuntimeCompressionUI();
     updateLoopModeUI();
     updateAgentSubagentDepthUI();
@@ -590,6 +564,7 @@ function fillEngineFields(cfg) {
   // 旧 react_subagent 映射为 react
   let mode = cfg.loop_mode || 'dual_loop';
   if (mode === 'react_subagent') mode = 'react';
+  if (mode === 'workflow') mode = 'dual_loop';
   loopMode.value = mode;
   document.getElementById('agentSlowThinkVal').textContent = cfg.slow_think_interval ?? 3;
   tokenBudget.value = cfg.token_budget ?? '';
@@ -610,7 +585,6 @@ function fillEngineFields(cfg) {
   if (runtimeCompressionToggle) {
     runtimeCompressionToggle.checked = cfg.runtime_context_compression_enabled !== false;
   }
-  if (workflowSelect) workflowSelect.value = cfg.workflow_id || '';
   updateRuntimeCompressionUI();
   updateLoopModeUI();
   updateAgentSubagentDepthUI();
@@ -638,7 +612,6 @@ function openModal(agent){
   document.getElementById('agentTemp').value = agent?.temperature ?? 0.7;
   document.getElementById('agentMaxSingleTurnOutputTokens').value =
     agent?.max_single_turn_output_tokens || 4096;
-  renderWorkflowOptions(engineConfig?.workflow_id || '');
   fillContextFields(compressConfig);
   fillEngineFields(engineConfig);
   renderSkillOptions(normalizeList(agent?.skills));
@@ -702,13 +675,10 @@ async function saveAgent(){
   const trimTokenThreshold = toNullableInt(document.getElementById('agentTrimTokenThreshold').value);
   const runtimeCompressionEnabled = document.getElementById('agentRuntimeCompressionEnabled').checked;
 
-  const workflowId = (document.getElementById('agentWorkflowSelect')?.value || '').trim();
-
   const engineConfig = {
     max_steps: engineMaxSteps,
     slow_think_interval: engineSlowThink,
     loop_mode: engineLoopMode,
-    workflow_id: workflowId || null,
     token_budget: engineTokenBudget,
     subagent_token_budget: engineSubagentTokenBudget,
     subagent: Object.keys(subagentBlock).length ? subagentBlock : null,
@@ -722,11 +692,6 @@ async function saveAgent(){
     offload_summary_strategy: offloadStrategy,
     offload_summary_chars: offloadSummaryChars,
   };
-
-  if (engineLoopMode === 'workflow' && !workflowId) {
-    alert('Workflow 模式下请选择一个 Workflow');
-    return;
-  }
 
   const body = {
     name,

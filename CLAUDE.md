@@ -99,7 +99,7 @@ SQLite via aiosqlite with auto-created tables: `models`, `agents`, `sessions`, `
 
 ### Frontend
 
-Native HTML/JS served by FastAPI — no build step. Jinja2 templates at `app/templates/`, static files at `app/static/`. SSE streaming in `chat.js` renders events (text, tool calls, slow thinking) progressively in the chat UI. The model management page (`model.html` + `model.js`) handles CRUD for LLM model configurations stored in the `models` DB table. The file browser page (`files.html` + `files.js` + `app/api/files.py`) renders a collapsible tree of the `data/` directory and previews PDF/Markdown/HTML files in-browser.
+Native HTML/JS served by FastAPI — no build step. Jinja2 templates at `app/templates/`, static files at `app/static/`. SSE streaming in `chat.js` renders events (text, tool calls, slow thinking) progressively in the chat UI. The model management page (`model.html` + `model.js`) handles CRUD for LLM model configurations stored in the `models` DB table. The chat page (`index.html` + `chat.js` + `app/api/files.py`) embeds a file tree of the `data/` directory in the left panel and previews PDF/Markdown/HTML files in a drawer. There is no standalone `/files` page.
 
 ### Skill development
 

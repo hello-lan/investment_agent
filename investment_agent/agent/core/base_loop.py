@@ -7,7 +7,7 @@ import uuid
 from typing import AsyncGenerator, Callable
 
 from ._signals import _Terminal, _Value
-from ..constants import EventType, StopReason, LoopMode
+from ..constants import EventType, StopReason
 from .provider import ModelProvider, LLMResponse, ToolCall
 from .prompt_builder import PromptBuilder
 from .tool_executor import ToolExecutor, LoopDetector
@@ -74,7 +74,6 @@ class BaseLoopEngine:
             True,
         )
         self.context_trim_token_threshold = config.context_trim_token_threshold
-        self.workflow_id = getattr(config, "workflow_id", None)
 
         # 上下文卸载参数（子Agent创建时需要读取）
         self.offload_threshold = config.offload_threshold
@@ -134,12 +133,11 @@ class BaseLoopEngine:
         """动态拼接：基础 prompt + 项目路径 + 已注册 skill 的名称/描述"""
         if self._prompt_builder is None:
             delegation_tool_names: list[str] = []
-            if self.loop_mode != LoopMode.WORKFLOW:
-                if "DelegateTask" in self.tool_handlers or any(
-                    t.get("name") == "DelegateTask" for t in self.tools
-                ):
-                    delegation_tool_names.append("DelegateTask")
-                delegation_tool_names.extend(sorted(self._mounted_subagent_names))
+            if "DelegateTask" in self.tool_handlers or any(
+                t.get("name") == "DelegateTask" for t in self.tools
+            ):
+                delegation_tool_names.append("DelegateTask")
+            delegation_tool_names.extend(sorted(self._mounted_subagent_names))
             self._prompt_builder = PromptBuilder(
                 self._system_prompt,
                 self._skills,
