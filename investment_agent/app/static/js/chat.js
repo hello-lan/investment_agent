@@ -39,6 +39,28 @@ let _chatFileActivePath = '';
 
 function escapeHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
+const DEFAULT_AGENT_AVATAR = '/static/img/avatar-agent.svg';
+const DEFAULT_USER_AVATAR = '/static/img/avatar-user.svg';
+
+function _agentAvatarSrc(agent){
+  const path = agent && agent.avatar ? String(agent.avatar).replace(/^\/+/, '') : '';
+  if (!path) return DEFAULT_AGENT_AVATAR;
+  const version = agent.updated_at ? ('?v=' + encodeURIComponent(agent.updated_at)) : '';
+  return '/data-files/' + path + version;
+}
+
+function _msgIdentityHtml(role){
+  const isUser = role === 'user';
+  const agent = !isUser && currentAgentId ? agentMap[currentAgentId] : null;
+  const name = isUser ? '我' : ((agent && agent.name) || 'Agent');
+  const src = isUser ? DEFAULT_USER_AVATAR : _agentAvatarSrc(agent);
+  const fallback = isUser ? DEFAULT_USER_AVATAR : DEFAULT_AGENT_AVATAR;
+  return '<div class="msg-meta">' +
+    '<img class="msg-avatar" alt="" src="' + escapeHtml(src) + '" onerror="this.onerror=null;this.src=\'' + fallback + '\'">' +
+    '<span class="msg-name">' + escapeHtml(name) + '</span>' +
+  '</div>';
+}
+
 function _pathExt(name){
   const m = String(name || '').toLowerCase().match(/(\.[a-z0-9]+)$/);
   return m ? m[1] : '';
@@ -765,7 +787,7 @@ function clearFile(){
 
 function appendUserMsg(text){
   const w = document.getElementById('welcome'); if (w) w.remove();
-  return _append('<div class="msg user"><div class="msg-bubble">' + linkifyDataPaths(escapeHtml(text)) + '</div></div>');
+  return _append('<div class="msg user">' + _msgIdentityHtml('user') + '<div class="msg-bubble">' + linkifyDataPaths(escapeHtml(text)) + '</div></div>');
 }
 
 function updateUserMsgBubble(node, text){
@@ -776,13 +798,14 @@ function updateUserMsgBubble(node, text){
 }
 
 function appendAssistantMsg(md){
-  return _append('<div class="msg assistant"><div class="msg-bubble">' + renderMarkdown(md) + '</div></div>');
+  return _append('<div class="msg assistant">' + _msgIdentityHtml('assistant') + '<div class="msg-bubble">' + renderMarkdown(md) + '</div></div>');
 }
 
 function _createReplyBlock(){
   const container = document.createElement('div');
   container.className = 'msg assistant';
   container.innerHTML =
+    _msgIdentityHtml('assistant') +
     '<div class="msg-bubble">' +
       '<div class="bubble-content">' +
         '<div class="thinking-inline"><span></span><span></span><span></span></div>' +
@@ -1015,6 +1038,7 @@ function _showRetryButton(replyBlock, errorEl){
     const container = document.createElement('div');
     container.className = 'msg assistant';
     container.innerHTML =
+      _msgIdentityHtml('assistant') +
       '<div class="retry-area">' +
         '<button class="btn-retry" onclick="retryTask()">🔄 重试</button>' +
       '</div>';

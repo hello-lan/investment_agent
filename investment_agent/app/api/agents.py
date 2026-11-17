@@ -1,6 +1,6 @@
 """Agent 配置 API 路由 — 薄层，委托 AgentService 处理业务逻辑。"""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from ..services.agent_service import AgentService
@@ -21,6 +21,7 @@ class AgentEntry(BaseModel):
     subagents: list[str] = Field(default_factory=list)
     compress_config: dict | None = None
     engine_config: dict | None = None
+    avatar: str = ""
 
 
 @router.get("")
@@ -42,6 +43,7 @@ async def create_agent(body: AgentEntry):
         subagents=body.subagents,
         compress_config=body.compress_config,
         engine_config=body.engine_config,
+        avatar=body.avatar,
     )
     return {"id": agent_id}
 
@@ -69,10 +71,23 @@ async def update_agent(agent_id: str, body: AgentEntry):
         subagents=body.subagents,
         compress_config=body.compress_config,
         engine_config=body.engine_config,
+        avatar=body.avatar,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="Agent not found")
     return {"success": True}
+
+
+@router.post("/{agent_id}/avatar")
+async def upload_avatar(agent_id: str, file: UploadFile = File(...)):
+    content = await file.read()
+    try:
+        rel = await AgentService.save_avatar(agent_id, file.filename or "", content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if rel is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return {"avatar": rel}
 
 
 @router.delete("/{agent_id}")

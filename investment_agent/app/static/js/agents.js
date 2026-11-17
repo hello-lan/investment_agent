@@ -7,6 +7,66 @@ let availableWorkflows = [];
 let availableSubagents = [];
 
 const FORBIDDEN_SUBAGENT_TOOLS = new Set(['DelegateTask', 'Subagent']);
+const DEFAULT_AGENT_AVATAR = '/static/img/avatar-agent.svg';
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+const AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+let pendingAvatarFile = null;
+let pendingAvatarClear = false;
+let currentAvatarPath = '';
+let avatarObjectUrl = null;
+
+function agentAvatarSrc(agent) {
+  const path = agent && agent.avatar ? String(agent.avatar).replace(/^\/+/, '') : '';
+  if (!path) return DEFAULT_AGENT_AVATAR;
+  const version = agent.updated_at ? ('?v=' + encodeURIComponent(agent.updated_at)) : '';
+  return '/data-files/' + path + version;
+}
+
+function revokeAvatarPreview() {
+  if (avatarObjectUrl) {
+    URL.revokeObjectURL(avatarObjectUrl);
+    avatarObjectUrl = null;
+  }
+}
+
+function showAvatarPreview(src) {
+  const img = document.getElementById('agentAvatarPreview');
+  if (img) img.src = src || DEFAULT_AGENT_AVATAR;
+}
+
+function pickAvatar() {
+  const input = document.getElementById('agentAvatarInput');
+  if (input) input.click();
+}
+
+function onAvatarSelected(e) {
+  const file = e?.target?.files?.[0] || null;
+  if (e?.target) e.target.value = '';
+  if (!file) return;
+  if (!AVATAR_TYPES.has(file.type)) {
+    alert('仅支持 PNG、JPEG、WebP、GIF');
+    return;
+  }
+  if (file.size > AVATAR_MAX_BYTES) {
+    alert('头像不能超过 2MB');
+    return;
+  }
+  pendingAvatarFile = file;
+  pendingAvatarClear = false;
+  revokeAvatarPreview();
+  avatarObjectUrl = URL.createObjectURL(file);
+  showAvatarPreview(avatarObjectUrl);
+}
+
+function resetAvatar() {
+  pendingAvatarFile = null;
+  pendingAvatarClear = true;
+  revokeAvatarPreview();
+  const input = document.getElementById('agentAvatarInput');
+  if (input) input.value = '';
+  showAvatarPreview(DEFAULT_AGENT_AVATAR);
+}
 
 function modelNameById(id) {
   if (!id) return '继承主 Agent';
@@ -83,7 +143,10 @@ async function loadAgents(){
   }
   grid.innerHTML = agents.map(a => `
     <div class="agent-card">
-      <h3>${esc(a.name)}</h3>
+      <div class="agent-card-head">
+        <img class="agent-card-avatar" src="${esc(agentAvatarSrc(a))}" alt="" onerror="this.onerror=null;this.src='${DEFAULT_AGENT_AVATAR}'">
+        <h3>${esc(a.name)}</h3>
+      </div>
       <div class="desc">${esc(a.description||'暂无描述')}</div>
       <div class="meta">模型：${esc(modelNameById(a.model_id))} · Subagent：${normalizeList(a.subagents).length}</div>
       <div class="actions">
@@ -558,6 +621,13 @@ function openModal(agent){
   const engineConfig = normalizeEngineConfig(agent?.engine_config);
   document.getElementById('modalTitle').textContent = agent ? '编辑 Agent' : '新建 Agent';
   document.getElementById('agentId').value = agent?.id || '';
+  pendingAvatarFile = null;
+  pendingAvatarClear = false;
+  currentAvatarPath = agent?.avatar || '';
+  revokeAvatarPreview();
+  const avatarInput = document.getElementById('agentAvatarInput');
+  if (avatarInput) avatarInput.value = '';
+  showAvatarPreview(agentAvatarSrc(agent));
   document.getElementById('agentName').value = agent?.name || '';
   document.getElementById('agentDesc').value = agent?.description || '';
   document.getElementById('agentPrompt').value = agent?.system_prompt || '';
@@ -577,6 +647,7 @@ function openModal(agent){
 }
 
 function closeModal(){
+  revokeAvatarPreview();
   document.getElementById('modalOverlay').classList.remove('open');
 }
 
@@ -661,11 +732,36 @@ async function saveAgent(){
     subagents: selectedMountedSubagents(),
     compress_config: compressConfig,
     engine_config: engineConfig,
+    avatar: pendingAvatarClear ? '' : currentAvatarPath,
   };
 
   const url = id ? `/api/agents/${id}` : '/api/agents';
   const method = id ? 'PUT' : 'POST';
-  await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  const res = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  if (!res.ok) {
+    let detail = '保存失败';
+    try {
+      const err = await res.json();
+      if (err && typeof err.detail === 'string') detail = err.detail;
+    } catch (_) {}
+    alert(detail);
+    return;
+  }
+  const data = await res.json();
+  const savedId = id || data.id;
+  if (pendingAvatarFile && savedId) {
+    const fd = new FormData();
+    fd.append('file', pendingAvatarFile);
+    const up = await fetch(`/api/agents/${savedId}/avatar`, {method: 'POST', body: fd});
+    if (!up.ok) {
+      let detail = '头像上传失败';
+      try {
+        const err = await up.json();
+        if (err && typeof err.detail === 'string') detail = err.detail;
+      } catch (_) {}
+      alert(detail);
+    }
+  }
   closeModal();
   loadAgents();
 }

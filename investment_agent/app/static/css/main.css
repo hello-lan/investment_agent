@@ -158,9 +158,14 @@ body.left-split-resizing {
 .btn-scroll-down:hover { background: var(--c-primary-hover); }
 
 /* ---- Message Bubbles ---- */
-.msg { max-width: 80%; }
+.msg { max-width: 80%; display: flex; flex-direction: column; gap: 6px; }
 .msg.user { align-self: flex-end; }
 .msg.assistant { align-self: flex-start; }
+.msg-meta { display: flex; align-items: center; gap: 8px; }
+.msg.user .msg-meta { flex-direction: row-reverse; align-self: flex-end; }
+.msg.assistant .msg-meta { align-self: flex-start; }
+.msg-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: var(--c-surface); flex-shrink: 0; }
+.msg-name { font-size: var(--fs-sm); color: var(--c-text-3); font-weight: 600; }
 .msg-bubble { padding: 10px 14px; border-radius: var(--r-lg); font-size: var(--fs-base); line-height: var(--lh-base); }
 .msg.user .msg-bubble { background: var(--c-primary); color: #fff; border-bottom-right-radius: 4px; }
 .msg.assistant .msg-bubble { background: var(--c-surface); border: 1px solid var(--c-border-light); border-bottom-left-radius: 4px; color: var(--c-text-1); }

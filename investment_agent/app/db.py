@@ -83,6 +83,7 @@ async def init_db() -> None:
                 subagents     TEXT DEFAULT '[]',      -- 挂载的 Subagent ID 列表（JSON 数组）
                 compress_config TEXT,                 -- 上下文压缩配置（JSON）
                 engine_config TEXT,                   -- 引擎运行配置（JSON）
+                avatar        TEXT,                   -- 头像相对 data/ 的路径，空=默认头像
                 created_at    TEXT,                   -- 创建时间
                 updated_at    TEXT                    -- 更新时间
             );
@@ -643,6 +644,7 @@ async def init_db() -> None:
             ("agents", "engine_config", "TEXT"),
             ("agents", "tools", "TEXT DEFAULT '[]'"),
             ("agents", "subagents", "TEXT DEFAULT '[]'"),
+            ("agents", "avatar", "TEXT"),
             ("sessions", "current_task_id", "TEXT"),
             ("sessions", "input_tokens", "INTEGER DEFAULT 0"),
             ("sessions", "output_tokens", "INTEGER DEFAULT 0"),
