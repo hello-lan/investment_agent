@@ -2708,8 +2708,18 @@ function _initFileDrawer(){
 
 /* ====== 左栏：历史 / 文件 分割与文件树 ====== */
 
+const FOLDER_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>';
+
+function _mountChatFileGlyph(el, entry){
+  if (entry && entry.type === 'dir') {
+    el.classList.add('icon-folder');
+    el.innerHTML = FOLDER_ICON_SVG;
+    return;
+  }
+  el.textContent = _chatFileIcon(entry);
+}
+
 function _chatFileIcon(entry){
-  if (entry.type === 'dir') return '📁';
   const ext = entry.ext || _pathExt(entry.name || '');
   if (ext === '.pdf') return '📄';
   if (ext === '.md' || ext === '.markdown') return '📝';
@@ -2830,7 +2840,7 @@ function _createChatFileRow(node, level){
 
   const icon = document.createElement('span');
   icon.className = 'icon';
-  icon.textContent = _chatFileIcon(node);
+  _mountChatFileGlyph(icon, node);
 
   const name = document.createElement('span');
   name.className = 'name';
@@ -2911,7 +2921,7 @@ function _createChatFileIconItem(node){
 
   const glyph = document.createElement('span');
   glyph.className = 'file-icon-glyph';
-  glyph.textContent = _chatFileIcon(node);
+  _mountChatFileGlyph(glyph, node);
 
   const name = document.createElement('span');
   name.className = 'file-icon-name';

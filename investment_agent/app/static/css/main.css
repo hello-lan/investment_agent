@@ -737,6 +737,25 @@ body.left-split-resizing {
   flex-shrink: 0;
   font-size: 12px;
 }
+.chat-file-tree .tree-row .icon.icon-folder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 16px;
+  color: var(--c-text-1);
+}
+.chat-file-tree .tree-row .icon.icon-folder svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.chat-file-tree .icon-folder svg path {
+  fill: none;
+}
+.chat-file-tree .tree-row.active .icon-folder svg path,
+.chat-file-tree .tree-row:has(.arrow.open) .icon-folder svg path {
+  fill: currentColor;
+}
 .chat-file-tree .tree-row .name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -802,9 +821,16 @@ body.left-split-resizing {
   background: var(--c-surface);
   box-shadow: inset 0 0 0 1px var(--c-border-light);
 }
-.chat-file-tree.view-icons .file-icon-item[data-type="dir"] .file-icon-glyph {
-  background: #fff8e8;
-  box-shadow: inset 0 0 0 1px #f0e0b8;
+.chat-file-tree.view-icons .file-icon-glyph.icon-folder {
+  color: var(--c-text-1);
+}
+.chat-file-tree.view-icons .file-icon-glyph.icon-folder svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+.chat-file-tree.view-icons .file-icon-item.active .icon-folder svg path {
+  fill: currentColor;
 }
 .chat-file-tree.view-icons .file-icon-name {
   width: 100%;
