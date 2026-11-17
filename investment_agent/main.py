@@ -17,7 +17,9 @@ from .app.api.workflows import router as workflows_router
 from .app.api.stock_dashboard import router as stock_dashboard_router
 from .app.api.risk_dashboard import router as risk_dashboard_router
 from .agent.skills.loader import init_skills_dir
+from .agent.tools.rag_retrieve import set_instance_loaders
 from .agent.tools.run_command import set_project_root
+from .app.services.tool_instances import get_tool_instance, list_tool_instances
 from .app.services.subagent_seed import seed_default_subagents
 from .config import ROOT_DIR, resolve_skills_dir
 
@@ -32,6 +34,7 @@ TABS = [
     {"label": "Agent", "href": "/agents"},
     {"label": "Workflow", "href": "/workflows"},
     {"label": "Skills", "href": "/skills"},
+    {"label": "工具", "href": "/tools"},
     {"label": "模型", "href": "/model"},
     {"label": "看板", "href": "/dashboard"},
     {"label": "排雷", "href": "/risk"},
@@ -46,6 +49,7 @@ async def lifespan(app: FastAPI):
     await seed_default_subagents()
     # 注入 agent 包所需的全局依赖
     set_project_root(str(ROOT_DIR))
+    set_instance_loaders(get_tool_instance, list_tool_instances)
     init_skills_dir(resolve_skills_dir())
     yield
 
@@ -89,6 +93,11 @@ async def workflows_page(request: Request):
 @app.get("/skills")
 async def skills_page(request: Request):
     return templates.TemplateResponse("skills.html", {"request": request, "tabs": TABS, "active_tab": "Skills"})
+
+
+@app.get("/tools")
+async def tools_page(request: Request):
+    return templates.TemplateResponse("tools.html", {"request": request, "tabs": TABS, "active_tab": "工具"})
 
 
 @app.get("/model")

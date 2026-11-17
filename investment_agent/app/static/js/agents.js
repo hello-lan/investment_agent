@@ -104,7 +104,7 @@ async function loadSubagentGrid() {
   grid.innerHTML = availableSubagents.map(s => {
     const tools = normalizeList(s.tools);
     const skills = normalizeList(s.skills);
-    const toolPreview = tools.slice(0, 4).map(t => `<code>${esc(t)}</code>`).join('')
+    const toolPreview = tools.slice(0, 4).map(t => `<code>${esc(toolLabel(t))}</code>`).join('')
       + (tools.length > 4 ? `<code>+${tools.length - 4}</code>` : '');
     return `
     <div class="sa-row">
@@ -176,6 +176,11 @@ function renderWorkflowOptions(selectedId = '') {
   select.innerHTML = options.join('');
 }
 
+function toolLabel(name) {
+  const found = (availableTools || []).find(t => t.name === name);
+  return found && found.label ? found.label : name;
+}
+
 function renderToolOptions(selected = [], boxId = 'agentTools', {forSubagent = false} = {}) {
   const box = document.getElementById(boxId);
   let tools = availableTools || [];
@@ -196,11 +201,15 @@ function renderToolOptions(selected = [], boxId = 'agentTools', {forSubagent = f
       cls += ' selected';
     }
     const badge = isAuto ? '<span class="skill-type-tag orch">默认</span>' : '';
+    const title = t.label || t.name;
+    const sub = t.label
+      ? `${t.name}${t.description ? ' · ' + t.description : ''}`
+      : (t.description || '');
     return `<div class="${cls}" data-skill="${esc(t.name)}" data-auto="${isAuto ? '1' : '0'}">
       <span class="skill-mark">&#10003;</span>
       <div class="skill-item-text">
-        <span>${badge}${esc(t.name)}</span>
-        <span class="skill-deps">${esc(t.description || '')}</span>
+        <span>${badge}${esc(title)}</span>
+        <span class="skill-deps">${esc(sub)}</span>
       </div>
     </div>`;
   }).join('');

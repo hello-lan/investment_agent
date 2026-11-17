@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}工具 — 投研 Agent{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/css/settings.css?v=3">
+<style>
+  .modal.wide { width: 760px; }
+  .param-list { display: flex; flex-direction: column; gap: 10px; }
+  .param-card { border: 1px solid #eee; border-radius: 8px; padding: 10px 12px; background: #fafafa; }
+  .param-head { display: grid; grid-template-columns: 1.1fr 120px 110px auto; gap: 8px; align-items: center; }
+  .param-extra { margin-top: 8px; display: flex; gap: 8px; align-items: center; }
+  .param-extra[hidden] { display: none !important; }
+  .param-extra input[type=text] { flex: 1; }
+  .check-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #555; white-space: nowrap; }
+  .check-label input { width: auto; }
+  .section-gap { margin-top: 20px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container">
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h3>检索配置</h3>
+        <div class="hint">同一套 HTTP 检索模板可以保存多份。每份有自己的名称、地址和请求参数，保存后出现在 Agent 的工具列表里。</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="openModal()">+ 新建</button>
+    </div>
+    <div class="card-body">
+      <div id="instanceList" class="model-list"></div>
+    </div>
+  </div>
+
+  <div class="card section-gap">
+    <div class="card-header">
+      <div>
+        <h3>内置工具</h3>
+        <div class="hint">这些工具不需要在这里配置。默认绑定的会自动启用，其余在 Agent 配置里勾选。</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div id="builtinList" class="model-list"></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal wide">
+    <div class="modal-title" id="modalTitle">新建检索工具</div>
+    <input type="hidden" id="editId">
+
+    <div class="form-row">
+      <label>显示名 <span class="required">*</span></label>
+      <input type="text" id="displayName" placeholder="如：财报材料">
+      <div class="hint">显示在本页和 Agent 的工具列表里</div>
+    </div>
+    <div class="form-row">
+      <label>调用名 <span class="required">*</span></label>
+      <input type="text" id="toolName" placeholder="如：filing_rag">
+      <div class="hint">给模型调用的英文标识，字母开头，全局唯一</div>
+    </div>
+    <div class="form-row">
+      <label>说明 <span class="optional">（可选）</span></label>
+      <input type="text" id="description" placeholder="不填则使用默认说明">
+    </div>
+
+    <div class="form-section">连接</div>
+    <div class="form-row">
+      <label>服务地址 <span class="required">*</span></label>
+      <input type="text" id="baseUrl" placeholder="http://127.0.0.1:8100">
+    </div>
+    <div class="engine-grid">
+      <div class="form-row">
+        <label>路径</label>
+        <input type="text" id="path" value="/retrieve">
+      </div>
+      <div class="form-row">
+        <label>超时（秒）</label>
+        <input type="number" id="timeout" min="1" max="600" value="90">
+      </div>
+    </div>
+    <div class="form-row">
+      <button class="btn btn-test btn-sm" type="button" onclick="testConnection()">测试连接</button>
+      <div class="hint" id="testResult"></div>
+    </div>
+
+    <div class="form-section">请求参数</div>
+    <div class="hint" style="margin-bottom:10px;">模型填写的参数会出现在工具说明里。固定值调用时自动带上，模型看不到。</div>
+    <div id="paramList" class="param-list"></div>
+    <div style="margin-top:10px;">
+      <button class="btn btn-ghost btn-sm" type="button" onclick="addParam()">+ 添加参数</button>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-cancel" type="button" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" type="button" onclick="saveInstance()">保存</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/tools.js?v=1"></script>
+{% endblock %}

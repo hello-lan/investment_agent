@@ -78,6 +78,8 @@ class AgentRunner:
         self._turn_user_message_id = await self._storage.save_user_message(session_id, message)
 
         # 3. 创建引擎（含工具/技能注册）
+        from .tools.rag_retrieve import refresh_instance_cache
+        await refresh_instance_cache()
         engine = self._create_engine(config, session_id)
 
         self._engines[engine.task_id] = engine
@@ -103,6 +105,8 @@ class AgentRunner:
         self._turn_user_message_id = await self._storage.latest_user_message_id(session_id)
 
         # 2. 创建引擎（含工具/技能注册）
+        from .tools.rag_retrieve import refresh_instance_cache
+        await refresh_instance_cache()
         engine = self._create_engine(config, session_id)
 
         self._engines[engine.task_id] = engine
@@ -346,6 +350,9 @@ class AgentRunner:
             if not sa.get("name"):
                 continue
             engine.register_tool(build_subagent_tool_schema(sa), _subagent_placeholder)
+
+        from .tools.rag_retrieve import mount_retrieve_tools
+        mount_retrieve_tools(engine, allowed_tools)
 
         # 技能加载（通过全局 loader，保持向后兼容）
         if config.skills:

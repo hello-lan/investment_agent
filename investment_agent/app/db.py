@@ -620,6 +620,17 @@ async def init_db() -> None:
                 UNIQUE(code, report_date)
             );
 
+            -- 可配置工具实例（同一模板可保存多份，名称和请求参数各自独立）
+            CREATE TABLE IF NOT EXISTS tool_instances (
+                id            TEXT PRIMARY KEY,       -- 主键ID
+                template      TEXT NOT NULL,          -- 模板标识，如 rag_retrieve
+                display_name  TEXT NOT NULL,          -- 工具页和 Agent 页显示名
+                tool_name     TEXT NOT NULL UNIQUE,   -- 模型调用名
+                config_json   TEXT NOT NULL,          -- 地址、超时、请求参数表
+                created_at    TEXT,                   -- 创建时间（ISO8601）
+                updated_at    TEXT                    -- 更新时间（ISO8601）
+            );
+
         """)
         await db.commit()
 

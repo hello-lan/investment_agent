@@ -203,6 +203,10 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
         child.register_tool(run_tool.schema, run_tool.run)
         tool_names.discard("run_command")
 
+    from ..tools.rag_retrieve import mount_retrieve_tools
+    for inst in mount_retrieve_tools(child, tool_names):
+        tool_names.discard(inst["tool_name"])
+
     if skill_names:
         skill_tool = SkillTool()
         filtered_run = make_filtered_skill_runner(set(all_skill_names), skill_tool.run)
@@ -293,6 +297,8 @@ async def prepare_defined_subagent(
 async def run_defined_subagent(
     parent, request: DefinedSubagentRequest, subagent_id: str,
 ) -> AsyncGenerator[dict, None]:
+    from ..tools.rag_retrieve import refresh_instance_cache
+    await refresh_instance_cache()
     child = _create_child_engine(parent, request, subagent_id)
     user_prompt = _build_user_prompt(request)
     child_messages = [{
