@@ -1,4 +1,5 @@
 let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,currentAgentId=null,currentModelId=null,currentContextMode='chat',currentFile=null,currentStreamState=null;
+let _shareMode=false,_shareExporting=false;
 let allSessions=[],agentMap={},modelMap={},modelList=[];
 let userScrolledUp=false, hasNewContentSinceScroll=false;
 
@@ -61,12 +62,24 @@ function _msgIdentityHtml(role){
   '</div>';
 }
 
-function _msgCopyBtnHtml(){
+function _msgCopyBtnHtml(withShare){
+  const share = withShare
+    ? '<button type="button" class="btn-share-msg" title="分享" aria-label="分享">' +
+        '<svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M240.49,103.52l-80-80A12,12,0,0,0,140,32V68.74c-25.76,3.12-53.66,15.89-76.75,35.47-29.16,24.74-47.32,56.69-51.14,90A16,16,0,0,0,39.67,207h0c10.46-11.14,47-45.74,100.33-50.42V192a12,12,0,0,0,20.48,8.48l80-80A12,12,0,0,0,240.49,103.52ZM164,163V144a12,12,0,0,0-12-12c-49,0-86.57,21.56-109.79,40.11,7.13-18.16,19.63-35.22,36.57-49.59C101.3,103.41,128.67,92,152,92a12,12,0,0,0,12-12V61l51,51Z"/></svg>' +
+      '</button>'
+    : '';
   return '<div class="msg-actions">' +
     '<button type="button" class="btn-copy-msg" title="复制" aria-label="复制">' +
       '<svg class="icon-copy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
       '<svg class="icon-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>' +
-    '</button></div>';
+    '</button>' + share + '</div>';
+}
+
+function _shareCheckHtml(){
+  return '<label class="share-check">' +
+    '<input type="checkbox" class="share-check-input" aria-label="选择这条对话">' +
+    '<span class="share-check-dot" aria-hidden="true"></span>' +
+  '</label>';
 }
 
 function _setMsgCopyText(node, text){
@@ -118,6 +131,295 @@ async function copyMessage(btn){
     btn.title = '复制';
     btn.setAttribute('aria-label', '复制');
   }, 1500);
+}
+
+function _shareRows(){
+  return Array.from(document.querySelectorAll('#messages .msg-row'));
+}
+
+function _selectedShareCount(){
+  return document.querySelectorAll('#messages .share-check-input:checked').length;
+}
+
+function _updateShareCount(){
+  const n = _selectedShareCount();
+  const el = document.getElementById('shareCount');
+  if (el && !_shareExporting) el.textContent = '已选 ' + n + ' 条';
+  document.querySelectorAll('.share-dock-btn').forEach(function(btn){
+    if (_shareExporting) return;
+    btn.disabled = n === 0;
+  });
+}
+
+function enterShareMode(msg){
+  if (_shareExporting) return;
+  const rows = _shareRows();
+  rows.forEach(function(row){
+    const input = row.querySelector('.share-check-input');
+    if (input) input.checked = false;
+  });
+  const row = msg && msg.closest ? msg.closest('.msg-row') : null;
+  if (!row) return;
+  const input = row.querySelector('.share-check-input');
+  if (input) input.checked = true;
+  const idx = rows.indexOf(row);
+  for (let i = idx - 1; i >= 0; i--) {
+    const prev = rows[i].querySelector('.msg');
+    if (prev && prev.classList.contains('user')) {
+      const prevInput = rows[i].querySelector('.share-check-input');
+      if (prevInput) prevInput.checked = true;
+      break;
+    }
+  }
+  _shareMode = true;
+  const main = document.querySelector('.main');
+  if (main) main.classList.add('share-mode');
+  const messages = document.getElementById('messages');
+  if (messages) messages.classList.add('share-mode');
+  const header = document.getElementById('shareHeader');
+  const dock = document.getElementById('shareDock');
+  if (header) header.hidden = false;
+  if (dock) dock.hidden = false;
+  _updateShareCount();
+  if (msg && msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+}
+
+function exitShareMode(){
+  if (_shareExporting) return;
+  if (!_shareMode && !document.querySelector('.main.share-mode')) return;
+  _shareMode = false;
+  const main = document.querySelector('.main');
+  if (main) main.classList.remove('share-mode');
+  const messages = document.getElementById('messages');
+  if (messages) messages.classList.remove('share-mode');
+  const header = document.getElementById('shareHeader');
+  const dock = document.getElementById('shareDock');
+  if (header) header.hidden = true;
+  if (dock) dock.hidden = true;
+  document.querySelectorAll('#messages .share-check-input').forEach(function(input){
+    input.checked = false;
+  });
+  _setShareBusy(false);
+}
+
+function _onShareKeydown(e){
+  if (e.key !== 'Escape' || !_shareMode || _shareExporting) return;
+  const drawer = document.getElementById('fileDrawer');
+  if (drawer && drawer.classList.contains('open')) return;
+  e.preventDefault();
+  exitShareMode();
+}
+
+function _setShareBusy(busy){
+  _shareExporting = !!busy;
+  document.querySelectorAll('.share-dock-btn').forEach(function(btn){
+    const label = btn.querySelector('.share-dock-label');
+    if (busy) {
+      btn.disabled = true;
+      if (label) {
+        if (!btn.dataset.label) btn.dataset.label = label.textContent;
+        label.textContent = '生成中';
+      }
+    } else if (label && btn.dataset.label) {
+      label.textContent = btn.dataset.label;
+    }
+  });
+  if (!busy) _updateShareCount();
+}
+
+function _shareFilename(ext){
+  const d = new Date();
+  const p = function(n){ return String(n).padStart(2, '0'); };
+  const stamp = d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes());
+  return '对话分享_' + stamp + '.' + ext;
+}
+
+function _rasterizeImage(src, box){
+  return new Promise(function(resolve){
+    if (!src) { resolve(''); return; }
+    if (String(src).indexOf('data:') === 0) { resolve(src); return; }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function(){
+      try {
+        const canvas = document.createElement('canvas');
+        let w = img.naturalWidth || box || 64;
+        let h = img.naturalHeight || box || 64;
+        if (box) { w = box; h = box; }
+        const maxEdge = 1600;
+        if (w > maxEdge || h > maxEdge) {
+          const ratio = Math.min(maxEdge / w, maxEdge / h);
+          w = Math.max(1, Math.round(w * ratio));
+          h = Math.max(1, Math.round(h * ratio));
+        }
+        canvas.width = Math.max(1, w);
+        canvas.height = Math.max(1, h);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/png'));
+      } catch (_) {
+        resolve(src);
+      }
+    };
+    img.onerror = function(){ resolve(src); };
+    img.src = src;
+  });
+}
+
+function _isSameOriginUrl(src){
+  try {
+    return new URL(src, window.location.origin).origin === window.location.origin;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function _buildShareSheet(){
+  const sheet = document.createElement('div');
+  sheet.className = 'share-export';
+  const rows = _shareRows().filter(function(row){
+    const input = row.querySelector('.share-check-input');
+    return input && input.checked;
+  });
+  for (const row of rows) {
+    const msg = row.querySelector('.msg');
+    if (!msg) continue;
+    const item = document.createElement('div');
+    item.className = 'msg ' + (msg.classList.contains('user') ? 'user' : 'assistant');
+    const meta = msg.querySelector('.msg-meta');
+    if (meta) {
+      const metaClone = meta.cloneNode(true);
+      const avatar = metaClone.querySelector('.msg-avatar');
+      if (avatar) {
+        const png = await _rasterizeImage(avatar.currentSrc || avatar.src, 128);
+        avatar.removeAttribute('onerror');
+        if (png) avatar.src = png;
+      }
+      item.appendChild(metaClone);
+    }
+    const bubble = msg.querySelector('.msg-bubble');
+    if (bubble) {
+      const bubbleClone = bubble.cloneNode(true);
+      bubbleClone.querySelectorAll('.path-chip').forEach(function(chip){
+        const text = chip.querySelector('.path-text');
+        const span = document.createElement('span');
+        span.textContent = text ? text.textContent : (chip.textContent || '');
+        chip.replaceWith(span);
+      });
+      bubbleClone.querySelectorAll('.think-process, .thinking-inline, .retry-area, .msg-actions').forEach(function(el){
+        el.remove();
+      });
+      bubbleClone.querySelectorAll('button').forEach(function(el){ el.remove(); });
+      const imgs = Array.from(bubbleClone.querySelectorAll('img'));
+      for (const img of imgs) {
+        const src = img.getAttribute('src') || '';
+        if (!src || src.indexOf('data:') === 0 || !_isSameOriginUrl(src)) continue;
+        const png = await _rasterizeImage(src);
+        if (png) img.src = png;
+      }
+      item.appendChild(bubbleClone);
+    }
+    sheet.appendChild(item);
+  }
+  return sheet;
+}
+
+async function _downloadShareImage(sheet){
+  if (!window.html2canvas) {
+    alert('图片导出组件未加载，请刷新后重试');
+    return;
+  }
+  await new Promise(function(resolve){
+    requestAnimationFrame(function(){ requestAnimationFrame(resolve); });
+  });
+  const height = Math.ceil(sheet.scrollHeight);
+  const width = Math.ceil(sheet.scrollWidth);
+  const MAX = 16384;
+  if (height < 1 || width < 1) throw new Error('empty share sheet');
+  let scale = 2;
+  if (height * scale > MAX || width * scale > MAX) {
+    scale = Math.min(MAX / height, MAX / width, 2);
+    scale = Math.floor(scale * 100) / 100;
+  }
+  if (scale < 1) {
+    alert('选中的对话太长，无法生成图片。请少选几条后再试。');
+    return;
+  }
+  const canvas = await window.html2canvas(sheet, {
+    scale: scale,
+    useCORS: true,
+    backgroundColor: '#ffffff',
+    logging: false,
+  });
+  const blob = await new Promise(function(resolve){ canvas.toBlob(resolve, 'image/png'); });
+  if (!blob) throw new Error('png');
+  _triggerBlobDownload(blob, _shareFilename('png'));
+}
+
+async function _downloadSharePdf(sheet){
+  if (!window.html2pdf) {
+    alert('PDF 导出组件未加载，请刷新后重试');
+    return;
+  }
+  const worker = window.html2pdf().set({
+    margin: [12, 12, 12, 12],
+    filename: _shareFilename('pdf'),
+    image: { type: 'jpeg', quality: 0.95 },
+    html2canvas: { scale: 2, logging: false, useCORS: true, backgroundColor: '#ffffff' },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak: { mode: ['css', 'legacy'], avoid: '.msg' },
+  }).from(sheet).save();
+  if (worker && typeof worker.then === 'function') await worker;
+}
+
+async function _exportShare(kind){
+  if (_shareExporting || !_shareMode) return;
+  if (_selectedShareCount() === 0) return;
+  _setShareBusy(true);
+  let sheet = null;
+  try {
+    sheet = await _buildShareSheet();
+    if (!sheet.firstElementChild) {
+      alert('请至少选择一条对话');
+      return;
+    }
+    const host = document.createElement('div');
+    host.className = 'share-export-host';
+    sheet.style.position = 'relative';
+    sheet.style.left = '0';
+    sheet.style.top = '0';
+    host.appendChild(sheet);
+    document.body.appendChild(host);
+    if (kind === 'pdf') await _downloadSharePdf(sheet);
+    else await _downloadShareImage(sheet);
+  } catch (err) {
+    console.error(err);
+    alert('导出失败。对话太长或包含无法绘制的内容时，请少选几条后再试。');
+  } finally {
+    if (sheet) {
+      const host = sheet.parentNode;
+      if (host && host.classList && host.classList.contains('share-export-host')) host.remove();
+      else if (sheet.parentNode) sheet.parentNode.removeChild(sheet);
+    }
+    _setShareBusy(false);
+  }
+}
+
+function _initShareMode(){
+  const cancel = document.getElementById('shareCancel');
+  if (cancel) cancel.addEventListener('click', exitShareMode);
+  const imageBtn = document.getElementById('shareImageBtn');
+  const pdfBtn = document.getElementById('sharePdfBtn');
+  if (imageBtn) imageBtn.addEventListener('click', function(){ _exportShare('image'); });
+  if (pdfBtn) pdfBtn.addEventListener('click', function(){ _exportShare('pdf'); });
+  document.addEventListener('keydown', _onShareKeydown);
+  const messages = document.getElementById('messages');
+  if (messages) {
+    messages.addEventListener('change', function(e){
+      if (e.target && e.target.classList && e.target.classList.contains('share-check-input')) {
+        _updateShareCount();
+      }
+    });
+  }
 }
 
 function _pathExt(name){
@@ -399,6 +701,7 @@ function selectAgent(id, silent){
   _refreshAgentModelUI();
 
   if (!silent) {
+    exitShareMode();
     currentSessionId = null;
     document.getElementById('messages').innerHTML = _welcomeHtml();
     resetUsageStats();
@@ -757,6 +1060,7 @@ async function maybeGenerateSessionTitle(sessionId){
 }
 
 async function loadSession(sid){
+  exitShareMode();
   // 如果有正在运行的 SSE 连接，先关闭
   _closeStreamConnection();
 
@@ -808,6 +1112,7 @@ async function deleteSession(sid){
   if (!confirm('确认删除该会话？')) return;
   await fetch('/api/sessions/' + sid, {method:'DELETE'});
   if (currentSessionId === sid) {
+    exitShareMode();
     currentSessionId = null;
     document.getElementById('messages').innerHTML = _welcomeHtml();
     resetUsageStats();
@@ -817,6 +1122,7 @@ async function deleteSession(sid){
 }
 
 function newSession(){
+  exitShareMode();
   _closeStreamConnection();
   currentSessionId = null;
   currentContextMode = 'chat';
@@ -838,6 +1144,11 @@ function _append(html){
   c.appendChild(node);
   c.scrollTop = c.scrollHeight;
   return node;
+}
+
+function _appendShareRow(msgHtml){
+  const row = _append('<div class="msg-row">' + _shareCheckHtml() + msgHtml + '</div>');
+  return row.querySelector('.msg') || row;
 }
 
 function _fileExt(name){
@@ -887,7 +1198,7 @@ function clearFile(){
 
 function appendUserMsg(text){
   const w = document.getElementById('welcome'); if (w) w.remove();
-  const node = _append('<div class="msg user">' + _msgIdentityHtml('user') + '<div class="msg-bubble">' + linkifyDataPaths(escapeHtml(text)) + '</div>' + _msgCopyBtnHtml() + '</div>');
+  const node = _appendShareRow('<div class="msg user">' + _msgIdentityHtml('user') + '<div class="msg-bubble">' + linkifyDataPaths(escapeHtml(text)) + '</div>' + _msgCopyBtnHtml() + '</div>');
   _setMsgCopyText(node, text);
   return node;
 }
@@ -901,15 +1212,17 @@ function updateUserMsgBubble(node, text){
 }
 
 function appendAssistantMsg(md){
-  const node = _append('<div class="msg assistant">' + _msgIdentityHtml('assistant') + '<div class="msg-bubble">' + renderMarkdown(md) + '</div>' + _msgCopyBtnHtml() + '</div>');
+  const node = _appendShareRow('<div class="msg assistant">' + _msgIdentityHtml('assistant') + '<div class="msg-bubble">' + renderMarkdown(md) + '</div>' + _msgCopyBtnHtml(true) + '</div>');
   _setMsgCopyText(node, md);
   return node;
 }
 
 function _createReplyBlock(){
-  const container = document.createElement('div');
-  container.className = 'msg assistant';
-  container.innerHTML =
+  const row = document.createElement('div');
+  row.className = 'msg-row';
+  row.innerHTML =
+    _shareCheckHtml() +
+    '<div class="msg assistant">' +
     _msgIdentityHtml('assistant') +
     '<div class="msg-bubble">' +
       '<div class="bubble-content">' +
@@ -921,11 +1234,12 @@ function _createReplyBlock(){
         '<div class="think-steps" style="display:none"></div>' +
       '</div>' +
     '</div>' +
-    _msgCopyBtnHtml() +
+    _msgCopyBtnHtml(true) +
     '<div class="retry-area" style="display:none">' +
       '<button class="btn-retry" onclick="retryTask()">🔄 重试</button>' +
-    '</div>';
-  document.getElementById('messages').appendChild(container);
+    '</div></div>';
+  document.getElementById('messages').appendChild(row);
+  const container = row.querySelector('.msg');
   return {
     container,
     bodyEl: container.querySelector('.bubble-content'),
@@ -1196,6 +1510,7 @@ async function retryTask(){
 /* ====== 重连运行中的任务 ====== */
 
 async function reconnectToTask(sessionId, taskId){
+  exitShareMode();
   currentSessionId = sessionId;
   currentTaskId = taskId;
   _setActiveSession(sessionId);
@@ -2690,6 +3005,27 @@ function _initFileDrawer(){
   const messages = document.getElementById('messages');
   if (messages) {
     messages.addEventListener('click', function(e){
+      const shareBtn = e.target.closest('.btn-share-msg');
+      if (shareBtn && messages.contains(shareBtn)) {
+        e.preventDefault();
+        e.stopPropagation();
+        enterShareMode(shareBtn.closest('.msg'));
+        return;
+      }
+      if (_shareMode) {
+        const bubble = e.target.closest('.msg-bubble');
+        if (bubble && messages.contains(bubble)) {
+          e.preventDefault();
+          e.stopPropagation();
+          const row = bubble.closest('.msg-row');
+          const input = row && row.querySelector('.share-check-input');
+          if (input) {
+            input.checked = !input.checked;
+            _updateShareCount();
+          }
+        }
+        return;
+      }
       const copyBtn = e.target.closest('.btn-copy-msg');
       if (copyBtn && messages.contains(copyBtn)) {
         e.preventDefault();
@@ -3201,6 +3537,7 @@ window.addEventListener('DOMContentLoaded', () => {
   _initScrollListener();
   _initDragDrop();
   _initFileDrawer();
+  _initShareMode();
   _initLeftSplitResize();
   _initComposerAgents();
   initChatFileTree();
