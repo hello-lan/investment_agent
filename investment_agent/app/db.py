@@ -20,6 +20,58 @@ async def get_db():
         yield db
 
 
+# 旧版 agents.tools 只存额外勾选，这些工具由运行时隐式启用。
+# 与 AgentRegistry.auto_bound_tools 保持一致。
+_IMPLICIT_DEFAULT_TOOLS = (
+    "Skill",
+    "list_files",
+    "read_file",
+    "search_text",
+    "write_file",
+    "run_python_script",
+)
+
+
+async def _backfill_implicit_agent_tools(db: aiosqlite.Connection) -> None:
+    """把当时隐式启用的默认工具写入 tools，之后该列就是完整勾选结果。只执行一次。"""
+    import json
+
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT)"
+    )
+    cursor = await db.execute(
+        "SELECT 1 FROM schema_meta WHERE key = ?",
+        ("agent_tools_explicit",),
+    )
+    if await cursor.fetchone():
+        return
+
+    cursor = await db.execute("SELECT id, tools, tools_customized FROM agents")
+    rows = await cursor.fetchall()
+    for row in rows:
+        if row["tools_customized"]:
+            continue
+        try:
+            current = json.loads(row["tools"] or "[]")
+        except (TypeError, json.JSONDecodeError):
+            current = []
+        if not isinstance(current, list):
+            current = []
+        merged = list(current)
+        for name in _IMPLICIT_DEFAULT_TOOLS:
+            if name not in merged:
+                merged.append(name)
+        await db.execute(
+            "UPDATE agents SET tools = ? WHERE id = ?",
+            (json.dumps(merged, ensure_ascii=False), row["id"]),
+        )
+    await db.execute(
+        "INSERT INTO schema_meta (key, value) VALUES (?, ?)",
+        ("agent_tools_explicit", "1"),
+    )
+    await db.commit()
+
+
 async def _ensure_columns(
     db: aiosqlite.Connection,
     migrations: list[tuple[str, str, str]],
@@ -80,6 +132,7 @@ async def init_db() -> None:
                 max_single_turn_output_tokens INTEGER DEFAULT 4096,  -- 单轮 LLM 回复最大输出 token
                 skills        TEXT DEFAULT '[]',      -- 启用的技能列表（JSON 数组）
                 tools         TEXT DEFAULT '[]',      -- 启用的工具列表（JSON 数组）
+                tools_customized INTEGER DEFAULT 0,   -- 仅用于一次性回填：0=旧记录尚未把默认工具写入 tools
                 subagents     TEXT DEFAULT '[]',      -- 挂载的 Subagent ID 列表（JSON 数组）
                 compress_config TEXT,                 -- 上下文压缩配置（JSON）
                 engine_config TEXT,                   -- 引擎运行配置（JSON）
@@ -635,6 +688,7 @@ async def init_db() -> None:
             ("agents", "compress_config", "TEXT"),
             ("agents", "engine_config", "TEXT"),
             ("agents", "tools", "TEXT DEFAULT '[]'"),
+            ("agents", "tools_customized", "INTEGER DEFAULT 0"),
             ("agents", "subagents", "TEXT DEFAULT '[]'"),
             ("agents", "avatar", "TEXT"),
             ("agents", "show_in_composer", "INTEGER DEFAULT 0"),
@@ -665,6 +719,7 @@ async def init_db() -> None:
             ("subagents", "runtime_config", "TEXT"),
         ]
         await _ensure_columns(db, column_migrations)
+        await _backfill_implicit_agent_tools(db)
 
         # ── 移除 Workflow：删表，并把仍标记为 workflow 的 Agent 改回可用循环 ──
         await db.execute("DROP TABLE IF EXISTS workflows")

@@ -171,7 +171,7 @@ class AgentRunConfig:
     offload_summary_strategy: str = OffloadSummaryStrategy.TRUNCATE
     offload_summary_chars: int = 200
 
-    # ── Agent 级工具选择（空列表=全部工具，向后兼容）──
+    # ── Agent 级工具选择（保存的就是完整勾选结果）──
     tools: list[str] = field(default_factory=list)
 
     # ── Agent 级技能选择（空列表=不启用任何技能）──

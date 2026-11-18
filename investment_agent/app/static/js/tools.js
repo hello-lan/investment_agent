@@ -63,7 +63,7 @@ function renderBuiltins() {
       <div class="model-info">
         <div class="model-name">
           ${esc(item.name)}
-          <span class="default-tag">${item.auto_bound ? '默认绑定' : '需在 Agent 中勾选'}</span>
+          <span class="default-tag">${item.auto_bound ? '默认勾选，可取消' : '需在 Agent 中勾选'}</span>
         </div>
         <div class="model-meta">${esc(item.description || '')}</div>
       </div>

@@ -286,7 +286,10 @@ class AgentRunner:
             runtime_compressor=runtime_compressor,
         )
         engine.storage = self._storage
-        allowed_tools = registry.auto_bound_tools | set(config.tools)
+        if config.agent_id:
+            allowed_tools = set(config.tools)
+        else:
+            allowed_tools = registry.auto_bound_tools | set(config.tools)
         enable_run_command = "run_command" in allowed_tools
         if config.loop_mode == LoopMode.PLAN_EXECUTE:
             allowed_tools = allowed_tools | {"DelegateTask"}

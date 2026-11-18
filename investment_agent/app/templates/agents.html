@@ -241,7 +241,7 @@
           <div id="agentSkills" class="skill-list tab-panel active"></div>
           <div id="agentTools" class="skill-list tab-panel"></div>
           <div id="agentSubagents" class="skill-list tab-panel"></div>
-          <div class="hint">安全文件工具默认绑定；`run_command` 与 `DelegateTask` 需手动勾选。勾选的 Subagent 会以独立工具形式暴露给主模型（name/description 用于命中），执行时隔离上下文，仅返回摘要。`DelegateTask` 仍用于技能型委派。</div>
+          <div class="hint">文件类工具默认勾选，可以手动取消。`run_command` 与 `DelegateTask` 需手动勾选。勾选的 Subagent 会以独立工具形式暴露给主模型（name/description 用于命中），执行时隔离上下文，仅返回摘要。`DelegateTask` 仍用于技能型委派。</div>
         </div>
       </div>
     </div>
@@ -530,5 +530,5 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/agents.js"></script>
+<script src="/static/js/agents.js?v=4"></script>
 {% endblock %}

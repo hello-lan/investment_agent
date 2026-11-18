@@ -224,6 +224,11 @@ function toolLabel(name) {
   return found && found.label ? found.label : name;
 }
 
+function initialToolSelection(agent) {
+  if (agent && agent.id) return normalizeList(agent.tools);
+  return (availableTools || []).filter(t => t.auto_bound).map(t => t.name);
+}
+
 function renderToolOptions(selected = [], boxId = 'agentTools', {forSubagent = false} = {}) {
   const box = document.getElementById(boxId);
   let tools = availableTools || [];
@@ -236,22 +241,15 @@ function renderToolOptions(selected = [], boxId = 'agentTools', {forSubagent = f
   }
   const selectedSet = new Set(selected || []);
   box.innerHTML = tools.map(t => {
-    const isAuto = !forSubagent && t.auto_bound;
-    let cls = 'skill-item';
-    if (isAuto) {
-      cls += ' selected disabled';
-    } else if (selectedSet.has(t.name)) {
-      cls += ' selected';
-    }
-    const badge = isAuto ? '<span class="skill-type-tag orch">默认</span>' : '';
+    const cls = selectedSet.has(t.name) ? 'skill-item selected' : 'skill-item';
     const title = t.label || t.name;
     const sub = t.label
       ? `${t.name}${t.description ? ' · ' + t.description : ''}`
       : (t.description || '');
-    return `<div class="${cls}" data-skill="${esc(t.name)}" data-auto="${isAuto ? '1' : '0'}">
+    return `<div class="${cls}" data-skill="${esc(t.name)}">
       <span class="skill-mark">&#10003;</span>
       <div class="skill-item-text">
-        <span>${badge}${esc(title)}</span>
+        <span>${esc(title)}</span>
         <span class="skill-deps">${esc(sub)}</span>
       </div>
     </div>`;
@@ -615,7 +613,7 @@ function openModal(agent){
   fillContextFields(compressConfig);
   fillEngineFields(engineConfig);
   renderSkillOptions(normalizeList(agent?.skills));
-  renderToolOptions(normalizeList(agent?.tools));
+  renderToolOptions(initialToolSelection(agent));
   renderMountedSubagentOptions(normalizeList(agent?.subagents));
   switchTab('skills');
   switchCtxTab('preflight');
