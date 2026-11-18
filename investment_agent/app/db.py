@@ -616,7 +616,7 @@ async def init_db() -> None:
             -- 可配置工具实例（同一模板可保存多份，名称和请求参数各自独立）
             CREATE TABLE IF NOT EXISTS tool_instances (
                 id            TEXT PRIMARY KEY,       -- 主键ID
-                template      TEXT NOT NULL,          -- 模板标识，如 rag_retrieve
+                template      TEXT NOT NULL,          -- 模板标识，如 http_retrieve
                 display_name  TEXT NOT NULL,          -- 工具页和 Agent 页显示名
                 tool_name     TEXT NOT NULL UNIQUE,   -- 模型调用名
                 config_json   TEXT NOT NULL,          -- 地址、超时、请求参数表
@@ -725,6 +725,12 @@ async def init_db() -> None:
         await db.execute(
             "UPDATE trace_log SET detail_size = LENGTH(detail) "
             "WHERE detail_size IS NULL OR detail_size = 0"
+        )
+        await db.commit()
+
+        # 工具模板标识：rag_retrieve → http_retrieve
+        await db.execute(
+            "UPDATE tool_instances SET template = 'http_retrieve' WHERE template = 'rag_retrieve'"
         )
         await db.commit()
 

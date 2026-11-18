@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 import httpx
 
 from ...agent.registry_container import AgentRegistry
-from ...agent.tools.rag_retrieve import default_template, describe_instance
+from ...agent.tools.http_retrieve import default_template, describe_instance
 from ..services.tool_instances import (
     delete_tool_instance,
     get_tool_instance_by_id,

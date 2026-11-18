@@ -15,7 +15,7 @@ from .app.api.observability import router as observability_router
 from .app.api.tools import router as tools_router
 from .app.api.stock_dashboard import router as stock_dashboard_router
 from .agent.skills.loader import init_skills_dir
-from .agent.tools.rag_retrieve import set_instance_loaders
+from .agent.tools.http_retrieve import set_instance_loaders
 from .agent.tools.run_command import set_project_root
 from .app.services.tool_instances import get_tool_instance, list_tool_instances
 from .app.services.subagent_seed import seed_default_subagents

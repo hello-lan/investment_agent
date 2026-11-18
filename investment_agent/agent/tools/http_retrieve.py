@@ -16,7 +16,8 @@ from .result_formatter import format_tool_result
 
 _log = logging.getLogger(__name__)
 
-TEMPLATE_ID = "rag_retrieve"
+TEMPLATE_ID = "http_retrieve"
+LEGACY_TEMPLATE_IDS = {"rag_retrieve"}
 TEMPLATE_LABEL = "HTTP 检索"
 TEMPLATE_DESCRIPTION = "调用外部检索服务，只返回命中的原文片段。"
 
@@ -278,7 +279,7 @@ def format_hits(tool_name: str, payload: dict) -> str:
     return format_tool_result(tool_name, body, mode=payload.get("mode"), hits=len(blocks))
 
 
-class RagRetrieveTool(BaseTool):
+class HttpRetrieveTool(BaseTool):
     """一份检索实例对应一个工具。调用时重新读取配置。"""
 
     risk_level = 0
@@ -341,9 +342,9 @@ def mount_retrieve_tools(engine, names: set[str]) -> list[dict]:
     for instance in cached_instances():
         if instance.get("tool_name") not in selected:
             continue
-        if instance.get("template") not in (None, "", TEMPLATE_ID):
+        if instance.get("template") not in (None, "", TEMPLATE_ID, *LEGACY_TEMPLATE_IDS):
             continue
-        tool = RagRetrieveTool(instance)
+        tool = HttpRetrieveTool(instance)
         engine.register_tool(tool.schema, tool.run)
         mounted.append(instance)
     if mounted:

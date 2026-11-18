@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 from ...agent.registry_container import AgentRegistry
-from ...agent.tools.rag_retrieve import (
+from ...agent.tools.http_retrieve import (
     DEFAULT_PATH,
     DEFAULT_TIMEOUT,
     PARAM_TYPES,
