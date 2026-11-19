@@ -3,13 +3,40 @@
 {% block head %}
 <link rel="stylesheet" href="/static/css/settings.css?v=3">
 <style>
-  .modal.wide { width: 760px; }
+  .modal.wide { width: 860px; max-width: calc(100vw - 32px); }
   .param-list { display: flex; flex-direction: column; gap: 10px; }
-  .param-card { border: 1px solid #eee; border-radius: 8px; padding: 10px 12px; background: #fafafa; }
-  .param-head { display: grid; grid-template-columns: 1.1fr 120px 110px auto; gap: 8px; align-items: center; }
-  .param-extra { margin-top: 8px; display: flex; gap: 8px; align-items: center; }
-  .param-extra[hidden] { display: none !important; }
-  .param-extra input[type=text] { flex: 1; }
+  .param-card {
+    display: grid;
+    grid-template-columns: minmax(90px, 1.1fr) 108px 100px minmax(120px, 1.6fr) auto auto;
+    gap: 8px;
+    align-items: center;
+    border: 1px solid #eee;
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: #fafafa;
+  }
+  .param-card > .p-key { grid-column: 1; }
+  .param-card > .p-source { grid-column: 2; }
+  .param-card > .p-type { grid-column: 3; }
+  .param-card > .param-detail { grid-column: 4; min-width: 0; }
+  .param-card > .check-label { grid-column: 5; }
+  .param-card > .btn { grid-column: 6; white-space: nowrap; }
+  .param-card input[type=text],
+  .param-card select {
+    width: 100%;
+    min-width: 0;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+    outline: none;
+    font-family: inherit;
+    background: #fff;
+  }
+  .param-card input:focus,
+  .param-card select:focus { border-color: #1a1a2e; }
+  .param-detail input[hidden],
+  .check-label[hidden] { display: none !important; }
   .check-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #555; white-space: nowrap; }
   .check-label input { width: auto; }
   .section-gap { margin-top: 20px; }
@@ -85,7 +112,7 @@
       <div class="hint" id="testResult"></div>
     </div>
 
-    <div class="form-section">请求参数</div>
+    <div class="form-section">请求参数 <span class="required">*</span></div>
     <div class="hint" style="margin-bottom:10px;">模型填写的参数会出现在工具说明里。固定值调用时自动带上，模型看不到。</div>
     <div id="paramList" class="param-list"></div>
     <div style="margin-top:10px;">
@@ -100,5 +127,5 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/tools.js?v=2"></script>
+<script src="/static/js/tools.js?v=5"></script>
 {% endblock %}

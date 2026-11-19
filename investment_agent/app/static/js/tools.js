@@ -72,7 +72,7 @@ function renderBuiltins() {
 }
 
 function blankParam() {
-  return { key: '', source: 'llm', type: 'string', required: false, description: '', value: '' };
+  return { key: '', source: 'llm', type: 'string', required: true, description: '', value: '' };
 }
 
 function renderParams(params) {
@@ -84,27 +84,26 @@ function renderParams(params) {
 function paramCard(param) {
   const source = param.source === 'fixed' ? 'fixed' : 'llm';
   const type = param.type || 'string';
-  const types = ['string', 'integer', 'number', 'boolean'].map(item => (
+  const types = ['string', 'integer', 'number', 'boolean', 'array'].map(item => (
     `<option value="${item}" ${item === type ? 'selected' : ''}>${item}</option>`
   )).join('');
+  const valuePlaceholder = type === 'array' ? '逗号分隔，如 a,b' : '固定值';
   return `
     <div class="param-card" data-source="${source}">
-      <div class="param-head">
-        <input type="text" class="p-key" placeholder="参数名" value="${esc(param.key)}">
-        <select class="p-source">
-          <option value="llm" ${source === 'llm' ? 'selected' : ''}>模型填写</option>
-          <option value="fixed" ${source === 'fixed' ? 'selected' : ''}>固定值</option>
-        </select>
-        <select class="p-type">${types}</select>
-        <button class="btn btn-danger btn-sm" type="button" data-remove="1">删除</button>
+      <input type="text" class="p-key" placeholder="参数名" value="${esc(param.key)}">
+      <select class="p-source">
+        <option value="llm" ${source === 'llm' ? 'selected' : ''}>模型填写</option>
+        <option value="fixed" ${source === 'fixed' ? 'selected' : ''}>固定值</option>
+      </select>
+      <select class="p-type">${types}</select>
+      <div class="param-detail">
+        <input type="text" class="p-desc llm-only" placeholder="写明含义；有取值范围或枚举请列出。模型可见" title="写明含义；有取值范围或枚举请列出。模型可见" value="${esc(param.description || '')}" ${source === 'fixed' ? 'hidden' : ''}>
+        <input type="text" class="p-value fixed-only" placeholder="${valuePlaceholder}" value="${esc(param.value || '')}" ${source === 'llm' ? 'hidden' : ''}>
       </div>
-      <div class="param-extra llm-only" ${source === 'fixed' ? 'hidden' : ''}>
-        <label class="check-label"><input type="checkbox" class="p-required" ${param.required ? 'checked' : ''}>必填</label>
-        <input type="text" class="p-desc" placeholder="参数说明，模型可见" value="${esc(param.description || '')}">
-      </div>
-      <div class="param-extra fixed-only" ${source === 'llm' ? 'hidden' : ''}>
-        <input type="text" class="p-value" placeholder="固定值" value="${esc(param.value || '')}">
-      </div>
+      <label class="check-label llm-only" ${source === 'fixed' ? 'hidden' : ''}>
+        <input type="checkbox" class="p-required" ${param.required ? 'checked' : ''}>必填
+      </label>
+      <button class="btn btn-danger btn-sm" type="button" data-remove="1">删除</button>
     </div>
   `;
 }
@@ -225,13 +224,19 @@ async function deleteInstance(id) {
 }
 
 document.getElementById('paramList').addEventListener('change', event => {
-  const select = event.target.closest('.p-source');
-  if (!select) return;
-  const card = select.closest('.param-card');
-  const fixed = select.value === 'fixed';
-  card.dataset.source = select.value;
-  card.querySelector('.llm-only').hidden = fixed;
-  card.querySelector('.fixed-only').hidden = !fixed;
+  const card = event.target.closest('.param-card');
+  if (!card) return;
+  const sourceSelect = event.target.closest('.p-source');
+  if (sourceSelect) {
+    const fixed = sourceSelect.value === 'fixed';
+    card.dataset.source = sourceSelect.value;
+    card.querySelectorAll('.llm-only').forEach(el => { el.hidden = fixed; });
+    card.querySelectorAll('.fixed-only').forEach(el => { el.hidden = !fixed; });
+  }
+  if (event.target.closest('.p-type') || sourceSelect) {
+    const valueInput = card.querySelector('.p-value');
+    valueInput.placeholder = card.querySelector('.p-type').value === 'array' ? '逗号分隔，如 a,b' : '固定值';
+  }
 });
 
 document.getElementById('paramList').addEventListener('click', event => {

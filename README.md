@@ -1,20 +1,22 @@
 # Investment Agent
 
-A 股基本面分析智能助手。浏览器里对话、上传财报，由 LLM Agent 自主调用数据工具和 Skill，完成行情查询、财报解读、排雷、估值和同业对比，并流式输出 Markdown 研报。另有七步法个股看板，用来直接看财务数字。
+A 股基本面分析智能助手。浏览器里对话、上传财报，由 LLM Agent 自主调用数据工具和 Skill，完成行情查询、财报解读、排雷、估值和同业对比，并流式输出 Markdown 研报。另有个股看板，用七步法看财务数字，并用商业八问整理定性问题。
+
+分析结论面向研究阅读，不构成买卖建议。
 
 ---
 
 ## 功能特性
 
-- **多模型** — 兼容 Anthropic 与 OpenAI 兼容接口（Claude、DeepSeek、Qwen、Ollama 等）。可设默认模型，以及用于辅助任务的 utility 模型，并记录输入/输出/缓存价格。
+- **多模型** — 兼容 Anthropic 与 OpenAI 兼容接口（Claude、DeepSeek、Qwen、Ollama 等）。可设默认模型，以及用于生成会话标题的 utility 模型。支持输入/输出价格，以及缓存读取、缓存创建价格。
 - **三种执行循环** — 每个 Agent 可选双循环（快循环 + 慢思考）、ReAct，或 Plan Execute（先拆解再委派汇总）。
-- **Skill 插件** — `extensions/skills/` 下的 `SKILL.md` 会被自动发现。对话中按需加载完整说明，需要时再跑技能脚本。
-- **子 Agent** — 可定义独立上下文的 Subagent，也可通过 `DelegateTask` 把下载、转写、建索引、专项分析委派出去。子任务有自己的步数和 token 预算。
+- **Skill 插件** — `extensions/skills/` 下的 `SKILL.md` 会被自动发现。对话中按需加载完整说明，需要时再跑技能脚本。编排技能可声明依赖的原子技能。
+- **子 Agent** — 可定义独立上下文的 Subagent，也可通过 `DelegateTask` 把多步任务委派出去。同一轮里互不依赖的子任务可以并行。子任务有自己的步数和 token 预算。
 - **文件与脚本工具** — 列举、读取、搜索、写入 `data/`；在已启用技能目录里跑 Python 脚本；需要时再执行 shell。
 - **外部检索** — 工具页可配置 HTTP 检索实例，把公司材料和投资通识片段接进对话。
-- **财报流水线** — 下载年报 → PDF 转 Markdown → 章节索引 → 按规则做结构化分析与排雷，多年分析可再汇总。
-- **个股看板** — 按代码或名称查询，用七步法展示营收质量、成本、成长、业务构成、资产负债、投入产出和收益率。
-- **会话与观测** — 历史会话可继续；统计页查看 token 成本、执行轨迹，并支持导出和清理。
+- **财报流水线** — 下载年报 → PDF 转 Markdown → 章节索引或按章节切开 → 结构化分析与排雷。多年分析可再汇总。
+- **个股看板** — 按代码或名称查询。七步法展示营收质量、成本、成长、业务构成、资产负债、投入产出和收益率；商业八问给出读公告和研报时的问题清单。数据来自 AKShare，结果缓存在 SQLite。
+- **会话与观测** — 历史会话可继续。上下文可按「可见对话」或「完整轨迹」回放。统计页查看 token 成本、执行轨迹，并支持导出和清理。
 
 ---
 
@@ -23,11 +25,11 @@ A 股基本面分析智能助手。浏览器里对话、上传财报，由 LLM A
 | 路径 | 用途 |
 |------|------|
 | `/` | 对话：选 Agent、上传文件、看工具调用和慢思考 |
-| `/agents` | 配置 Agent（模型、提示词、Skill、工具、Subagent、循环与上下文） |
+| `/agents` | 配置 Agent（模型、提示词、Skill、工具、Subagent、循环、上下文、头像和输入框快捷入口） |
 | `/skills` | 查看已发现的 Skill |
 | `/tools` | 管理 HTTP 检索等工具实例 |
-| `/model` | 模型 CRUD、默认模型、utility 模型、连通性测试 |
-| `/dashboard` | 七步法企业分析看板 |
+| `/model` | 模型 CRUD、默认模型、utility 模型、价格与连通性测试 |
+| `/dashboard` | 七步法企业分析看板，附商业八问 |
 | `/observability` | Token 成本与执行链路 |
 
 ---
@@ -41,19 +43,17 @@ A 股基本面分析智能助手。浏览器里对话、上传财报，由 LLM A
 
 ### 安装与启动
 
-Windows 可直接用启动脚本（会创建 `.venv` 并拉起服务）：
+```bash
+pip install -r requirements.txt
+uvicorn investment_agent:app --reload --host 0.0.0.0 --port 8000
+```
+
+Windows 可用启动脚本。脚本会创建并激活 `.venv`，再拉起服务。依赖安装那一行目前是注释，新环境需要先在虚拟环境里执行上面的 `pip install`。
 
 ```bat
 start.bat
 start.bat --reload
 start.bat --port 8000
-```
-
-或手动安装后启动：
-
-```bash
-pip install -r requirements.txt
-uvicorn investment_agent:app --reload --host 0.0.0.0 --port 8000
 ```
 
 浏览器打开 `http://127.0.0.1:8000`。
@@ -62,10 +62,10 @@ uvicorn investment_agent:app --reload --host 0.0.0.0 --port 8000
 
 打开 `/model`，填入显示名、模型名、API Key。两种接入：
 
-- **Anthropic** — API Key 即可。工具调用更稳的模型更适合本项目。
+- **Anthropic** — API Key 即可。工具调用更稳的模型更适合本项目。可填写缓存读取价和缓存创建价。
 - **OpenAI Compatible** — 需要 Base URL 和 API Key，适用于 DeepSeek、Qwen、Ollama 等。
 
-第一个模型会自动成为默认模型。可再指定一个 utility 模型，用于生成会话标题。页面上可以测试连通性。
+第一个模型会同时成为默认模型和 utility 模型。utility 模型用于生成会话标题。页面上可以测试连通性，也可以单独改默认模型或 utility 模型。单条消息还可以在对话里临时换模型，不改 Agent 绑定。
 
 ### 开始分析
 
@@ -74,6 +74,16 @@ uvicorn investment_agent:app --reload --host 0.0.0.0 --port 8000
 > 分析贵州茅台（600519）近三年的盈利能力变化趋势
 
 也可以上传财报（`.txt` `.md` `.pdf` `.xlsx` `.xls` `.docx` `.doc`，单文件最大 100MB）。提取文本会截断到 5 万字符后进入上下文；完整年报分析更适合先下载并转成 Markdown，再走索引和结构化分析 Skill。
+
+---
+
+## 对话页
+
+- **快捷 Agent** — 在 `/agents` 勾选「显示在输入框」的 Agent 会出现在输入框上方，按排序号排列。
+- **斜杠命令** — 输入 `/` 后选择：`/clear` 新建对话，`/agent` 切换 Agent，`/model` 临时换模型，`/context` 切换上下文回放。也可直接输入 `/context chat` 或 `/context full`。
+- **引用文件** — 输入 `@` 从 `data/` 目录补全路径，插入后的路径会带反引号。
+- **上下文回放** — `chat`（可见对话）继续会话时只带回问题和回复；`full`（完整轨迹）连同工具调用和结果一起回放。模式记在会话上。
+- **运行控制** — 流式输出可中断；失败后可重试。刷新页面时，仍在运行的任务可以重新接上 SSE。
 
 ---
 
@@ -89,13 +99,18 @@ uvicorn investment_agent:app --reload --host 0.0.0.0 --port 8000
 | 估值观察 | 「用 DCF 和 PE/PB 给海康威视一个前提显式的估值区间」 |
 | 看数字 | 打开 `/dashboard`，搜索 `600519` 或「茅台」 |
 
-分析结论面向研究阅读，不构成买卖建议。
+两条完整财报路径不要混用：
+
+| Skill | 怎么跑 |
+|-------|--------|
+| `full-financial-analysis` | 父 Agent 亲自下载并转 Markdown；索引和分析交给已挂载的 `build_annual_report_index`、`analyze_financial_report`。多年需求由父 Agent 汇总各年报告 |
+| `orch-full-financial-analysis` | 编排技能。每一步用 `DelegateTask` 委派，依赖下载、转写、章节切割和排雷四个原子技能 |
 
 ---
 
 ## 工作方式
 
-一次对话由 `AgentRunner` 拉起。`loop_factory` 按 Agent 的 `loop_mode` 创建引擎，默认是双循环。
+一次对话由 `AgentRunner` 拉起。`loop_factory` 按 Agent 的 `loop_mode` 创建引擎，默认是双循环。每个会话有独立的工具和技能注册表。
 
 | 模式 | 行为 |
 |------|------|
@@ -103,9 +118,31 @@ uvicorn investment_agent:app --reload --host 0.0.0.0 --port 8000
 | `react` | 单循环推理，适合轻量工具调用 |
 | `plan_execute` | 先把任务拆成可独立推进的阶段，再委派 Subagent 或 `DelegateTask`，最后由主 Agent 汇总 |
 
-主循环有步数上限、token 预算、连续同工具调用检测，以及可中断的 SSE 流。长对话在开跑前按预算压缩系统提示词和历史消息；运行中可裁剪上下文，并把过长的工具结果卸载成摘要。
+主循环有步数上限、token 预算、连续同工具调用检测，以及可中断的 SSE 流。长对话在开跑前按预算压缩系统提示词和历史消息；运行中可裁剪上下文，并把过长的工具结果卸载成摘要，原文留在 `data/.offload/`，需要时再用 `read_file` 读回。
 
-Subagent 与父对话隔离：只拿任务说明和自己的工具集，结束后把文本结果交回父 Agent。默认子 Agent 定义在 `extensions/subagents/`，启动时补齐数据库里缺失的条目。挂到 Agent 上之后，它们会以独立工具的形式暴露给主模型。
+Skill 正文按需加载，并按 `skill_body_ttl` 做内存缓存。系统提示词里先放技能名称和描述；模型调用 `Skill` 工具后，下一轮才能按正文执行。同一步里不要「加载说明并立刻按正文执行」。
+
+Subagent 与父对话隔离：只拿任务说明和自己的工具集，结束后把文本结果交回父 Agent。同一轮可以并行发起多个互不依赖的子任务，默认最多 3 个。子 Agent 不能再挂 `DelegateTask`，也不能再挂其他 Subagent。默认定义在 `extensions/subagents/`，启动时补齐数据库里缺失的条目。挂到 Agent 上之后，它们会以独立工具的形式暴露给主模型。模型留空时继承主 Agent。
+
+---
+
+## 数据目录
+
+业务文件都在 `data/`。财报流水线按股票代码分目录：
+
+```
+data/
+├── agent.db                      # SQLite
+├── uploads/                      # 对话上传
+├── reports/<股票代码>/
+│   ├── 1_pdf/                    # 下载的 PDF
+│   ├── 2_markdown/               # PDF 转写结果
+│   ├── 3_split/                  # 按章节切开的 Markdown
+│   └── 4_output/                 # 分析报告
+├── tmp/                          # 仅文件名写入时的默认位置
+├── tmp/subagents/                # 子 Agent 工作区
+└── .offload/                     # 上下文卸载的临时原文
+```
 
 ---
 
@@ -124,9 +161,11 @@ investment_agent/                 # 仓库根目录
 │   │   ├── templates/            # Jinja2 页面
 │   │   └── static/               # 原生 HTML/JS/CSS
 │   └── agent/
+│       ├── runner.py             # 一次对话的创建、执行、落库
+│       ├── registry_container.py # 会话级工具与技能注册
 │       ├── core/                 # 双循环、ReAct、Plan Execute、子 Agent、模型适配
 │       ├── tools/                # 文件、脚本、shell、Skill、委派、HTTP 检索
-│       ├── skills/               # Skill 加载与脚本执行
+│       ├── skills/               # Skill 加载、依赖展开、脚本执行、正文缓存
 │       └── context/              # 预算、裁剪、卸载、token 估算
 ├── extensions/
 │   ├── skills/                   # Skill 定义（SKILL.md + scripts/）
@@ -142,6 +181,13 @@ investment_agent/                 # 仓库根目录
 ## Skill
 
 放在 `extensions/skills/<name>/SKILL.md`，启动时扫描注册。启用后，模型先看到名称和描述；需要执行时调用 `Skill` 工具加载正文。带 `scripts/` 的技能通过 `run_python_script` 运行入口脚本。
+
+技能有两种类型：
+
+| `type` | 作用 |
+|--------|------|
+| `atomic`（默认） | 一项具体能力，例如下载、转写、估值、排雷 |
+| `orch` | 编排流程。用 `depends_on` 声明要展开的原子技能，由主 Agent 按正文调度 |
 
 ### 内置 Skill
 
@@ -169,11 +215,13 @@ investment_agent/                 # 仓库根目录
 ---
 name: my-skill
 description: 一句话说明何时应该用它
+type: atomic
+depends_on: []
 ---
 # 正文会在模型调用 Skill 工具时注入
 ```
 
-脚本放在该技能的 `scripts/` 下。参数以 CLI 旗标传入，也可从 stdin 读 JSON。
+`type` 省略时按原子技能处理。编排技能把 `type` 设为 `orch`，并在 `depends_on` 里列出要一起启用的原子技能名。脚本放在该技能的 `scripts/` 下。参数以 CLI 旗标传入，也可从 stdin 读 JSON。
 
 ---
 
@@ -191,7 +239,7 @@ description: 一句话说明何时应该用它
 | `DelegateTask` | 把多步子任务交给隔离的子 Agent |
 | HTTP 检索实例 | 在 `/tools` 配置外部检索服务，每个实例是一个独立工具 |
 
-路径访问受策略约束：业务上限制敏感目录，写文件落在 `data/`。
+路径访问受策略约束：业务上限制敏感目录，写文件落在 `data/`。检索实例保存后，连通性测试请求的是 `{base_url}/health`。
 
 ---
 
@@ -202,13 +250,13 @@ description: 一句话说明何时应该用它
 | `analyze_financial_report` | 对指定年报 Markdown 做最小必要阅读和可复核的排雷分析 |
 | `build_annual_report_index` | 优先跑脚本，为年报生成章节索引 JSON |
 
-在 `/agents` 的「Subagent 定义」里可以新建。子 Agent 不能再挂 `DelegateTask`，也不能再挂其他 Subagent。模型留空时继承主 Agent。
+在 `/agents` 的「Subagent 定义」里可以新建。写清 `description`（主模型靠它决定何时调用）、允许的 `tools` / `skills`，以及可选的 token 与裁剪覆盖。
 
 ---
 
 ## 配置
 
-全局参数在 `investment_agent/settings.json`。模型密钥存在 SQLite `models` 表，不写进这个文件。单个 Agent 可以在页面上覆盖引擎和上下文参数。
+全局参数在 `investment_agent/settings.json`。模型密钥存在 SQLite `models` 表，不写进这个文件。单个 Agent 可以在页面上覆盖引擎和上下文参数；Agent 显式填写的值优先于全局配置。
 
 ```json
 {
@@ -217,6 +265,9 @@ description: 一句话说明何时应该用它
     "slow_think_interval": 5,
     "token_budget": 100000,
     "subagent_token_budget": 100000,
+    "subagent": {
+      "token_budget": 100000
+    },
     "loop_detection_threshold": 3,
     "skill_body_ttl": 600,
     "context_trim_token_threshold": 90000,
@@ -226,11 +277,13 @@ description: 一句话说明何时应该用它
     "offload_summary_chars": 200
   },
   "context": {
+    "model_max_tokens": null,
     "safety_margin": 0.10,
     "max_chars_per_msg": 2000,
     "budget": {
       "system_max_tokens": 40000,
-      "tools_max_tokens": 20000
+      "tools_max_tokens": 20000,
+      "messages_max_tokens": null
     }
   },
   "skills": { "directory": "./extensions/skills" },
@@ -244,11 +297,23 @@ description: 一句话说明何时应该用它
 | `max_steps` | 单次任务最大步数 |
 | `slow_think_interval` | 双循环下每隔多少步做一次慢思考 |
 | `token_budget` | 主 Agent token 上限 |
-| `subagent_token_budget` | 子 Agent 默认 token 上限 |
+| `subagent_token_budget` | 子 Agent 默认 token 上限；`engine.subagent.token_budget` 是同一额度的嵌套写法 |
 | `loop_detection_threshold` | 连续相同工具调用达到该次数后中止 |
+| `skill_body_ttl` | Skill 正文内存缓存秒数，过期后下次读取再加载 |
 | `context_trim_token_threshold` | 运行中开始裁剪上下文的 token 水位 |
 | `max_subagent_depth` | 委派最大层数，`0` 表示不允许创建子 Agent |
 | `offload_threshold` | 工具结果超过该字符数后卸载为摘要 |
+| `model_max_tokens` | 上下文预算使用的模型窗口；`null` 时走程序内默认值 |
+| `messages_max_tokens` | 历史消息预算上限；`null` 时按窗口扣除系统和工具预算后计算 |
+
+下面几项未写进当前 `settings.json`，省略时使用括号中的默认值，也可以写进 `engine` 或单个 Agent 的引擎配置：
+
+| 参数 | 默认 | 含义 |
+|------|------|------|
+| `runtime_context_compression_enabled` | `true` | 是否在运行中裁剪上下文 |
+| `max_parallel_subagents` | `3` | 同一轮并行子任务上限 |
+| `planning_max_tokens` | `1024` | 生成委派指令时的单轮输出上限 |
+| `subagent_workspace_dir` | `data/tmp/subagents` | 子 Agent 工作目录 |
 
 改文件后需重启进程。`get_settings()` 有缓存，代码里调用 `reload_settings()` 才会重读。
 
@@ -268,7 +333,7 @@ description: 一句话说明何时应该用它
   GET    /api/sessions
   GET    /api/sessions/{id}
   POST   /api/sessions/{id}/title
-  PATCH  /api/sessions/{id}/context
+  PATCH  /api/sessions/{id}/context        设置回放模式：chat 或 full
   DELETE /api/sessions/{id}
 
 Agent / Subagent
@@ -341,24 +406,23 @@ Agent / Subagent
 
 ### 加一个基础设施工具
 
-在 `agent/tools/` 继承 `BaseTool`，实现 `name`、`description`、`schema` 和 `async run()`。外部 HTTP 能力优先用工具页的检索模板配实例，而不是再写一个专用客户端。
+在 `agent/tools/` 继承 `BaseTool`，实现 `name`、`description`、`schema` 和 `async run()`，再在 `AgentRegistry.bootstrap_default_tools()` 里登记。外部 HTTP 能力优先用工具页的检索模板配实例，而不是再写一个专用客户端。
 
 ### 加一个子 Agent
 
-在 `extensions/subagents/` 放一份带 YAML frontmatter 的 Markdown，或在 `/agents` 页面创建。写清 `description`（主模型靠它决定何时调用）、允许的 `tools` / `skills`，以及可选的 token 与裁剪覆盖。
+在 `extensions/subagents/` 放一份带 YAML frontmatter 的 Markdown，或在 `/agents` 页面创建。写清 `description`、允许的 `tools` / `skills`，以及可选的 token 与裁剪覆盖。
 
 ---
 
-## 待办
+## 后续方向
 
-仍在推进的方向见 [docs/TODO.md](docs/TODO.md)，主要包括：
+已有上下文压缩、Plan Execute 和 `search_text`。还没做的方向：
 
-- 用容器隔离替代代码层的路径逃逸检查
-- 控制子 Agent 读大文件带来的 token 放大
-- 文件权限判断改为规则加一次轻量模型校验
-- 带内容权重的检索、根据执行日志改 Skill、进一步提高缓存命中
-
-读财报方法笔记在 `docs/财报分析实操手册-初学者按图索骥.md`、`docs/财报排雷要点-手把手教你读财报.md`、`docs/财报企业经营分析要点-手把手教你读财报.md`。
+- 接入 MCP，让 Agent 使用浏览器
+- 跨会话记忆
+- 根据使用情况进化 Skill
+- `find_skills` / skill 投票
+- search_tools
 
 ---
 

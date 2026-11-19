@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Awaitable, Callable
 
@@ -24,71 +25,15 @@ TEMPLATE_DESCRIPTION = "调用外部检索服务，只返回命中的原文片�
 DEFAULT_PATH = "/retrieve"
 DEFAULT_TIMEOUT = 90
 
-PARAM_TYPES = ("string", "integer", "number", "boolean")
+PARAM_TYPES = ("string", "integer", "number", "boolean", "array")
 
 DEFAULT_PARAMS: list[dict[str, Any]] = [
     {
-        "key": "question",
+        "key": "",
         "source": "llm",
         "type": "string",
         "required": True,
-        "description": "要查询的问题",
-        "value": "",
-    },
-    {
-        "key": "mode",
-        "source": "llm",
-        "type": "string",
-        "required": False,
-        "description": "检索模式：hybrid、bm25 或 vector。不填则用服务默认值",
-        "value": "",
-    },
-    {
-        "key": "top_k",
-        "source": "llm",
-        "type": "integer",
-        "required": False,
-        "description": "返回的片段条数，正整数",
-        "value": "",
-    },
-    {
-        "key": "scope",
-        "source": "llm",
-        "type": "string",
-        "required": False,
-        "description": "company 只查公司材料，knowledge 只查投资通识",
-        "value": "",
-    },
-    {
-        "key": "doc_type",
-        "source": "llm",
-        "type": "string",
-        "required": False,
-        "description": "材料类型：filing、ir_qa、survey、research、news、theory、beginner",
-        "value": "",
-    },
-    {
-        "key": "company",
-        "source": "llm",
-        "type": "string",
-        "required": False,
-        "description": "公司简称，精确匹配。用户点名公司时填写",
-        "value": "",
-    },
-    {
-        "key": "stock_code",
-        "source": "llm",
-        "type": "string",
-        "required": False,
-        "description": "6 位股票代码。用户点名公司时填写",
-        "value": "",
-    },
-    {
-        "key": "year",
-        "source": "llm",
-        "type": "integer",
-        "required": False,
-        "description": "报告期或发布年份",
+        "description": "",
         "value": "",
     },
 ]
@@ -151,10 +96,13 @@ def build_schema(instance: dict) -> dict:
         key = param.get("key") or ""
         if not key:
             continue
-        properties[key] = {
+        prop: dict[str, Any] = {
             "type": param.get("type") or "string",
             "description": (param.get("description") or key).strip(),
         }
+        if prop["type"] == "array":
+            prop["items"] = {"type": "string"}
+        properties[key] = prop
         if param.get("required"):
             required.append(key)
     return {
@@ -186,9 +134,27 @@ def prompt_section(instances: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _coerce_array(value: Any) -> list | None:
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if not isinstance(value, str):
+        raise ValueError(f"无法把 {value!r} 转成数组")
+    text = value.strip()
+    if not text:
+        return None
+    if text.startswith("["):
+        parsed = json.loads(text)
+        if not isinstance(parsed, list):
+            raise ValueError(f"无法把 {value!r} 转成数组")
+        return [str(item) for item in parsed]
+    return [item.strip() for item in text.split(",") if item.strip()]
+
+
 def _coerce(value: Any, typ: str) -> Any:
     if value is None:
         return None
+    if typ == "array":
+        return _coerce_array(value)
     if isinstance(value, str):
         value = value.strip()
         if value == "":
