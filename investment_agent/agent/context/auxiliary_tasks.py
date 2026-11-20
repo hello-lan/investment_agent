@@ -11,6 +11,7 @@ import re
 from typing import TYPE_CHECKING
 
 from .token_utils import truncate_text
+from ..prompts import TITLE_SYSTEM_PROMPT, TITLE_USER_PREFIX
 
 if TYPE_CHECKING:
     from ..core.provider import ModelProvider
@@ -21,14 +22,6 @@ TITLE_MAX_CHARS = 50
 USER_TEXT_MAX_CHARS = 2000
 TITLE_MAX_TOKENS = 64
 TITLE_TEMPERATURE = 0.3
-
-_TITLE_SYSTEM_PROMPT = (
-    "你是会话标题生成器。根据用户在本会话中发送的消息，生成一个简短的中文标题。\n"
-    "要求：\n"
-    "- 不超过 20 个字\n"
-    "- 概括用户意图或主题\n"
-    "- 只输出标题本身，不要引号、标点装饰或解释"
-)
 
 _WRAP_QUOTES = "「」『』\"'“”‘’"
 
@@ -65,7 +58,7 @@ def _build_title_user_prompt(user_texts: list[str]) -> str:
         if not clipped:
             continue
         parts.append(f"{i}. {clipped}")
-    return "请根据以下用户消息生成标题：\n" + "\n".join(parts)
+    return TITLE_USER_PREFIX + "\n".join(parts)
 
 
 async def generate_session_title(
@@ -85,7 +78,7 @@ async def generate_session_title(
     try:
         resp = await provider.chat(
             messages=provider.convert_messages(messages),
-            system=_TITLE_SYSTEM_PROMPT,
+            system=TITLE_SYSTEM_PROMPT,
             tools=None,
             max_tokens=TITLE_MAX_TOKENS,
             temperature=TITLE_TEMPERATURE,

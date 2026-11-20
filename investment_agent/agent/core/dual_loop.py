@@ -4,6 +4,7 @@ from typing import AsyncGenerator
 
 from ._signals import _Value
 from ..constants import EventType
+from ..prompts import slow_think_reflection
 from .base_loop import BaseLoopEngine
 from .slow_think import SlowThinkStrategy
 from .provider import ToolCall
@@ -43,7 +44,7 @@ class DualLoopEngine(BaseLoopEngine):
                 }
                 messages.append({
                     "role": "user",
-                    "content": f"[慢思考反思 @ step {step}] {reflection}",
+                    "content": slow_think_reflection(step, reflection),
                 })
 
         yield _Value(messages)

@@ -10,7 +10,8 @@ import os
 import shutil
 from typing import ClassVar
 
-from .config import AgentRunConfig, EngineConfig, OFFLOAD_AWARE_PROMPT
+from .config import AgentRunConfig, EngineConfig
+from .prompts import OFFLOAD_AWARE_PROMPT, OFFLOAD_NO_SHELL
 from .constants import ProviderType
 from .context.context_offloader import ContextOffloader
 from .context.manager import ContextManager, ContextResult
@@ -327,7 +328,7 @@ class AgentRunner:
         if needs_compressor:
             engine._system_prompt += OFFLOAD_AWARE_PROMPT
         if not enable_run_command and needs_compressor:
-            engine._system_prompt += "\n- 当前未启用 run_command 时，如需查看卸载文件，请改用 read_file 读取对应路径。"
+            engine._system_prompt += OFFLOAD_NO_SHELL
         if enable_run_command:
             from .tools.run_command import RunCommandTool  # 延迟导入避免循环依赖
             run_tool = RunCommandTool()

@@ -9,16 +9,21 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ..config import (
+from ..config import PLANNING_MAX_TOKENS_DEFAULT
+from ..prompts import (
     TASK_PLANNER_SYSTEM,
     TASK_PLANNER_PROMPT,
     SUBAGENT_TASK_PLANNER_SYSTEM,
     SUBAGENT_TASK_PLANNER_PROMPT,
-    PLANNING_MAX_TOKENS_DEFAULT,
 )
 
 if TYPE_CHECKING:
     from .provider import ModelProvider
+
+_SKILL_INFO_NONE = "无指定技能"
+_SKILL_INFO_NAMES = "将使用技能: {names}"
+_SKILL_INFO_WITH_BODIES = "将使用技能: {names}\n## 技能完整说明\n\n{bodies}"
+_SKILL_BODY_HEADING = "### {name}\n\n"
 
 _log = logging.getLogger(__name__)
 
@@ -169,27 +174,25 @@ class TaskPlanner:
 
     def _build_skill_info(self, skill_names: list[str]) -> str:
         """构建技能信息文本，包含技能完整说明。"""
-        skill_info_lines = (
-            [f"将使用技能: {', '.join(skill_names)}"]
-            if skill_names
-            else ["无指定技能"]
+        if not skill_names:
+            return _SKILL_INFO_NONE
+
+        from ..skills.loader import _registry as _gen_skill_registry
+        skill_bodies = []
+        for name in skill_names:
+            sk = _gen_skill_registry.get(name)
+            if sk:
+                body_text = sk.body
+                if len(body_text) > self.skill_body_max_chars:
+                    body_text = (
+                        body_text[:self.skill_body_max_chars]
+                        + "\n...[技能说明已截断，完整内容可通过 Skill 工具加载]"
+                    )
+                skill_bodies.append(_SKILL_BODY_HEADING.format(name=name) + body_text)
+        names = ", ".join(skill_names)
+        if not skill_bodies:
+            return _SKILL_INFO_NAMES.format(names=names)
+        return (
+            _SKILL_INFO_WITH_BODIES.format(names=names, bodies="")
+            + "\n---\n".join(skill_bodies)
         )
-
-        if skill_names:
-            from ..skills.loader import _registry as _gen_skill_registry
-            skill_bodies = []
-            for name in skill_names:
-                sk = _gen_skill_registry.get(name)
-                if sk:
-                    body_text = sk.body
-                    if len(body_text) > self.skill_body_max_chars:
-                        body_text = (
-                            body_text[:self.skill_body_max_chars]
-                            + "\n...[技能说明已截断，完整内容可通过 Skill 工具加载]"
-                        )
-                    skill_bodies.append(f"### {name}\n\n{body_text}")
-            if skill_bodies:
-                skill_info_lines.append("## 技能完整说明\n")
-                skill_info_lines.append("\n---\n".join(skill_bodies))
-
-        return "\n".join(skill_info_lines)

@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from ..prompts import STEP_BUDGET_MARKER, STEP_BUDGET_WARNING
+
 if TYPE_CHECKING:
     from .engine import AgentEngine
 
@@ -61,13 +63,12 @@ class SafetyChecker:
         if remaining <= warn_threshold:
             last_msg = messages[-1] if messages else {}
             last_content = last_msg.get("content", "")
-            if isinstance(last_content, str) and "步数预算警告" in last_content:
+            if isinstance(last_content, str) and STEP_BUDGET_MARKER in last_content:
                 return True  # 已注入过
 
-            warning = (
-                f"[步数预算警告] 剩余步数: {remaining}/{engine.max_steps}。"
-                f"请评估当前进度：如果仍在数据准备阶段，考虑跳过中间步骤，"
-                f"直接使用已有数据快速进入核心分析。优先委派而非亲自调试。"
+            warning = STEP_BUDGET_WARNING.format(
+                remaining=remaining,
+                max_steps=engine.max_steps,
             )
             messages.append({"role": "user", "content": warning})
             return True

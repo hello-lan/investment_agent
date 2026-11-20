@@ -9,11 +9,11 @@ import json
 
 from ..agent.config import (
     AgentRunConfig,
-    DEFAULT_SYSTEM_PROMPT,
     MAX_PARALLEL_SUBAGENTS_DEFAULT,
     PLANNING_MAX_TOKENS_DEFAULT,
     SUBAGENT_WORKSPACE_DIR_DEFAULT,
 )
+from ..agent.prompts import DEFAULT_SYSTEM_PROMPT
 from ..agent.constants import OffloadSummaryStrategy, ProviderType, LoopMode
 from ..agent.core.provider import ClaudeProvider, ModelProvider, OpenAICompatProvider
 from ..agent.skills.cache import get_cache

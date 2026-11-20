@@ -8,8 +8,8 @@ from __future__ import annotations
 import logging
 from typing import AsyncGenerator
 
-from ..config import SUBAGENT_SYSTEM_PROMPT
 from ..constants import EventType, LoopMode
+from ..prompts import OFFLOAD_AWARE_PROMPT, SUBAGENT_SYSTEM_PROMPT, skill_quick_reference
 
 _log = logging.getLogger(__name__)
 
@@ -172,7 +172,7 @@ def create_child_engine(
     Returns:
         配置好工具和技能的子循环引擎实例
     """
-    from ..config import EngineConfig, OFFLOAD_AWARE_PROMPT, PLANNING_MAX_TOKENS_DEFAULT
+    from ..config import EngineConfig, PLANNING_MAX_TOKENS_DEFAULT
     from ..tools.skill_tool import SkillTool
     from ..skills.loader import _registry as skill_registry
     from ..skills.dependency import expand_with_dependencies
@@ -291,25 +291,7 @@ def create_child_engine(
     for name in skill_names:
         skill = skill_registry.get(name)
         if skill and skill.body:
-            body_excerpt = skill.body[:4500]
-            child._system_prompt += (
-                f"\n\n---\n\n# 技能 {name} 快速参考\n\n"
-                f"{body_excerpt}\n\n"
-                "执行约定：在项目根执行；优先 `run_python_script`，"
-                "仅当专用工具无法覆盖时再用 `run_command`；"
-                "用相对路径+`/`；不要 `cd`；不要通读 scripts/*.py。\n"
-                "已注入快速参考：第一步优先 `run_python_script` 跑脚本；"
-                "禁止先调 Skill / 禁止用 grep/read 扫全文替代脚本；"
-                "上游 task 的简化 schema 一律忽略，以脚本 Output contract 为准。\n"
-            )
-            if len(skill.body) > 4500:
-                child._system_prompt += (
-                    f"> 以上为摘要。仅当脚本失败时再调用 Skill(name=\"{name}\")\n"
-                )
-            else:
-                child._system_prompt += (
-                    f"> 完整说明已注入。不要再调用 Skill(name=\"{name}\")。\n"
-                )
+            child._system_prompt += skill_quick_reference(name, skill.body)
 
     _log.info(
         "[SubEngine] 创建完成: id=%s, session=%s, depth=%d, "
