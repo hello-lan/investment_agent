@@ -125,7 +125,7 @@ class FileScopePolicy:
         lines.append("- 任何未列入 targets 的读取路径")
         return "\n".join(lines)
 
-    def main_agent_prompt_section(self) -> str:
+    def main_agent_prompt_section(self, *, include_write: bool = True) -> str:
         lines = ["\n\n## 安全文件工具访问规则\n"]
         lines.append("### 可读取范围")
         for path in self.read_targets:
@@ -133,9 +133,13 @@ class FileScopePolicy:
             suffix = "/" if path.is_dir() else ""
             lines.append(f"- `{label}{suffix}`")
         lines.append("")
-        lines.append("### 可写入范围")
-        lines.append(f"- 仅允许写入 `{self._to_rel(self.data_root)}/` 及其子目录")
-        lines.append(f"- 仅提供文件名时，默认写入 `{self._to_rel(self.default_write_root)}/`")
+        if include_write:
+            lines.append("### 可写入范围")
+            lines.append(f"- 仅允许写入 `{self._to_rel(self.data_root)}/` 及其子目录")
+            lines.append(f"- 仅提供文件名时，默认写入 `{self._to_rel(self.default_write_root)}/`")
+        else:
+            lines.append("### 写入")
+            lines.append("- 未挂载写入或执行工具。不要写文件，不要执行命令。")
         lines.append("")
         lines.append("### 读取结果说明")
         lines.append("- `read_file` / `list_files` / `search_text` 会先返回 `[result]` 元信息头，再给出正文")

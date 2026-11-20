@@ -168,15 +168,13 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
 
     skill_names = list(definition.get("skills") or [])
     all_skill_names = expand_with_dependencies(skill_names) if skill_names else []
+    # 工具只认定义里的 tools（Markdown frontmatter / 数据库），不补默认写工具
     tool_names = set(definition.get("tools") or [])
-    # 永不给子引擎委派类工具
     tool_names -= {"DelegateTask", "Subagent"}
-    tool_names |= {
-        "list_files", "read_file", "search_text", "write_file", "run_python_script",
-    }
 
     scope = FileScopePolicy.for_main_agent(skill_names=all_skill_names)
-    child._system_prompt += scope.main_agent_prompt_section()
+    include_write = bool(tool_names & {"write_file", "run_command", "run_python_script"})
+    child._system_prompt += scope.main_agent_prompt_section(include_write=include_write)
     for tool in (
         ListFilesTool(scope),
         ReadFileTool(scope),
