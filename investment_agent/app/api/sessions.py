@@ -16,6 +16,10 @@ class ContextModeRequest(BaseModel):
     mode: str
 
 
+class CollaborationModeRequest(BaseModel):
+    mode: str
+
+
 @router.get("")
 async def list_sessions():
     """历史会话列表（最近 50 条）"""
@@ -40,6 +44,61 @@ async def set_context_mode(session_id: str, body: ContextModeRequest):
     if not updated:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"success": True, "context_mode": body.mode}
+
+
+@router.patch("/{session_id}/collaboration-mode")
+async def set_collaboration_mode(session_id: str, body: CollaborationModeRequest):
+    """切换会话协作模式：agent 执行，plan 规划。"""
+    if body.mode not in ("agent", "plan"):
+        raise HTTPException(status_code=400, detail="mode 只能是 agent 或 plan")
+    updated = await SessionService.set_collaboration_mode(session_id, body.mode)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"success": True, "collaboration_mode": body.mode}
+
+
+@router.post("/{session_id}/approve-plan")
+async def approve_plan(session_id: str):
+    """批准计划：切回执行模式，并按计划文件自动发起一轮。"""
+    from ...agent.tools.propose_plan import approve_plan_message, plan_file_path
+    from ...agent import AgentRunner
+    from ..config_factory import load_agent_run_config
+    from ..storage import SqliteStorage
+    from .chat import _start_background_task
+
+    detail = await SessionService.get_session_with_messages(session_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        plan_path = plan_file_path(session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if not plan_path.is_file():
+        raise HTTPException(status_code=400, detail="计划文件不存在，请先提交计划")
+
+    storage = SqliteStorage()
+    running_task = await storage.get_session_running_task(session_id)
+    if running_task:
+        raise HTTPException(status_code=409, detail="该会话有正在运行的任务，无法批准计划")
+
+    updated = await SessionService.set_collaboration_mode(session_id, "agent")
+    if not updated:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    message = approve_plan_message(session_id)
+    agent_id = detail["session"].get("agent_id")
+    config = await load_agent_run_config(agent_id)
+    runner = AgentRunner(storage=storage)
+    task_id, session_id = await runner.start(
+        session_id=session_id,
+        config=config,
+        message=message,
+        collaboration_mode="agent",
+    )
+    result = await _start_background_task(runner, task_id, config, session_id)
+    result["message"] = message
+    return result
 
 
 @router.post("/{session_id}/title")

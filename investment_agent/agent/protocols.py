@@ -77,6 +77,7 @@ class Storage(Protocol):
     async def create_or_get_session(
         self, session_id: str, agent_id: str | None, title: str,
         context_mode: str | None = None,
+        collaboration_mode: str | None = None,
     ) -> str:
         """创建或复用会话，返回 session_id。"""
         ...
@@ -103,6 +104,14 @@ class Storage(Protocol):
 
     async def set_context_mode(self, session_id: str, mode: str) -> None:
         """设置会话的上下文回放方式。"""
+        ...
+
+    async def get_collaboration_mode(self, session_id: str) -> str:
+        """查询会话协作模式：agent 或 plan。"""
+        ...
+
+    async def set_collaboration_mode(self, session_id: str, mode: str) -> None:
+        """设置会话协作模式。"""
         ...
 
     async def save_context_snapshot(

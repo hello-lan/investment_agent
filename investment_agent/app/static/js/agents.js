@@ -509,8 +509,7 @@ function updateLoopModeUI() {
   const mode = document.getElementById('agentLoopMode').value || 'dual_loop';
   const slowThinkRow = document.getElementById('agentSlowThinkRow');
   const slowThink = document.getElementById('agentSlowThink');
-  const enabledModes = new Set(['dual_loop', 'plan_execute']);
-  const slowThinkUseful = enabledModes.has(mode);
+  const slowThinkUseful = mode === 'dual_loop';
   if (slowThink) slowThink.disabled = !slowThinkUseful;
   if (slowThinkRow) {
     slowThinkRow.classList.toggle('hidden', !slowThinkUseful);
@@ -562,7 +561,7 @@ function fillEngineFields(cfg) {
   // 旧 react_subagent 映射为 react
   let mode = cfg.loop_mode || 'dual_loop';
   if (mode === 'react_subagent') mode = 'react';
-  if (mode === 'workflow') mode = 'dual_loop';
+  if (mode === 'workflow' || mode === 'plan_execute') mode = 'dual_loop';
   loopMode.value = mode;
   document.getElementById('agentSlowThinkVal').textContent = cfg.slow_think_interval ?? 3;
   tokenBudget.value = cfg.token_budget ?? '';

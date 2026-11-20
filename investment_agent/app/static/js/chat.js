@@ -1,4 +1,4 @@
-let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,currentAgentId=null,currentModelId=null,currentContextMode='chat',currentFile=null,currentStreamState=null;
+let currentSessionId=null,currentTaskId=null,currentEventSource=null,totalInputTokens=0,totalOutputTokens=0,currentAgentId=null,currentModelId=null,currentContextMode='chat',currentCollaborationMode='agent',currentFile=null,currentStreamState=null;
 let _shareMode=false,_shareExporting=false;
 let allSessions=[],agentMap={},modelMap={},modelList=[];
 let userScrolledUp=false, hasNewContentSinceScroll=false;
@@ -1077,6 +1077,7 @@ async function loadSession(sid){
     currentContextMode = 'chat';
     updateContextModeChip();
   }
+  if (sessionData) _syncCollaborationMode(sessionData.collaboration_mode);
   if (sessionData && sessionData.status === 'running' && sessionData.current_task_id) {
     await reconnectToTask(sid, sessionData.current_task_id);
     return;
@@ -1097,6 +1098,7 @@ async function loadSession(sid){
     const sess = data.session || {};
     currentContextMode = sess.context_mode === 'full' ? 'full' : 'chat';
     updateContextModeChip();
+    _syncCollaborationMode(sess.collaboration_mode);
     totalInputTokens = sess.input_tokens || 0;
     totalOutputTokens = sess.output_tokens || 0;
     updateStats();
@@ -1117,6 +1119,7 @@ async function deleteSession(sid){
     document.getElementById('messages').innerHTML = _welcomeHtml();
     resetUsageStats();
     setUserMsgCount(0);
+    _syncCollaborationMode('agent');
   }
   loadSessions();
 }
@@ -1127,6 +1130,7 @@ function newSession(){
   currentSessionId = null;
   currentContextMode = 'chat';
   updateContextModeChip();
+  _syncCollaborationMode('agent');
   document.getElementById('messages').innerHTML = _welcomeHtml();
   resetUsageStats();
   setUserMsgCount(0);
@@ -1315,9 +1319,74 @@ function updateStats(){
   if (outputEl) outputEl.textContent = totalOutputTokens.toLocaleString();
 }
 
+function _isRunning(){
+  const stop = document.getElementById('btnStop');
+  return !!(stop && stop.style.display === 'flex');
+}
+
+function _syncCollaborationMode(mode){
+  currentCollaborationMode = mode === 'plan' ? 'plan' : 'agent';
+  updateCollabModeUI();
+}
+
+function updateCollabModeUI(){
+  const running = _isRunning();
+  const label = document.getElementById('collabModeLabel');
+  if (label) label.textContent = currentCollaborationMode === 'plan' ? '规划' : '执行';
+  const trigger = document.getElementById('collabModeTrigger');
+  if (trigger) trigger.disabled = running;
+  document.querySelectorAll('#collabMode .collab-mode-option').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === currentCollaborationMode);
+  });
+  if (running) closeCollabMenu();
+  document.querySelectorAll('.plan-card-btn').forEach(btn => { btn.disabled = running; });
+}
+
+function toggleCollabMenu(event){
+  if (event) event.stopPropagation();
+  if (_isRunning()) return;
+  const menu = document.getElementById('collabModeMenu');
+  const trigger = document.getElementById('collabModeTrigger');
+  if (!menu) return;
+  const willOpen = menu.hidden;
+  menu.hidden = !willOpen;
+  if (trigger) trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+}
+
+function closeCollabMenu(){
+  const menu = document.getElementById('collabModeMenu');
+  const trigger = document.getElementById('collabModeTrigger');
+  if (menu) menu.hidden = true;
+  if (trigger) trigger.setAttribute('aria-expanded', 'false');
+}
+
+document.addEventListener('click', (event) => {
+  const root = document.getElementById('collabMode');
+  if (root && !root.contains(event.target)) closeCollabMenu();
+});
+
+async function setCollaborationMode(mode){
+  closeCollabMenu();
+  if (mode !== 'agent' && mode !== 'plan') return;
+  if (_isRunning() || mode === currentCollaborationMode) return;
+  currentCollaborationMode = mode;
+  updateCollabModeUI();
+  if (!currentSessionId) return;
+  try {
+    await fetch('/api/sessions/' + encodeURIComponent(currentSessionId) + '/collaboration-mode', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mode}),
+    });
+  } catch (e) {
+    console.error('setCollaborationMode', e);
+  }
+}
+
 function setRunning(r){
   document.getElementById('btnSend').style.display = r ? 'none' : 'flex';
   document.getElementById('btnStop').style.display = r ? 'flex' : 'none';
+  updateCollabModeUI();
 }
 
 function _closeStreamConnection(){
@@ -1391,6 +1460,8 @@ function _handleStreamEvent(ev, state){
     s.pendingTool = null;
   } else if (ev.type === 'slow_think'){
     _addThinkStep(_ensureBlock(s, setState), s.thinkSteps, '💭', '策略复盘', ev.content);
+  } else if (ev.type === 'plan_ready'){
+    _renderPlanCard(_ensureBlock(s, setState), ev);
   } else if (ev.type === 'done'){
     _finalizeAssistantRender(s);
     const b = s.replyBlock;
@@ -1421,6 +1492,81 @@ function _handleStreamEvent(ev, state){
     _showRetryButton(b, errorEl);
     finishStream();
   }
+}
+
+function _renderPlanCard(block, ev){
+  if (!block || !block.container) return;
+  const old = block.container.querySelector('.plan-card');
+  if (old) old.remove();
+  const overview = ev.overview || '计划已提交';
+  const path = ev.path || '';
+  const card = document.createElement('div');
+  card.className = 'plan-card';
+  card.innerHTML =
+    '<div class="plan-card-kicker">计划已提交</div>' +
+    '<div class="plan-card-overview">' + escapeHtml(overview) + '</div>' +
+    (path
+      ? '<button type="button" class="plan-card-preview" title="预览计划">' +
+          '<svg class="plan-card-preview-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>' +
+          '<span class="plan-card-preview-name">' + escapeHtml(path) + '</span>' +
+          '<span class="plan-card-preview-hint">预览</span>' +
+        '</button>'
+      : '') +
+    '<div class="plan-card-actions">' +
+      '<button type="button" class="plan-card-btn plan-card-approve">批准并执行</button>' +
+      '<button type="button" class="plan-card-btn plan-card-continue">继续规划</button>' +
+    '</div>';
+  const bubble = block.container.querySelector('.msg-bubble');
+  (bubble || block.container).appendChild(card);
+  const preview = card.querySelector('.plan-card-preview');
+  if (preview) preview.addEventListener('click', () => previewPlan(path));
+  card.querySelector('.plan-card-approve').addEventListener('click', approvePlan);
+  card.querySelector('.plan-card-continue').addEventListener('click', continuePlanning);
+  updateCollabModeUI();
+  scrollToBottom(true);
+}
+
+function previewPlan(path){
+  const display = String(path || '').replace(/\\/g, '/').trim();
+  if (!display) return;
+  openPathInDrawer(_toApiPath(display), 'markdown', 'chat');
+}
+
+function continuePlanning(){
+  const input = document.getElementById('inputBox');
+  if (input) input.focus();
+}
+
+async function approvePlan(){
+  if (!currentSessionId || _isRunning()) return;
+  setRunning(true);
+  showThinking();
+  let data;
+  try {
+    const res = await fetch('/api/sessions/' + encodeURIComponent(currentSessionId) + '/approve-plan', {method:'POST'});
+    data = await res.json();
+    if (!res.ok || !data.task_id) {
+      const detail = data && data.detail;
+      throw new Error(typeof detail === 'string' ? detail : '批准失败');
+    }
+  } catch (e) {
+    removeThinking();
+    setRunning(false);
+    _append('<div class="msg-error">' + escapeHtml(e.message || '批准失败') + '</div>');
+    return;
+  }
+  _syncCollaborationMode('agent');
+  const message = data.message || '已批准计划，开始执行。';
+  appendUserMsg(message);
+  currentTaskId = data.task_id;
+  currentSessionId = data.session_id || currentSessionId;
+  incrementUserMsgCount();
+  _activateSentSession(currentSessionId, message);
+  currentStreamState = _createStreamState(null);
+  _connectToStream(currentTaskId, {
+    getState: () => currentStreamState,
+    setState: (updates) => Object.assign(currentStreamState, updates),
+  });
 }
 
 function _ensureBlock(s, setState){
@@ -2280,12 +2426,13 @@ async function sendMessage(){
     if (currentAgentId) fd.append('agent_id', currentAgentId);
     if (currentModelId) fd.append('model_id', currentModelId);
     fd.append('context_mode', currentContextMode);
+    fd.append('collaboration_mode', currentCollaborationMode);
     fd.append('message', text);
     fd.append('file', currentFile);
     const res = await fetch('/api/chat',{ method:'POST', body:fd });
     data = await res.json();
   } else {
-    const payload = {session_id: currentSessionId, message: text, agent_id: currentAgentId, context_mode: currentContextMode};
+    const payload = {session_id: currentSessionId, message: text, agent_id: currentAgentId, context_mode: currentContextMode, collaboration_mode: currentCollaborationMode};
     if (currentModelId) payload.model_id = currentModelId;
     const res = await fetch('/api/chat',{
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -2324,6 +2471,11 @@ async function sendMessage(){
 }
 
 function handleKey(e){
+  if (e.key === 'Tab' && e.shiftKey && !_atOpen && !_slashOpen) {
+    e.preventDefault();
+    setCollaborationMode(currentCollaborationMode === 'plan' ? 'agent' : 'plan');
+    return;
+  }
   if (_atOpen){
     if (e.key === 'ArrowDown'){ e.preventDefault(); _moveAtSelection(1); return; }
     if (e.key === 'ArrowUp'){ e.preventDefault(); _moveAtSelection(-1); return; }

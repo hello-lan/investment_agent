@@ -68,10 +68,10 @@ async def get_utility_provider() -> ModelProvider:
 
 
 def _normalize_loop_mode(value) -> str:
-    """标准化 loop_mode，兼容已移除的 workflow 与旧 react_subagent 数据。"""
+    """标准化 loop_mode，兼容已移除的 workflow、plan_execute 与旧 react_subagent。"""
     if value == "react_subagent":
         return LoopMode.REACT
-    if value == "workflow":
+    if value in ("workflow", "plan_execute"):
         return LoopMode.DUAL_LOOP
     try:
         return LoopMode(value)

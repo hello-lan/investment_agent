@@ -701,6 +701,7 @@ async def init_db() -> None:
             ("sessions", "cache_creation_tokens", "INTEGER DEFAULT 0"),
             ("sessions", "currency", "TEXT"),
             ("sessions", "context_mode", "TEXT DEFAULT 'chat'"),
+            ("sessions", "collaboration_mode", "TEXT DEFAULT 'agent'"),
             ("trace_log", "agent_name", "TEXT"),
             ("trace_log", "detail_size", "INTEGER DEFAULT 0"),
             ("cost_log", "agent_name", "TEXT"),
@@ -739,9 +740,9 @@ async def init_db() -> None:
             if not isinstance(cfg, dict):
                 continue
             changed = False
-            if cfg.get("loop_mode") == "workflow":
-                # 没有 workflow_id 的旧数据原先等价于 plan_execute；真正的 DAG 工作流改为双循环
-                cfg["loop_mode"] = "plan_execute" if not cfg.get("workflow_id") else "dual_loop"
+            if cfg.get("loop_mode") in ("workflow", "plan_execute"):
+                # workflow 与已移除的 plan_execute 都回到双循环
+                cfg["loop_mode"] = "dual_loop"
                 changed = True
             if "workflow_id" in cfg:
                 cfg.pop("workflow_id", None)

@@ -22,7 +22,7 @@ class SessionService:
                 SELECT s.id, s.agent_id, s.title, s.status, s.current_task_id,
                        s.input_tokens, s.output_tokens, s.cost_usd,
                        s.cache_read_tokens, s.cache_creation_tokens, s.currency,
-                       s.context_mode, s.created_at,
+                       s.context_mode, s.collaboration_mode, s.created_at,
                        (SELECT SUBSTR(content, 1, 50) FROM messages
                         WHERE session_id = s.id AND role = 'user'
                         ORDER BY created_at LIMIT 1) AS preview
@@ -70,6 +70,19 @@ class SessionService:
         async with get_db() as db:
             cursor = await db.execute(
                 "UPDATE sessions SET context_mode = ? WHERE id = ?",
+                (mode, session_id),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    @staticmethod
+    async def set_collaboration_mode(session_id: str, mode: str) -> bool:
+        """设置协作模式。会话不存在时返回 False。"""
+        if mode not in ("agent", "plan"):
+            raise ValueError(mode)
+        async with get_db() as db:
+            cursor = await db.execute(
+                "UPDATE sessions SET collaboration_mode = ? WHERE id = ?",
                 (mode, session_id),
             )
             await db.commit()

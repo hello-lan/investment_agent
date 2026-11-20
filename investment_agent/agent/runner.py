@@ -11,7 +11,7 @@ import shutil
 from typing import ClassVar
 
 from .config import AgentRunConfig, EngineConfig, OFFLOAD_AWARE_PROMPT
-from .constants import ProviderType, LoopMode
+from .constants import ProviderType
 from .context.context_offloader import ContextOffloader
 from .context.manager import ContextManager, ContextResult
 from .context.runtime_compressor import CompressRuntimeCompressor, NoOpRuntimeCompressor
@@ -58,6 +58,7 @@ class AgentRunner:
         config: AgentRunConfig,
         message: str,
         context_mode: str | None = None,
+        collaboration_mode: str | None = None,
     ) -> tuple[str, str]:
         """准备对话：创建会话、保存用户消息、创建引擎、注册工具。
 
@@ -72,6 +73,7 @@ class AgentRunner:
             agent_id=config.agent_id,
             title=message,
             context_mode=context_mode,
+            collaboration_mode=collaboration_mode,
         )
 
         # 2. 保存用户消息
@@ -80,7 +82,8 @@ class AgentRunner:
         # 3. 创建引擎（含工具/技能注册）
         from .tools.http_retrieve import refresh_instance_cache
         await refresh_instance_cache()
-        engine = self._create_engine(config, session_id)
+        mode = await self._storage.get_collaboration_mode(session_id)
+        engine = self._create_engine(config, session_id, collaboration_mode=mode)
 
         self._engines[engine.task_id] = engine
         return engine.task_id, session_id
@@ -107,7 +110,8 @@ class AgentRunner:
         # 2. 创建引擎（含工具/技能注册）
         from .tools.http_retrieve import refresh_instance_cache
         await refresh_instance_cache()
-        engine = self._create_engine(config, session_id)
+        mode = await self._storage.get_collaboration_mode(session_id)
+        engine = self._create_engine(config, session_id, collaboration_mode=mode)
 
         self._engines[engine.task_id] = engine
         return engine.task_id, session_id
@@ -220,7 +224,12 @@ class AgentRunner:
 
     # ── Internal helpers ──────────────────────────────────────────────────
 
-    def _create_engine(self, config: AgentRunConfig, session_id: str) -> BaseLoopEngine:
+    def _create_engine(
+        self,
+        config: AgentRunConfig,
+        session_id: str,
+        collaboration_mode: str = "agent",
+    ) -> BaseLoopEngine:
         """创建引擎并注册工具/技能。start() 和 setup() 共用。"""
         # 展开 orch 技能依赖，供文件作用域 / AccessPolicy / 委派使用
         all_skill_names = expand_with_dependencies(config.skills) if config.skills else []
@@ -290,15 +299,17 @@ class AgentRunner:
             allowed_tools = set(config.tools)
         else:
             allowed_tools = registry.auto_bound_tools | set(config.tools)
+        plan_mode = collaboration_mode == "plan"
+        if plan_mode:
+            from .tools.propose_plan import PLAN_BLOCKED_TOOLS
+            allowed_tools = allowed_tools - PLAN_BLOCKED_TOOLS
         enable_run_command = "run_command" in allowed_tools
-        if config.loop_mode == LoopMode.PLAN_EXECUTE:
-            allowed_tools = allowed_tools | {"DelegateTask"}
 
         # 设置允许的技能名称集合（含依赖，供 prepare_delegate_task 委派到依赖技能）
         engine._allowed_skill_names = set(all_skill_names)
 
         # 用户定义 Subagent 挂载快照
-        mounted = list(getattr(config, "mounted_subagents", None) or [])
+        mounted = [] if plan_mode else list(getattr(config, "mounted_subagents", None) or [])
         engine._mounted_subagents_by_name = {
             sa["name"]: sa for sa in mounted if sa.get("name")
         }
@@ -363,4 +374,11 @@ class AgentRunner:
                 skill = get_skill(name)
                 if skill:
                     engine.register_skill(skill)
+
+        if plan_mode:
+            from .tools.propose_plan import PLAN_MODE_PROMPT, ProposePlanTool
+            plan_tool = ProposePlanTool(session_id)
+            engine.register_tool(plan_tool.schema, plan_tool.run)
+            engine._system_prompt += PLAN_MODE_PROMPT
+            engine._prompt_builder = None
         return engine

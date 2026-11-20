@@ -21,26 +21,39 @@ class SqliteStorage:
     async def create_or_get_session(
         self, session_id: str, agent_id: str | None, title: str,
         context_mode: str | None = None,
+        collaboration_mode: str | None = None,
     ) -> str:
         """创建或复用会话，返回 session_id。"""
         mode = context_mode if context_mode in ("chat", "full") else None
+        collab = collaboration_mode if collaboration_mode in ("agent", "plan") else None
         async with get_db() as db:
             row = await db.execute("SELECT id FROM sessions WHERE id = ?", (session_id,))
             exists = await row.fetchone()
             if not exists:
                 now = datetime.now(timezone.utc).isoformat()
                 await db.execute(
-                    "INSERT INTO sessions (id, agent_id, title, status, context_mode, created_at) "
-                    "VALUES (?, ?, ?, 'active', ?, ?)",
-                    (session_id, agent_id, title[:50], mode or "chat", now),
+                    "INSERT INTO sessions "
+                    "(id, agent_id, title, status, context_mode, collaboration_mode, created_at) "
+                    "VALUES (?, ?, ?, 'active', ?, ?, ?)",
+                    (session_id, agent_id, title[:50], mode or "chat", collab or "agent", now),
                 )
                 await db.commit()
-            elif mode:
-                await db.execute(
-                    "UPDATE sessions SET context_mode = ? WHERE id = ?",
-                    (mode, session_id),
-                )
-                await db.commit()
+            else:
+                updates = []
+                params: list = []
+                if mode:
+                    updates.append("context_mode = ?")
+                    params.append(mode)
+                if collab:
+                    updates.append("collaboration_mode = ?")
+                    params.append(collab)
+                if updates:
+                    params.append(session_id)
+                    await db.execute(
+                        f"UPDATE sessions SET {', '.join(updates)} WHERE id = ?",
+                        params,
+                    )
+                    await db.commit()
         return session_id
 
     async def save_user_message(self, session_id: str, content: str) -> str:
@@ -90,6 +103,29 @@ class SqliteStorage:
         async with get_db() as db:
             await db.execute(
                 "UPDATE sessions SET context_mode = ? WHERE id = ?",
+                (mode, session_id),
+            )
+            await db.commit()
+
+    async def get_collaboration_mode(self, session_id: str) -> str:
+        """查询会话协作模式。缺省为 agent。"""
+        async with get_db() as db:
+            row = await db.execute(
+                "SELECT collaboration_mode FROM sessions WHERE id = ?", (session_id,),
+            )
+            result = await row.fetchone()
+        if not result:
+            return "agent"
+        mode = result["collaboration_mode"] or "agent"
+        return mode if mode in ("agent", "plan") else "agent"
+
+    async def set_collaboration_mode(self, session_id: str, mode: str) -> None:
+        """设置会话协作模式。"""
+        if mode not in ("agent", "plan"):
+            raise ValueError(f"invalid collaboration mode: {mode}")
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE sessions SET collaboration_mode = ? WHERE id = ?",
                 (mode, session_id),
             )
             await db.commit()

@@ -92,6 +92,16 @@
             <textarea id="inputBox" rows="1" placeholder="/ 快捷命令，@ 引用文件 · Enter 发送，Shift+Enter 换行"
               onkeydown="handleKey(event)" oninput="onInputBoxInput(this)"></textarea>
           </div>
+          <div class="collab-mode" id="collabMode">
+            <button type="button" class="collab-mode-trigger" id="collabModeTrigger" aria-haspopup="listbox" aria-expanded="false" aria-label="协作模式" onclick="toggleCollabMenu(event)">
+              <span id="collabModeLabel">执行</span>
+              <svg class="collab-mode-chevron" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+            </button>
+            <div class="collab-mode-menu" id="collabModeMenu" hidden role="listbox">
+              <button type="button" class="collab-mode-option active" data-mode="agent" role="option" onclick="setCollaborationMode('agent')">执行</button>
+              <button type="button" class="collab-mode-option" data-mode="plan" role="option" onclick="setCollaborationMode('plan')">规划</button>
+            </div>
+          </div>
           <button class="btn-stop" id="btnStop" onclick="stopTask()" title="停止" aria-label="停止">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
           </button>

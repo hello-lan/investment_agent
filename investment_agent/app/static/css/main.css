@@ -470,6 +470,71 @@ body.left-split-resizing {
   align-items: flex-end;
   gap: 6px;
 }
+.collab-mode {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  align-self: flex-end;
+}
+.collab-mode-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--c-text-3);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  line-height: 1;
+  border-radius: var(--r-full);
+  cursor: pointer;
+}
+.collab-mode-trigger:hover {
+  background: var(--c-primary-light);
+  color: var(--c-text-1);
+}
+.collab-mode-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.collab-mode-chevron {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+.collab-mode-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  min-width: 96px;
+  padding: 4px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(26, 26, 46, 0.12);
+  z-index: 30;
+}
+.collab-mode-menu[hidden] { display: none !important; }
+.collab-mode-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--c-text-1);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.collab-mode-option:hover,
+.collab-mode-option.active {
+  background: var(--c-primary-light);
+}
 .context-mode-text {
   margin: 0 8px 0 auto;
   flex-shrink: 0;
@@ -478,6 +543,87 @@ body.left-split-resizing {
   color: var(--c-text-3);
   pointer-events: none;
   white-space: nowrap;
+}
+.plan-card {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-surface);
+}
+.plan-card-kicker {
+  font-size: var(--fs-sm);
+  color: var(--c-text-3);
+}
+.plan-card-overview {
+  margin-top: 4px;
+  color: var(--c-text-1);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.plan-card-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  background: var(--c-primary-lighter);
+  color: var(--c-text-1);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.plan-card-preview:hover {
+  border-color: var(--c-accent);
+  background: var(--c-accent-light);
+}
+.plan-card-preview-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--c-accent-text);
+}
+.plan-card-preview-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ff-mono);
+}
+.plan-card-preview-hint {
+  flex-shrink: 0;
+  color: var(--c-primary);
+  font-weight: 500;
+}
+.plan-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.plan-card-btn {
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  color: var(--c-text-1);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  border-radius: var(--r-full);
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.plan-card-approve {
+  background: var(--c-primary);
+  border-color: var(--c-primary);
+  color: #fff;
+}
+.plan-card-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .file-chip {
   max-width: 260px;

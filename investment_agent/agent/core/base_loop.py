@@ -24,6 +24,26 @@ from ..context.runtime_compressor import RuntimeCompressor
 _log = logging.getLogger(__name__)
 
 
+def _successful_plan(tool_calls, tool_results) -> dict | None:
+    """本步成功写入计划时返回路径和概述，供循环结束并通知前端。"""
+    by_id = {
+        item.get("tool_use_id"): str(item.get("content") or "")
+        for item in tool_results
+    }
+    ready = None
+    prefix = "已写入计划:"
+    for tc in tool_calls:
+        if tc.name != "propose_plan":
+            continue
+        content = by_id.get(tc.id, "")
+        if not content.startswith(prefix):
+            continue
+        path = content[len(prefix):].strip().splitlines()[0].strip()
+        overview = str((tc.input or {}).get("overview") or "").strip()
+        ready = {"path": path, "overview": overview}
+    return ready
+
+
 class BaseLoopEngine:
     """执行循环基类：提供公共运行时能力与模板方法。"""
 
@@ -354,6 +374,15 @@ class BaseLoopEngine:
                     else:
                         yield event
                 self._messages = messages
+                ready = _successful_plan(response.tool_calls, tool_results)
+                if ready:
+                    yield {
+                        "type": EventType.PLAN_READY,
+                        "path": ready["path"],
+                        "overview": ready["overview"],
+                    }
+                    yield self.build_done_event()
+                    return
         else:
             self._messages = messages
             yield {"type": EventType.ERROR, "message": f"Max steps ({self.max_steps}) reached."}

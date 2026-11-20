@@ -253,15 +253,14 @@
         <span class="group-title">Loop 类型</span>
       </div>
       <div class="config-group-body">
-        <div class="config-group-desc">选择 Agent 的执行循环模式。该配置决定推理节奏与是否启用子Agent委派，不属于上下文管理策略。</div>
+        <div class="config-group-desc">选择 Agent 的执行循环模式。该配置只决定推理节奏，规划在聊天窗口切换。</div>
         <div class="form-row">
           <label>Loop 类型</label>
           <select id="agentLoopMode">
             <option value="dual_loop">双循环（快循环 + 慢思考）</option>
             <option value="react">ReAct（普通单循环）</option>
-            <option value="plan_execute">Plan Execute（规划 + 委派执行）</option>
           </select>
-          <div class="hint">双循环适合复杂任务纠偏；ReAct 适合轻量工具推理；Plan Execute 适合先拆解再委派汇总。挂载的用户定义 Subagent 在三种模式下均可使用。</div>
+          <div class="hint">双循环适合复杂任务纠偏；ReAct 适合轻量工具推理。规划在聊天窗口切换，不属于循环类型。</div>
         </div>
       </div>
     </div>

@@ -47,7 +47,6 @@ class LoopMode(StrEnum):
     DUAL_LOOP = "dual_loop"
     REACT = "react"
     REACT_SUBAGENT = "react_subagent"
-    PLAN_EXECUTE = "plan_execute"
 
 
 # ── 消息角色 ──────────────────────────────────────────────────────────
@@ -69,6 +68,7 @@ class EventType(StrEnum):
     ERROR = "error"
     INTERRUPTED = "interrupted"
     STEP_START = "step_start"
+    PLAN_READY = "plan_ready"
 
     # 文本
     TEXT_DELTA = "text_delta"

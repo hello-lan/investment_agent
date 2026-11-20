@@ -110,13 +110,14 @@ start.bat --port 8000
 
 ## 工作方式
 
-一次对话由 `AgentRunner` 拉起。`loop_factory` 按 Agent 的 `loop_mode` 创建引擎，默认是双循环。每个会话有独立的工具和技能注册表。
+一次对话由 `AgentRunner` 拉起。`loop_factory` 按 Agent 的 `loop_mode` 创建引擎，默认是双循环。每个会话有独立的工具和技能注册表。循环只决定推理节奏，不决定能不能改文件。
 
 | 模式 | 行为 |
 |------|------|
 | `dual_loop` | 每步推理并调用工具；每隔若干步插入慢思考，复盘进度并纠偏 |
 | `react` | 单循环推理，适合轻量工具调用 |
-| `plan_execute` | 先把任务拆成可独立推进的阶段，再委派 Subagent 或 `DelegateTask`，最后由主 Agent 汇总 |
+
+聊天窗口可以在「执行」和「规划」之间切换，状态记在会话的 `collaboration_mode` 上，下一条消息生效。规划轮只开放读取、检索和 `propose_plan`；计划写到 `data/plans/{session_id}.md`。用户批准后才切回执行，并按该文件自动跑一轮。
 
 主循环有步数上限、token 预算、连续同工具调用检测，以及可中断的 SSE 流。长对话在开跑前按预算压缩系统提示词和历史消息；运行中可裁剪上下文，并把过长的工具结果卸载成摘要，原文留在 `data/.offload/`，需要时再用 `read_file` 读回。
 
@@ -134,6 +135,7 @@ Subagent 与父对话隔离：只拿任务说明和自己的工具集，结束�
 data/
 ├── agent.db                      # SQLite
 ├── uploads/                      # 对话上传
+├── plans/                        # 会话规划文件
 ├── reports/<股票代码>/
 │   ├── 1_pdf/                    # 下载的 PDF
 │   ├── 2_markdown/               # PDF 转写结果

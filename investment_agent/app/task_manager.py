@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # 渲染事件类型：这些事件需要缓冲用于重连回放
 _RENDER_EVENTS = frozenset({
     "text_delta", "tool_call", "tool_result",
-    "slow_think", "done", "error", "interrupted",
+    "slow_think", "plan_ready", "done", "error", "interrupted",
 })
 
 # 任务完成后缓冲保留时间（秒）
