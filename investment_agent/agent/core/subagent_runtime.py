@@ -11,7 +11,8 @@ import uuid
 from dataclasses import dataclass
 from typing import AsyncGenerator
 
-from ..config import OFFLOAD_AWARE_PROMPT, EngineConfig, PLANNING_MAX_TOKENS_DEFAULT
+from ..config import EngineConfig, PLANNING_MAX_TOKENS_DEFAULT
+from ..prompts import OFFLOAD_AWARE_PROMPT, defined_subagent_preamble, skill_quick_reference
 from ..constants import EventType, LoopMode
 from ...config import ROOT_DIR
 from .subagent_config import (
@@ -144,11 +145,7 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
     )
 
     system_prompt = (definition.get("system_prompt") or "").strip()
-    system_prompt += (
-        f"\n\n## 项目路径\n"
-        f"ROOT_DIR = {ROOT_DIR}\n"
-        f"你是叶子执行者：不要尝试再次委派或调用 DelegateTask。\n"
-    )
+    system_prompt += defined_subagent_preamble(str(ROOT_DIR))
     if resolved.compression_active:
         system_prompt += OFFLOAD_AWARE_PROMPT
 
@@ -168,15 +165,13 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
 
     skill_names = list(definition.get("skills") or [])
     all_skill_names = expand_with_dependencies(skill_names) if skill_names else []
+    # 工具只认定义里的 tools（Markdown frontmatter / 数据库），不补默认写工具
     tool_names = set(definition.get("tools") or [])
-    # 永不给子引擎委派类工具
     tool_names -= {"DelegateTask", "Subagent"}
-    tool_names |= {
-        "list_files", "read_file", "search_text", "write_file", "run_python_script",
-    }
 
     scope = FileScopePolicy.for_main_agent(skill_names=all_skill_names)
-    child._system_prompt += scope.main_agent_prompt_section()
+    include_write = bool(tool_names & {"write_file", "run_command", "run_python_script"})
+    child._system_prompt += scope.main_agent_prompt_section(include_write=include_write)
     for tool in (
         ListFilesTool(scope),
         ReadFileTool(scope),
@@ -217,25 +212,7 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
             if skill:
                 child.register_skill(skill)
                 if skill.body:
-                    # 优先保留文首 Quick start / 推荐命令，避免子 Agent 再通读脚本烧 token
-                    body_excerpt = skill.body[:4500]
-                    child._system_prompt += (
-                        f"\n\n---\n\n# 技能 {name} 快速参考\n\n{body_excerpt}\n\n"
-                        "执行约定：在项目根执行；优先 `run_python_script`，"
-                        "仅当专用工具无法覆盖时再用 `run_command`；"
-                        "用相对路径+`/`；不要 `cd`；不要通读 scripts/*.py。\n"
-                        "已注入快速参考：第一步优先 `run_python_script` 跑脚本；"
-                        "禁止先调 Skill / 禁止用 grep/read 扫全文替代脚本；"
-                        "上游 task 的简化 schema 一律忽略，以脚本 Output contract 为准。\n"
-                    )
-                    if len(skill.body) > 4500:
-                        child._system_prompt += (
-                            f"> 以上为摘要。仅当脚本失败时再调用 Skill(name=\"{name}\")\n"
-                        )
-                    else:
-                        child._system_prompt += (
-                            f"> 完整说明已注入。不要再调用 Skill(name=\"{name}\")。\n"
-                        )
+                    child._system_prompt += skill_quick_reference(name, skill.body)
 
     # 忽略剩余未知工具名
     if tool_names - {"Skill"}:

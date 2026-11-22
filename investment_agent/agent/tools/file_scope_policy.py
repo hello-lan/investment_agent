@@ -6,6 +6,55 @@ from pathlib import Path
 
 from ...config import ROOT_DIR
 
+_READ_RESULT_SECTION = """### 读取结果说明
+- `read_file` / `list_files` / `search_text` 会先返回 `[result]` 元信息头，再给出正文
+- 如头部出现 `complete=false` 或 `has_more=true`，表示结果不完整，不能据此声称已覆盖全部内容
+- 继续读取时，优先使用头部提供的 `next_start_line` 或 `next_offset`"""
+
+_DENY_COMMON = """- `investment_agent/` 项目源码
+- `extensions/` 中未启用的技能目录
+- `.git/`、`.claude/`、虚拟环境目录、数据库文件"""
+
+_FILE_SCOPE_PROMPT = """
+
+## 文件作用域规则
+
+### 允许读取
+{read_lines}
+### 允许写入
+- `{data_root}/` 及其子目录
+- 仅提供文件名时，默认写入 `{default_write}/`
+{output_line}- 子Agent工作区：`{workspace}/`
+
+{read_result}
+
+### 禁止访问
+{deny_common}
+- 任何未列入 targets 的读取路径"""
+
+_MAIN_SCOPE_WRITE = """### 可写入范围
+- 仅允许写入 `{data_root}/` 及其子目录
+- 仅提供文件名时，默认写入 `{default_write}/`"""
+
+_MAIN_SCOPE_NO_WRITE = """### 写入
+- 未挂载写入或执行工具。不要写文件，不要执行命令。"""
+
+_MAIN_SCOPE_PROMPT = """
+
+## 安全文件工具访问规则
+
+### 可读取范围
+{read_lines}
+{write_block}
+
+{read_result}
+
+### 禁止访问
+{deny_common}
+- 任何未列入可读取范围的路径"""
+
+_OUTPUT_LINE = "- 推荐输出路径：`{path}`"
+
 
 class FileScopePolicy:
     """约束 Agent 可读写的文件范围。"""
@@ -101,53 +150,38 @@ class FileScopePolicy:
         )
 
     def prompt_section(self) -> str:
-        lines = ["\n\n## 文件作用域规则\n"]
-        lines.append("### 允许读取")
-        for path in self.read_targets:
-            lines.append(f"- `{self._to_rel(path)}`")
-        lines.append("")
-        lines.append("### 允许写入")
-        lines.append(f"- `{self._to_rel(self.data_root)}/` 及其子目录")
-        lines.append(f"- 仅提供文件名时，默认写入 `{self._to_rel(self.default_write_root)}/`")
+        read_lines = "\n".join(f"- `{self._to_rel(path)}`" for path in self.read_targets)
+        output_line = ""
         if self.output_path:
-            lines.append(f"- 推荐输出路径：`{self._to_rel(self.output_path)}`")
-        lines.append(f"- 子Agent工作区：`{self._to_rel(self.workspace_root)}/`")
-        lines.append("")
-        lines.append("### 读取结果说明")
-        lines.append("- `read_file` / `list_files` / `search_text` 会先返回 `[result]` 元信息头，再给出正文")
-        lines.append("- 如头部出现 `complete=false` 或 `has_more=true`，表示结果不完整，不能据此声称已覆盖全部内容")
-        lines.append("- 继续读取时，优先使用头部提供的 `next_start_line` 或 `next_offset`")
-        lines.append("")
-        lines.append("### 禁止访问")
-        lines.append("- `investment_agent/` 项目源码")
-        lines.append("- `extensions/` 中未启用的技能目录")
-        lines.append("- `.git/`、`.claude/`、虚拟环境目录、数据库文件")
-        lines.append("- 任何未列入 targets 的读取路径")
-        return "\n".join(lines)
+            output_line = _OUTPUT_LINE.format(path=self._to_rel(self.output_path)) + "\n"
+        return _FILE_SCOPE_PROMPT.format(
+            read_lines=read_lines + "\n",
+            data_root=self._to_rel(self.data_root),
+            default_write=self._to_rel(self.default_write_root),
+            output_line=output_line,
+            workspace=self._to_rel(self.workspace_root),
+            read_result=_READ_RESULT_SECTION,
+            deny_common=_DENY_COMMON,
+        )
 
-    def main_agent_prompt_section(self) -> str:
-        lines = ["\n\n## 安全文件工具访问规则\n"]
-        lines.append("### 可读取范围")
+    def main_agent_prompt_section(self, *, include_write: bool = True) -> str:
+        read_lines = []
         for path in self.read_targets:
-            label = self._to_rel(path)
             suffix = "/" if path.is_dir() else ""
-            lines.append(f"- `{label}{suffix}`")
-        lines.append("")
-        lines.append("### 可写入范围")
-        lines.append(f"- 仅允许写入 `{self._to_rel(self.data_root)}/` 及其子目录")
-        lines.append(f"- 仅提供文件名时，默认写入 `{self._to_rel(self.default_write_root)}/`")
-        lines.append("")
-        lines.append("### 读取结果说明")
-        lines.append("- `read_file` / `list_files` / `search_text` 会先返回 `[result]` 元信息头，再给出正文")
-        lines.append("- 如头部出现 `complete=false` 或 `has_more=true`，表示结果不完整，不能据此声称已覆盖全部内容")
-        lines.append("- 继续读取时，优先使用头部提供的 `next_start_line` 或 `next_offset`")
-        lines.append("")
-        lines.append("### 禁止访问")
-        lines.append("- `investment_agent/` 项目源码")
-        lines.append("- `extensions/` 中未启用的技能目录")
-        lines.append("- `.git/`、`.claude/`、虚拟环境目录、数据库文件")
-        lines.append("- 任何未列入可读取范围的路径")
-        return "\n".join(lines)
+            read_lines.append(f"- `{self._to_rel(path)}{suffix}`")
+        if include_write:
+            write_block = _MAIN_SCOPE_WRITE.format(
+                data_root=self._to_rel(self.data_root),
+                default_write=self._to_rel(self.default_write_root),
+            )
+        else:
+            write_block = _MAIN_SCOPE_NO_WRITE
+        return _MAIN_SCOPE_PROMPT.format(
+            read_lines="\n".join(read_lines) + "\n",
+            write_block=write_block,
+            read_result=_READ_RESULT_SECTION,
+            deny_common=_DENY_COMMON,
+        )
 
     def read_roots(self) -> list[Path]:
         roots: list[Path] = []

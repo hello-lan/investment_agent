@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import re
 import uuid
 from typing import AsyncGenerator, Callable
 
@@ -14,11 +13,8 @@ from .tool_executor import ToolExecutor, LoopDetector
 from .task_planner import TaskPlanner, extract_text_from_content
 from .safety_checker import SafetyChecker
 from .context_trimmer import ContextTrimmer
-from ..config import (
-    EngineConfig,
-    TRUNCATION_CONTINUE_PROMPT,
-    PLANNING_MAX_TOKENS_DEFAULT,
-)
+from ..config import EngineConfig, PLANNING_MAX_TOKENS_DEFAULT
+from ..prompts import DATE_NOTE, DATE_NOTE_RE, PROGRESS_EVAL, TRUNCATION_CONTINUE_PROMPT
 from ..context.runtime_compressor import RuntimeCompressor
 
 _log = logging.getLogger(__name__)
@@ -389,25 +385,22 @@ class BaseLoopEngine:
 
     # ── 公共辅助方法 ─────────────────────────────────────────────────
 
-    _DATE_NOTE_RE = re.compile(
-        r"^\[系统信息\] 当前时间为 .+?请以当前时间为基准判断时间相关的问题。\n\n",
-        re.DOTALL,
-    )
-
     @classmethod
     def _strip_date_note(cls, text: str) -> str:
         """去掉已有的日期说明，避免快照回放时叠多层。"""
-        return cls._DATE_NOTE_RE.sub("", text, count=1)
+        return DATE_NOTE_RE.sub("", text, count=1)
 
     @classmethod
     def _inject_date(cls, messages: list[dict]) -> None:
         """将当前日期注入到第一条消息开头（避免破坏 system prompt cache）。"""
         from datetime import datetime
         now = datetime.now()
-        date_note = (
-            f"[系统信息] 当前时间为 {now.year} 年 {now.month} 月 {now.day} 日 "
-            f"{now.hour:02d}:{now.minute:02d}。"
-            f"请以当前时间为基准判断时间相关的问题。\n\n"
+        date_note = DATE_NOTE.format(
+            year=now.year,
+            month=now.month,
+            day=now.day,
+            hour=now.hour,
+            minute=now.minute,
         )
         msg = messages[0]
         content = msg.get("content", "")
@@ -539,7 +532,7 @@ class BaseLoopEngine:
                     prompt = block.get("text", "")
                     break
             else:
-                return "请基于对话历史评估当前任务进展是否正常。"
+                return PROGRESS_EVAL
 
         for marker in ("\n\n", "\n##", "\n# "):
             idx = prompt.find(marker)
@@ -551,7 +544,7 @@ class BaseLoopEngine:
         max_chars = self.SYSTEM_PROMPT_EXCERPT_CHARS
         if len(prompt) > max_chars:
             prompt = prompt[:max_chars].rsplit("。", 1)[0] + "。"
-        result = prompt + " 请基于对话历史评估当前任务进展是否正常。"
+        result = prompt + " " + PROGRESS_EVAL
         self._cached_role_system = result
         return result
 

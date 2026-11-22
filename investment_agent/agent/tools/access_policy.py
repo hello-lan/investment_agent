@@ -18,6 +18,29 @@ import re
 _SYSTEM_PATHS_UNIX = {"/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"}
 _SYSTEM_PATHS_WINDOWS = {"NUL", "CON", "PRN", "AUX"}
 
+_SKILL_READ_LINE = "- `extensions/skills/{name}/` — 只读"
+
+_RUN_COMMAND_PROMPT = """
+
+## run_command 文件访问规则
+
+### 禁止访问
+- `investment_agent/` — 项目源码，禁止读写
+- `extensions/` — 禁止访问，已启用的技能目录除外（只读）
+
+### 允许访问
+- `data/` — 读写
+- `.venv/` — 只读
+{skill_lines}- 其他目录不受限制
+
+### 命令执行约定（Windows / Linux 通用）
+- `run_command` **已在项目根目录执行**，禁止再 `cd`
+- 路径一律使用相对项目根的相对路径，分隔符用 `/`（如 `data/reports/...`、`extensions/skills/...`）
+- Windows 上禁止盘符绝对路径（`D:\\...`）和 Git Bash 盘符路径（`/d/...`）；Linux 上也请优先相对路径，不要依赖本机绝对路径
+- 不要用单独的 `\\` 做行续写；命令写成单行或用 `&&` 连接
+
+**不要尝试访问被禁止的目录**，否则会收到权限拒绝错误并浪费执行步骤。"""
+
 # ── 安全不变量（硬编码，不可由 Agent 配置覆盖）──
 
 # 顶层目录名：读写全拒
@@ -54,34 +77,10 @@ class AccessPolicy:
         if self._unrestricted:
             return ""
 
-        lines = ["\n\n## run_command 文件访问规则\n"]
-        lines.append("### 禁止访问")
-        lines.append("- `investment_agent/` — 项目源码，禁止读写")
-        lines.append("- `extensions/` — 禁止访问，已启用的技能目录除外（只读）")
-        lines.append("")
-        lines.append("### 允许访问")
-        lines.append("- `data/` — 读写")
-        lines.append("- `.venv/` — 只读")
-        if self._skill_names:
-            for name in self._skill_names:
-                lines.append(f"- `extensions/skills/{name}/` — 只读")
-        lines.append("- 其他目录不受限制")
-        lines.append("")
-        lines.append("### 命令执行约定（Windows / Linux 通用）")
-        lines.append("- `run_command` **已在项目根目录执行**，禁止再 `cd`")
-        lines.append(
-            "- 路径一律使用相对项目根的相对路径，分隔符用 `/`"
-            "（如 `data/reports/...`、`extensions/skills/...`）"
+        skill_lines = "".join(
+            _SKILL_READ_LINE.format(name=name) + "\n" for name in self._skill_names
         )
-        lines.append(
-            "- Windows 上禁止盘符绝对路径（`D:\\...`）和 Git Bash 盘符路径（`/d/...`）；"
-            "Linux 上也请优先相对路径，不要依赖本机绝对路径"
-        )
-        lines.append("- 不要用单独的 `\\` 做行续写；命令写成单行或用 `&&` 连接")
-        lines.append(
-            "\n**不要尝试访问被禁止的目录**，否则会收到权限拒绝错误并浪费执行步骤。"
-        )
-        return "\n".join(lines)
+        return _RUN_COMMAND_PROMPT.format(skill_lines=skill_lines)
 
     def check(self, command: str) -> str | None:
         """检查命令中的路径引用是否命中禁止目录。

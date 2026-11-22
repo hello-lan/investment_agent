@@ -22,6 +22,15 @@ LEGACY_TEMPLATE_IDS = {"rag_retrieve"}
 TEMPLATE_LABEL = "HTTP 检索"
 TEMPLATE_DESCRIPTION = "调用外部检索服务，只返回命中的原文片段。"
 
+_RETRIEVE_INTRO = """
+
+## 检索工具
+查年报原文、互动问答、调研、研报、新闻或投资通识时，调用下列检索工具。
+回答必须依据返回片段。材料不够就说明缺什么，并用片段中的来源标注依据。"""
+
+_RETRIEVE_TOOL_LINE = "- {tool_name}（{display_name}）："
+_RETRIEVE_COMPANY_HINT = "  用户点名公司时，必须传入 {joined}。"
+
 DEFAULT_PATH = "/retrieve"
 DEFAULT_TIMEOUT = 90
 
@@ -119,18 +128,19 @@ def build_schema(instance: dict) -> dict:
 def prompt_section(instances: list[dict]) -> str:
     if not instances:
         return ""
-    lines = [
-        "\n\n## 检索工具",
-        "查年报原文、互动问答、调研、研报、新闻或投资通识时，调用下列检索工具。",
-        "回答必须依据返回片段。材料不够就说明缺什么，并用片段中的来源标注依据。",
-    ]
+    lines = [_RETRIEVE_INTRO]
     for inst in instances:
-        lines.append(f"- {inst['tool_name']}（{inst['display_name']}）：{describe_instance(inst)}")
+        lines.append(
+            _RETRIEVE_TOOL_LINE.format(
+                tool_name=inst["tool_name"],
+                display_name=inst["display_name"],
+            )
+            + describe_instance(inst)
+        )
         llm_keys = [p.get("key") for p in inst.get("params") or [] if p.get("source") == "llm"]
         hinted = [key for key in ("stock_code", "company") if key in llm_keys]
         if hinted:
-            joined = " 或 ".join(hinted)
-            lines.append(f"  用户点名公司时，必须传入 {joined}。")
+            lines.append(_RETRIEVE_COMPANY_HINT.format(joined=" 或 ".join(hinted)))
     return "\n".join(lines)
 
 

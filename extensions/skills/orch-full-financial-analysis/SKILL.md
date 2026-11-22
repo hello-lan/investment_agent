@@ -1,15 +1,17 @@
 ---
 name: orch-full-financial-analysis
 type: orch
-description: 完整财报分析流程：下载A股近3年完整财报PDF → PDF转Markdown → 财报章节切割 → 财务排雷分析。当用户要求对某只A股进行完整财务分析时触发（如"分析茅台财报"、"对XXX做财务尽调"、"全面分析XXX的财务状况"）。
+description: 旧版编排，只保留下载和转写。不再按章节切开，也不做年报核查。用户要完整年报流程时改用 full-financial-analysis，不要用本技能做核查。
 depends_on:
   - download-a-share-reports
   - pdf-to-markdown
-  - split-financial-report
-  - a-share-financial-forensic
 ---
 
-# 完整财报分析流程（编排）
+# 完整财报下载与转写编排（不再切割、不再排雷）
+
+这条编排只做到下载和转写。**按章节切开已移除。排雷已改走 `full-financial-analysis`**（年报 Markdown 建索引，再由 `analyze-financial-report` 排雷；多年对比在该流程步骤 5 汇总）。
+
+用户要排雷或完整财报分析时：停止本编排，改走 `full-financial-analysis`。下面步骤 1–2 仅在用户明确只要 PDF 和 Markdown 时使用。步骤 3 一律停止并指向新流程。
 
 ## ⚠️ 核心规则（必须严格遵守）
 
@@ -20,7 +22,7 @@ depends_on:
 5. **委派失败处理**：如果某次委派返回错误（如工具调用超限、执行异常），**绝对禁止父Agent亲自调用 run_command 接管执行**。正确的处理方式是：分析失败原因 → 调整委派指令（缩小范围、降低复杂度）→ 重新委派。如果同一任务重新委派2次仍失败，按规则4降级跳过。
 6. **目录规范强制执行**：委派指令中的输出路径是**绝对约束**，子Agent必须使用指定的路径，不得自行创建新目录或更改命名。每个步骤委派完成后必须校验输出是否符合预期目录结构。
 
-串行执行以下 4 个步骤，每步完成后再进入下一步。任一步骤失败时停止并报告用户。
+用户明确只要 PDF 和 Markdown 时，串行执行步骤 1–2。任一步失败时停止并报告用户。用户要排雷或完整分析时，不要执行下面步骤，直接改走 `full-financial-analysis`。不要再按章节切开财报。
 
 ## 前置确认
 
@@ -85,89 +87,28 @@ depends_on:
 
 ---
 
-## 步骤 3：财报章节切割
+## 步骤 3：停止，改走排雷流程
 
-**必须委派**。用 `DelegateTask(skill_names=["split-financial-report"], task="...")` 委派。
+**不要委派。** 本步骤不做切割，也不做排雷。
 
-- **一次委派处理所有待切割的 `.md` 文件**
-- 输出目录必须使用 `3_split/{code}_{year}/` 格式（脚本根据年份自动创建子目录）
+告知用户：排雷改走 `full-financial-analysis`。该流程用年报 Markdown 建同级索引，再由 `analyze-financial-report` 做单年排雷；年份不少于两年时，由步骤 5 汇总各年 `.analysis.md`。
 
-**委派指令模板（精简）**：
-```
-输出根目录: {ROOT_DIR}/data/reports/{code}/3_split/
-逐一切割以下Markdown文件（auto模式，启用 --financial-sub）:
-- {ROOT_DIR}/data/reports/{code}/2_markdown/{code}_{year1}年年度报告_{year1}.md
-- {ROOT_DIR}/data/reports/{code}/2_markdown/{code}_{year2}年年度报告_{year2}.md
-- ...
-⚠️ 必须使用指定的输出根目录，禁止自行为输出目录改名（如3_chapters等）
-```
-
-**输入**：步骤 2 输出的 `.md` 文件路径列表
-**输出**：`data/reports/{股票代码}/3_split/{股票代码}_{年份}/` 目录下的切割文件
-**步数预算**：父Agent最多消耗3步
-**委派后校验**：执行 `ls -d data/reports/{code}/3_split/{code}_*` 确认每个年份都有对应目录，缺失年份则单独补充委派
-
----
-
-## 步骤 4：财务排雷分析
-
-**必须委派**。用 `DelegateTask(skill_names=["a-share-financial-forensic"], task="...")` 委派。
-
-**委派策略**：一次委派覆盖所有年份。`a-share-financial-forensic` 技能内部已支持多年模式（collect_data.py 自动发现所有年份），不要按年份拆分为多次委派。
-
-**委派指令模板（精简）**：
-```
-股票代码: {code}
-股票名称: {name}
-split_dir: {ROOT_DIR}/data/reports/{code}/3_split/
-覆盖年份: {year1}-{yearN}
-输出报告: {ROOT_DIR}/data/reports/{code}/4_output/{code}_{year1}-{yearN}_财务排雷分析报告.md
-```
-> split_dir 下的年份子目录格式为 `{code}_{year}/`，collect_data.py 脚本按此格式自动发现
-
-**输入**：步骤 3 输出的 `data/reports/{code}/3_split/` 目录路径
-**输出**：完整分析报告，保存于 `data/reports/{code}/4_output/{code}_{year_from}-{year_to}_财务排雷分析报告.md`
-
-**步数预算**：子Agent内部执行 a-share-financial-forensic 技能流程：collect_data.py（1步）→ cat data_manifest.md + 校验匹配（2-3步）→ 按清单逐文件读取（5-6步）→ 纯推理分析（0步）→ 写入报告（1-2步）= **合计 9-13步**。父Agent最多消耗3步用于委派创建和结果检查。
-
----
-
-## 步骤 4 降级策略
-
-如果步骤 4 委派失败（token 预算不足或执行错误），**禁止父Agent亲自调用 run_command**，应按以下顺序降级：
-
-**第 1 次重试**：缩小委派范围，改为单一年份分析（优先最近年份）：
-- 委派指令中只指定一个年份的切割目录
-- 要求子Agent精简数据加载：只读 data_manifest.md + 三张报表（已解析）+ 审计报告 + 附注关键段落
-- 工具调用预算降低至 5-6 次以内
-
-**第 2 次重试**：进一步简化，只生成关键数据摘要：
-- 委派指令中明确要求"只读取 data_manifest.md 中的结构化报表数据，基于已有数据做快速排雷，不读原始切割文件"
-- 工具调用预算降低至 2-3 次
-
-**彻底失败**：如果两次重试均失败，跳过步骤 4，汇总已有步骤的输出（PDF列表 + Markdown路径 + 切割结果）生成最终汇报。在汇报中注明"财务排雷分析未能完成"，并列出失败的年份供用户手动处理。
-
-**关键约束**：无论降级到哪一层，都必须通过 `DelegateTask` 委派，**绝对禁止父Agent亲自调用 run_command 执行分析工作**。
+本编排到步骤 2 的 Markdown 为止。若用户要的是排雷报告，步骤 1–2 也不要继续，直接改走上述流程。
 
 ---
 
 ## 数据流
 
 ```
-用户输入（股票名称/代码）
-  → 步骤1: PDF 文件（data/reports/{code}/1_pdf/{code}/*.pdf）
-    → 步骤2: Markdown 文件（data/reports/{code}/2_markdown/{code}_{year}年年度报告_{year}.md）
-      → 步骤3: 切割文件（data/reports/{code}/3_split/{code}_{year}/ch*.md）
-        → 步骤4: 排雷报告 (data/reports/{code}/4_output/{code}_{year_from}-{year_to}_财务排雷分析报告.md)
+用户只要 PDF 和 Markdown 时：
+  步骤1 PDF → 步骤2 Markdown
+排雷与完整分析：
+  停止本编排，改走 full-financial-analysis
 ```
-
-> **目录格式约定**（不可变）：步骤3 切割输出使用 `3_split/{code}_{year}/`，步骤4 forensic 脚本依赖此格式自动发现年份目录。
-
 
 ## 增量策略
 
-每一步都遵循"先检查已有产物 → 仅处理缺失部分"原则：
+步骤 1–2 仍遵循「先检查已有产物 → 仅处理缺失部分」：
 - 步骤1：已有 PDF → 跳过下载
 - 步骤2：已有 `.md` → 跳过转换
-- 步骤3：已有切割目录 → 跳过切割
-- 步骤4：始终执行（分析基于最新数据）
+- 步骤3：不执行

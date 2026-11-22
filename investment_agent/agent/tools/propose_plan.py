@@ -1,4 +1,4 @@
-"""规划模式专用：把本会话计划写到 data/plans/{session_id}.md。"""
+"""把本会话计划写到 data/plans/{session_id}.md。"""
 
 from __future__ import annotations
 

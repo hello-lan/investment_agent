@@ -8,22 +8,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ...config import ROOT_DIR
+from ..prompts import (
+    MOUNTED_MARKER,
+    PROJECT_PATH_MARKER,
+    ROUTING_MARKER,
+    SKILLS_MARKER,
+    mounted_section,
+    project_path_section,
+    routing_section,
+    skills_section,
+)
+
 if TYPE_CHECKING:
     from ...agent.skills.base import BaseSkill
-
-
-_ROUTING_STRATEGY = (
-    "\n\n## 能力分层与委派策略\n"
-    "- **Tools**：原子能力（读文件、搜索、执行命令）。简单取数/单次读写直接调用。\n"
-    "- **Skills**：流程说明书。先调用 `Skill(name=...)` 加载说明，**下一轮**再按说明执行工具；"
-    "同一步的多个 tool_calls 彼此看不到结果，不要同批「加载 Skill 又立刻按正文执行」。\n"
-    "- **SubAgents（用户定义）**：隔离执行者。调用对应工具名，传入自包含的 `task`；"
-    "适合多步、易污染主上下文的专项。同一 turn 可发起多个 SubAgent，前提是 task 互不依赖；"
-    "完成后由你汇总。不要对同一目标重复委派。\n"
-    "- **DelegateTask**：技能驱动的开放委派（编排/多 skill 流水线）。\n"
-    "当前可用委派入口：{tool_names}。\n"
-    "父 Agent 保留全局判断；简单场景直接用 Tools，无需委派。"
-)
 
 
 class PromptBuilder:
@@ -58,37 +56,28 @@ class PromptBuilder:
 
         prompt = self._ensure_project_info(prompt)
 
-        if self._mounted_subagents and "## 已挂载 Subagent" not in prompt:
-            prompt += self._format_mounted_subagents()
+        if self._mounted_subagents and MOUNTED_MARKER not in prompt:
+            prompt += mounted_section([
+                (sa.get("name", ""), sa.get("description") or "")
+                for sa in self._mounted_subagents
+            ])
 
-        if self._delegation_tool_names and "## 能力分层与委派策略" not in prompt:
-            prompt += _ROUTING_STRATEGY.format(
-                tool_names=", ".join(self._delegation_tool_names) or "(无)",
-            )
+        if self._delegation_tool_names and ROUTING_MARKER not in prompt:
+            prompt += routing_section(", ".join(self._delegation_tool_names))
 
         if not self._skills:
             return prompt
 
-        if "# 可用技能" in prompt:
+        if SKILLS_MARKER in prompt:
             return prompt
 
-        return (
-            prompt
-            + "\n\n---\n\n# 可用技能\n\n"
-            + self._format_skills()
-            + "\n\n> 使用 Skill 工具加载技能完整说明后再执行。"
-        )
+        return prompt + skills_section(self._format_skills())
 
     def _ensure_project_info(self, prompt: str) -> str:
-        if "## 项目路径" in prompt:
+        if PROJECT_PATH_MARKER in prompt:
             return prompt
 
-        from ...config import ROOT_DIR
-
-        return prompt + (
-            f"\n\n## 项目路径\n\n"
-            f"ROOT_DIR = {ROOT_DIR}\n"
-        )
+        return prompt + project_path_section(str(ROOT_DIR))
 
     def _format_skills(self) -> str:
         lines = []
@@ -96,21 +85,4 @@ class PromptBuilder:
             prefix = "[orch] " if s.skill_type == "orch" else ""
             deps = f"（含 {len(s.depends_on)} 个子流程）" if s.depends_on else ""
             lines.append(f"- {prefix}**{s.name}**: {s.description}{deps}")
-        return "\n".join(lines)
-
-    def _format_mounted_subagents(self) -> str:
-        lines = ["\n\n## 已挂载 Subagent\n"]
-        for sa in self._mounted_subagents:
-            name = sa.get("name", "")
-            desc = sa.get("description") or ""
-            lines.append(f"- **{name}**: {desc}")
-        lines.append(
-            "\n调用时传入 `task`（可选 `expected_output`）；"
-            "子 Agent 看不到主对话历史，仅返回最终摘要。"
-        )
-        lines.append(
-            "\n委派约定：`task` 只写清输入路径、可选输出路径、股票代码/年份；"
-            "**不要**在 task 里自拟 JSON schema、章节规则或手工扫描步骤"
-            "（子 Agent 按挂载 skill/脚本执行，自拟格式易导致其空转超预算）。"
-        )
         return "\n".join(lines)

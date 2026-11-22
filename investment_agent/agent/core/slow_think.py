@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import AsyncGenerator, TYPE_CHECKING
 
-from ..config import SLOW_THINK_PROMPT
+from ..prompts import SLOW_THINK_PROMPT
 
 if TYPE_CHECKING:
     from .provider import ModelProvider
