@@ -288,7 +288,11 @@ depends_on: []
   },
   "skills": { "directory": "./extensions/skills" },
   "subagents": { "directory": "./extensions/subagents" },
-  "db": { "type": "sqlite", "sqlite_path": "./data/agent.db" }
+  "db": { "type": "sqlite", "sqlite_path": "./data/agent.db" },
+  "file_browser": {
+    "include": [],
+    "exclude": [".gitkeep", "agent.db"]
+  }
 }
 ```
 
@@ -305,6 +309,8 @@ depends_on: []
 | `offload_threshold` | 工具结果超过该字符数后卸载为摘要 |
 | `model_max_tokens` | 上下文预算使用的模型窗口；`null` 时走程序内默认值 |
 | `messages_max_tokens` | 历史消息预算上限；`null` 时按窗口扣除系统和工具预算后计算 |
+| `file_browser.include` | 对话页 `data/` 文件树白名单，路径相对 `data/`、用 `/`。空数组表示不限制。非空时只展示这些路径：写目录则包含其下全部内容；写到更深路径时，上级目录仍显示，否则无法点进去。例如 `["reports/600519"]` 时根目录可见 `reports`，其下只有 `600519`，再往下全部可见 |
+| `file_browser.exclude` | 文件树黑名单。不含 `/` 的名字按文件名匹配任意层级，命中目录时连同其下内容一起隐藏（默认 `.gitkeep`、`agent.db`；`tmp` 会隐藏各级名为 `tmp` 的目录）。含 `/` 时按从 `data/` 起的路径前缀匹配，例如 `plans/old.md` 只隐藏该文件，`reports/600519` 隐藏该目录及其下内容。与 include 同时配置时，先按 include 收窄，再去掉 exclude。不支持通配符。缺省整段 `file_browser` 时仍排除 `.gitkeep` 和 `agent.db`。只影响 `/api/files/tree` 与 `/api/files/children`（左侧文件树和 `@` 文件列表），不拦截 `/api/files/view` |
 
 下面几项未写进当前 `settings.json`，省略时使用括号中的默认值，也可以写进 `engine` 或单个 Agent 的引擎配置：
 

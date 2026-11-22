@@ -141,6 +141,68 @@ class SqliteStorage:
             result = await row.fetchone()
         return result["id"] if result else None
 
+    async def rewind_and_update_user_message(
+        self, session_id: str, message_id: str, content: str,
+    ) -> None:
+        """更新指定用户消息，并删除其后的 messages / 相关 context_snapshots。
+
+        Raises:
+            ValueError: 内容为空
+            LookupError: 消息不存在或不属于该会话 / 非 user
+        """
+        text = (content or "").strip()
+        if not text:
+            raise ValueError("消息内容不能为空")
+
+        async with get_db() as db:
+            row = await db.execute(
+                "SELECT id, role, created_at FROM messages "
+                "WHERE id = ? AND session_id = ?",
+                (message_id, session_id),
+            )
+            target = await row.fetchone()
+            if not target:
+                raise LookupError("消息不存在")
+            if target["role"] != "user":
+                raise LookupError("只能编辑用户消息")
+
+            created_at = target["created_at"] or ""
+
+            # 先收集将被删除的消息 id，用于清理快照引用
+            cursor = await db.execute(
+                "SELECT id FROM messages WHERE session_id = ? AND created_at > ?",
+                (session_id, created_at),
+            )
+            deleted_ids = [r["id"] for r in await cursor.fetchall()]
+
+            await db.execute(
+                "DELETE FROM messages WHERE session_id = ? AND created_at > ?",
+                (session_id, created_at),
+            )
+            await db.execute(
+                "UPDATE messages SET content = ? WHERE id = ?",
+                (text, message_id),
+            )
+
+            # 删除该轮及之后的快照，以及指向已删消息 / 目标消息的快照
+            await db.execute(
+                "DELETE FROM context_snapshots "
+                "WHERE session_id = ? AND created_at >= ?",
+                (session_id, created_at),
+            )
+            await db.execute(
+                "DELETE FROM context_snapshots "
+                "WHERE session_id = ? AND user_message_id = ?",
+                (session_id, message_id),
+            )
+            for did in deleted_ids:
+                await db.execute(
+                    "DELETE FROM context_snapshots "
+                    "WHERE session_id = ? AND user_message_id = ?",
+                    (session_id, did),
+                )
+            await db.commit()
+
     async def save_context_snapshot(
         self, session_id: str, user_message_id: str | None, messages: list,
     ) -> None:

@@ -60,6 +60,13 @@ class RetryRequest(BaseModel):
     model_id: str | None = None
 
 
+class EditRequest(BaseModel):
+    session_id: str
+    message_id: str
+    message: str
+    model_id: str | None = None
+
+
 # ── 请求解析（HTTP 层专属）────────────────────────────────────────────
 
 
@@ -131,6 +138,9 @@ async def _start_background_task(
     engine = AgentRunner.get_engine(task_id)
     await task_manager.start_task(task_id, engine, runner, config, session_id)
     result: dict[str, str] = {"task_id": task_id, "session_id": session_id}
+    message_id = runner.turn_user_message_id()
+    if message_id:
+        result["message_id"] = message_id
     if uploaded_path:
         result["uploaded_path"] = uploaded_path
     return result
@@ -196,6 +206,38 @@ async def retry_chat(body: RetryRequest):
         raise HTTPException(status_code=409, detail="该会话有正在运行的任务，无法重试")
 
     # 加载会话的 agent 配置（可带会话级 model 覆盖）
+    agent_id = await storage.get_session_agent_id(session_id)
+    model_id = (body.model_id or "").strip() or None
+    config = await load_agent_run_config(agent_id, model_id=model_id)
+
+    runner = AgentRunner(storage=storage)
+    task_id, session_id = await runner.setup(session_id, config)
+    return await _start_background_task(runner, task_id, config, session_id)
+
+
+@router.post("/edit")
+async def edit_chat(body: EditRequest):
+    """编辑用户消息并时间倒流：截断后续记录后按新内容重跑。"""
+    session_id = body.session_id
+    message_id = (body.message_id or "").strip()
+    message = (body.message or "").strip()
+    if not message_id:
+        raise HTTPException(status_code=400, detail="message_id 不能为空")
+    if not message:
+        raise HTTPException(status_code=400, detail="消息内容不能为空")
+
+    storage = SqliteStorage()
+    running_task = await storage.get_session_running_task(session_id)
+    if running_task:
+        raise HTTPException(status_code=409, detail="该会话有正在运行的任务，无法编辑")
+
+    try:
+        await storage.rewind_and_update_user_message(session_id, message_id, message)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
     agent_id = await storage.get_session_agent_id(session_id)
     model_id = (body.model_id or "").strip() or None
     config = await load_agent_run_config(agent_id, model_id=model_id)

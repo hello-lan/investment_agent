@@ -11,6 +11,8 @@ const TITLE_GENERATE_MAX_USER_MSGS = 3;
 const _titleGenerating = new Set();
 const _titleGenSeq = Object.create(null);
 const _titleOverrides = Object.create(null);
+/** Fork 后需在用户首次发送消息时强制重命名的 session_id */
+const _forceTitleSessions = new Set();
 
 let _drawerNavStack = [];
 let _drawerEscBound = false;
@@ -62,17 +64,27 @@ function _msgIdentityHtml(role){
   '</div>';
 }
 
-function _msgCopyBtnHtml(withShare){
+function _msgCopyBtnHtml(withShare, withUserExtras){
   const share = withShare
     ? '<button type="button" class="btn-share-msg" title="分享" aria-label="分享">' +
         '<svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M240.49,103.52l-80-80A12,12,0,0,0,140,32V68.74c-25.76,3.12-53.66,15.89-76.75,35.47-29.16,24.74-47.32,56.69-51.14,90A16,16,0,0,0,39.67,207h0c10.46-11.14,47-45.74,100.33-50.42V192a12,12,0,0,0,20.48,8.48l80-80A12,12,0,0,0,240.49,103.52ZM164,163V144a12,12,0,0,0-12-12c-49,0-86.57,21.56-109.79,40.11,7.13-18.16,19.63-35.22,36.57-49.59C101.3,103.41,128.67,92,152,92a12,12,0,0,0,12-12V61l51,51Z"/></svg>' +
+      '</button>'
+    : '';
+  const fork = withShare
+    ? '<button type="button" class="btn-fork-msg" title="分叉为新会话" aria-label="分叉">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/><path d="M12 8v2a4 4 0 0 1-4 4H8"/><path d="M12 10a4 4 0 0 0 4 4h0"/><path d="M8 16v2"/><path d="M16 16v2"/></svg>' +
+      '</button>'
+    : '';
+  const userExtras = withUserExtras
+    ? '<button type="button" class="btn-edit-msg" title="编辑并重跑" aria-label="编辑">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>' +
       '</button>'
     : '';
   return '<div class="msg-actions">' +
     '<button type="button" class="btn-copy-msg" title="复制" aria-label="复制">' +
       '<svg class="icon-copy" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
       '<svg class="icon-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>' +
-    '</button>' + share + '</div>';
+    '</button>' + userExtras + fork + share + '</div>';
 }
 
 function _shareCheckHtml(){
@@ -766,12 +778,48 @@ async function loadModels(){
 
 /* ====== Sessions (right panel) ====== */
 
+const _SESSION_TZ = 'Asia/Shanghai'; // UTC+8
+
+function _parseSessionDate(iso){
+  const raw = String(iso || '').trim();
+  if (!raw) return null;
+  let d = new Date(raw);
+  if (isNaN(d.getTime())) d = new Date(raw.replace(' ', 'T'));
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
+function _sessionPartsInTz(d){
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: _SESSION_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(d);
+  const map = {};
+  for (const p of parts) {
+    if (p.type !== 'literal') map[p.type] = p.value;
+  }
+  return {
+    year: map.year,
+    month: map.month,
+    day: map.day,
+    hour: map.hour,
+    minute: map.minute,
+    dateKey: map.year + '-' + map.month + '-' + map.day,
+  };
+}
+
 function _sessionGroupKey(iso){
-  const d = new Date(String(iso || '').replace(/-/g, '/'));
-  if (isNaN(d.getTime())) return 'earlier';
-  const now = new Date();
-  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startThat = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const d = _parseSessionDate(iso);
+  if (!d) return 'earlier';
+  const that = _sessionPartsInTz(d);
+  const today = _sessionPartsInTz(new Date());
+  const startThat = Date.UTC(+that.year, +that.month - 1, +that.day);
+  const startToday = Date.UTC(+today.year, +today.month - 1, +today.day);
   const diffDays = Math.round((startToday - startThat) / 86400000);
   if (diffDays <= 0) return 'today';
   if (diffDays === 1) return 'yesterday';
@@ -790,18 +838,12 @@ const _SESSION_GROUP_LABELS = {
 
 function _formatSessionTime(iso){
   const raw = String(iso || '');
-  const d = new Date(raw.replace(/-/g, '/'));
-  if (!isNaN(d.getTime())) {
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    const group = _sessionGroupKey(iso);
-    if (group === 'today' || group === 'yesterday') return hh + ':' + mm;
-    const yyyy = d.getFullYear();
-    const mo = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return yyyy + '-' + mo + '-' + day;
-  }
-  return raw.slice(5, 16) || '';
+  const d = _parseSessionDate(iso);
+  if (!d) return raw.slice(5, 16) || '';
+  const p = _sessionPartsInTz(d);
+  const group = _sessionGroupKey(iso);
+  if (group === 'today' || group === 'yesterday') return p.hour + ':' + p.minute;
+  return p.year + '-' + p.month + '-' + p.day;
 }
 
 function _renderSessionRow(s){
@@ -1035,9 +1077,10 @@ function _applySessionTitle(sid, title){
   if (spin) spin.remove();
 }
 
-async function maybeGenerateSessionTitle(sessionId){
+async function maybeGenerateSessionTitle(sessionId, opts){
   if (!sessionId) return;
-  if (getUserMsgCount() > TITLE_GENERATE_MAX_USER_MSGS) return;
+  const force = !!(opts && opts.force);
+  if (!force && getUserMsgCount() > TITLE_GENERATE_MAX_USER_MSGS) return;
 
   const seq = (_titleGenSeq[sessionId] || 0) + 1;
   _titleGenSeq[sessionId] = seq;
@@ -1092,8 +1135,8 @@ async function loadSession(sid){
     const c = document.getElementById('messages');
     c.innerHTML = '';
     (data.messages || []).forEach(m => {
-      if (m.role === 'user') appendUserMsg(m.content);
-      else if (m.role === 'assistant') appendAssistantMsg(m.content);
+      if (m.role === 'user') appendUserMsg(m.content, m.id);
+      else if (m.role === 'assistant') appendAssistantMsg(m.content, m.id);
     });
     const sess = data.session || {};
     currentContextMode = sess.context_mode === 'full' ? 'full' : 'chat';
@@ -1200,10 +1243,18 @@ function clearFile(){
   if (attachments) attachments.hidden = true;
 }
 
-function appendUserMsg(text){
+function appendUserMsg(text, messageId){
   const w = document.getElementById('welcome'); if (w) w.remove();
-  const node = _appendShareRow('<div class="msg user">' + _msgIdentityHtml('user') + '<div class="msg-bubble">' + linkifyDataPaths(escapeHtml(text)) + '</div>' + _msgCopyBtnHtml() + '</div>');
+  const idAttr = messageId ? ' data-message-id="' + escapeHtml(String(messageId)) + '"' : '';
+  const node = _appendShareRow(
+    '<div class="msg user"' + idAttr + '>' +
+      _msgIdentityHtml('user') +
+      '<div class="msg-bubble">' + linkifyDataPaths(escapeHtml(text)) + '</div>' +
+      _msgCopyBtnHtml(false, true) +
+    '</div>'
+  );
   _setMsgCopyText(node, text);
+  if (messageId) node.dataset.messageId = String(messageId);
   return node;
 }
 
@@ -1215,9 +1266,17 @@ function updateUserMsgBubble(node, text){
   _setMsgCopyText(node, text);
 }
 
-function appendAssistantMsg(md){
-  const node = _appendShareRow('<div class="msg assistant">' + _msgIdentityHtml('assistant') + '<div class="msg-bubble">' + renderMarkdown(md) + '</div>' + _msgCopyBtnHtml(true) + '</div>');
+function appendAssistantMsg(md, messageId){
+  const idAttr = messageId ? ' data-message-id="' + escapeHtml(String(messageId)) + '"' : '';
+  const node = _appendShareRow(
+    '<div class="msg assistant"' + idAttr + '>' +
+      _msgIdentityHtml('assistant') +
+      '<div class="msg-bubble">' + renderMarkdown(md) + '</div>' +
+      _msgCopyBtnHtml(true) +
+    '</div>'
+  );
   _setMsgCopyText(node, md);
+  if (messageId) node.dataset.messageId = String(messageId);
   return node;
 }
 
@@ -1386,6 +1445,11 @@ async function setCollaborationMode(mode){
 function setRunning(r){
   document.getElementById('btnSend').style.display = r ? 'none' : 'flex';
   document.getElementById('btnStop').style.display = r ? 'flex' : 'none';
+  const messages = document.getElementById('messages');
+  if (messages) messages.classList.toggle('is-running', !!r);
+  document.querySelectorAll('.btn-edit-msg').forEach(btn => {
+    btn.disabled = !!r;
+  });
   updateCollabModeUI();
 }
 
@@ -1469,6 +1533,7 @@ function _handleStreamEvent(ev, state){
       const spin = b.bodyEl.querySelector('.thinking-inline');
       if (spin) spin.remove();
       _collapseThink(b, s.thinkSteps);
+      if (ev.message_id) b.container.dataset.messageId = String(ev.message_id);
     } else { removeThinking(); }
     totalInputTokens += (ev.usage?.input_tokens || 0);
     totalOutputTokens += (ev.usage?.output_tokens || 0);
@@ -1557,7 +1622,8 @@ async function approvePlan(){
   }
   _syncCollaborationMode('agent');
   const message = data.message || '已批准计划，开始执行。';
-  appendUserMsg(message);
+  const approveUserNode = appendUserMsg(message, data.message_id);
+  if (data.message_id && approveUserNode) approveUserNode.dataset.messageId = data.message_id;
   currentTaskId = data.task_id;
   currentSessionId = data.session_id || currentSessionId;
   incrementUserMsgCount();
@@ -1600,7 +1666,18 @@ function _showRetryButton(replyBlock, errorEl){
   }
 }
 
-/* ====== 重试 ====== */
+/* ====== 重试 / 编辑重跑 / Fork ====== */
+
+function _startStreamFromTask(taskId){
+  removeThinking();
+  currentTaskId = taskId;
+  const replyBlock = _createReplyBlock();
+  currentStreamState = _createStreamState(replyBlock);
+  _connectToStream(currentTaskId, {
+    getState: () => currentStreamState,
+    setState: (updates) => Object.assign(currentStreamState, updates),
+  });
+}
 
 async function retryTask(){
   if (!currentSessionId) return;
@@ -1635,21 +1712,178 @@ async function retryTask(){
       return;
     }
 
-    currentTaskId = data.task_id;
-
-    // 创建新的回复块用于重试输出
-    const replyBlock = _createReplyBlock();
-    currentStreamState = _createStreamState(replyBlock);
-
-    _connectToStream(currentTaskId, {
-      getState: () => currentStreamState,
-      setState: (updates) => Object.assign(currentStreamState, updates),
-    });
+    _startStreamFromTask(data.task_id);
 
   } catch(e) {
     removeThinking();
     _append('<div class="msg-error">重试请求失败: ' + escapeHtml(e.message) + '</div>');
     setRunning(false);
+  }
+}
+
+let _editingMsgNode = null;
+
+function _exitMsgEdit(restore){
+  if (!_editingMsgNode) return;
+  const node = _editingMsgNode;
+  _editingMsgNode = null;
+  const editBox = node.querySelector('.msg-edit-box');
+  if (!editBox) return;
+  const original = editBox.dataset.originalText || '';
+  editBox.remove();
+  let bubble = node.querySelector('.msg-bubble');
+  if (!bubble) {
+    bubble = document.createElement('div');
+    bubble.className = 'msg-bubble';
+    const actions = node.querySelector('.msg-actions');
+    if (actions) node.insertBefore(bubble, actions);
+    else node.appendChild(bubble);
+  } else {
+    bubble.style.display = '';
+  }
+  const text = restore ? original : (node.dataset.copyText || original);
+  bubble.innerHTML = linkifyDataPaths(escapeHtml(text));
+  _setMsgCopyText(node, text);
+  const actions = node.querySelector('.msg-actions');
+  if (actions) actions.style.display = '';
+}
+
+function beginEditUserMsg(msgNode){
+  if (!msgNode || !msgNode.classList.contains('user')) return;
+  if (document.getElementById('messages')?.classList.contains('is-running')) return;
+  if (!msgNode.dataset.messageId) {
+    _append('<div class="msg-error">该消息缺少 ID，请刷新会话后再编辑</div>');
+    return;
+  }
+  if (_editingMsgNode && _editingMsgNode !== msgNode) _exitMsgEdit(true);
+
+  const bubble = msgNode.querySelector('.msg-bubble');
+  if (!bubble || msgNode.querySelector('.msg-edit-box')) return;
+  const original = msgNode.dataset.copyText || bubble.innerText || '';
+
+  bubble.style.display = 'none';
+  const actions = msgNode.querySelector('.msg-actions');
+  if (actions) actions.style.display = 'none';
+
+  const editBox = document.createElement('div');
+  editBox.className = 'msg-edit-box';
+  editBox.dataset.originalText = original;
+  editBox.innerHTML =
+    '<textarea class="msg-edit-textarea" rows="3"></textarea>' +
+    '<div class="msg-edit-actions">' +
+      '<button type="button" class="btn-edit-cancel">取消</button>' +
+      '<button type="button" class="btn-edit-send">发送</button>' +
+    '</div>';
+  if (actions) msgNode.insertBefore(editBox, actions);
+  else msgNode.appendChild(editBox);
+
+  const ta = editBox.querySelector('.msg-edit-textarea');
+  ta.value = original;
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  _editingMsgNode = msgNode;
+}
+
+function _removeMsgRowsAfter(msgNode){
+  const row = msgNode.closest('.msg-row') || msgNode;
+  let next = row.nextElementSibling;
+  while (next) {
+    const remove = next;
+    next = next.nextElementSibling;
+    if (remove.id === 'btnScrollDown' || remove.id === 'welcome') continue;
+    remove.remove();
+  }
+}
+
+async function confirmEditUserMsg(msgNode){
+  if (!msgNode || !currentSessionId) return;
+  const editBox = msgNode.querySelector('.msg-edit-box');
+  const ta = editBox && editBox.querySelector('.msg-edit-textarea');
+  const text = (ta && ta.value || '').trim();
+  if (!text) {
+    alert('消息内容不能为空');
+    return;
+  }
+  const messageId = msgNode.dataset.messageId;
+  if (!messageId) {
+    alert('该消息缺少 ID，请刷新会话后再编辑');
+    return;
+  }
+
+  _removeMsgRowsAfter(msgNode);
+  if (editBox) editBox.remove();
+  let bubble = msgNode.querySelector('.msg-bubble');
+  if (!bubble) {
+    bubble = document.createElement('div');
+    bubble.className = 'msg-bubble';
+    const actions = msgNode.querySelector('.msg-actions');
+    if (actions) msgNode.insertBefore(bubble, actions);
+    else msgNode.appendChild(bubble);
+  }
+  bubble.style.display = '';
+  bubble.innerHTML = linkifyDataPaths(escapeHtml(text));
+  _setMsgCopyText(msgNode, text);
+  const actions = msgNode.querySelector('.msg-actions');
+  if (actions) actions.style.display = '';
+  _editingMsgNode = null;
+
+  document.querySelectorAll('.retry-area').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.stream-error').forEach(el => el.remove());
+
+  showThinking(); setRunning(true);
+  resetUsageStats();
+
+  try {
+    const body = {session_id: currentSessionId, message_id: messageId, message: text};
+    if (currentModelId) body.model_id = currentModelId;
+    const res = await fetch('/api/chat/edit', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!data?.task_id){
+      removeThinking();
+      const msg = data?.detail || data?.error || '编辑重跑失败';
+      _append('<div class="msg-error">' + escapeHtml(typeof msg === 'string' ? msg : JSON.stringify(msg)) + '</div>');
+      setRunning(false);
+      return;
+    }
+    setUserMsgCount(_countUserMessages(
+      Array.from(document.querySelectorAll('#messages .msg.user')).map(() => ({role: 'user'}))
+    ));
+    _startStreamFromTask(data.task_id);
+  } catch(e) {
+    removeThinking();
+    _append('<div class="msg-error">编辑重跑失败: ' + escapeHtml(e.message) + '</div>');
+    setRunning(false);
+  }
+}
+
+async function forkSessionAtMsg(msgNode){
+  if (!msgNode || !currentSessionId) return;
+  const messageId = msgNode.dataset.messageId;
+  if (!messageId) {
+    _append('<div class="msg-error">该消息缺少 ID，请刷新会话后再分叉</div>');
+    return;
+  }
+  try {
+    const res = await fetch('/api/sessions/' + encodeURIComponent(currentSessionId) + '/fork', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message_id: messageId}),
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.session_id) {
+      const msg = data?.detail || data?.error || '分叉失败';
+      _append('<div class="msg-error">' + escapeHtml(typeof msg === 'string' ? msg : JSON.stringify(msg)) + '</div>');
+      return;
+    }
+    _forceTitleSessions.add(data.session_id);
+    await loadSessions();
+    await loadSession(data.session_id);
+  } catch(e) {
+    _append('<div class="msg-error">分叉失败: ' + escapeHtml(e.message) + '</div>');
   }
 }
 
@@ -1672,8 +1906,8 @@ async function reconnectToTask(sessionId, taskId){
       selectAgent(data.session.agent_id, true);
     }
     (data.messages || []).forEach(m => {
-      if (m.role === 'user') appendUserMsg(m.content);
-      else if (m.role === 'assistant') appendAssistantMsg(m.content);
+      if (m.role === 'user') appendUserMsg(m.content, m.id);
+      else if (m.role === 'assistant') appendAssistantMsg(m.content, m.id);
     });
     setUserMsgCount(_countUserMessages(data.messages));
   } catch(e) {
@@ -2455,12 +2689,20 @@ async function sendMessage(){
       : '`' + data.uploaded_path + '`';
     updateUserMsgBubble(userMsgNode, finalText);
   }
+  if (data.message_id && userMsgNode) {
+    userMsgNode.dataset.messageId = data.message_id;
+  }
 
   clearFile();
   currentTaskId = data.task_id;
   currentSessionId = data.session_id;
   incrementUserMsgCount();
   _activateSentSession(data.session_id, text);
+
+  if (_forceTitleSessions.has(data.session_id)) {
+    _forceTitleSessions.delete(data.session_id);
+    maybeGenerateSessionTitle(data.session_id, { force: true });
+  }
 
   currentStreamState = _createStreamState(null);
 
@@ -2555,9 +2797,156 @@ function _updateScrollButton(){
   btn.style.display = (userScrolledUp && hasNewContentSinceScroll) ? 'flex' : 'none';
 }
 
-/* ====== 文件拖拽上传 ====== */
+/* ====== 文件拖拽上传 / 文件树路径拖入输入框 ====== */
 
 let _dragCounter = 0;
+let _treePathDragging = false;
+let _treeDragPath = '';
+let _treeDragGhost = null;
+
+function _treeNodeDisplayPath(node){
+  const path = String((node && node.path) || '').replace(/\\/g, '/');
+  if (!path) return node && node.type === 'dir' ? 'data/' : 'data';
+  return _atDisplayPath({ path: path, type: node.type === 'dir' ? 'dir' : 'file' });
+}
+
+function _isPathDropTarget(el){
+  if (!el || !el.closest) return false;
+  return !!(el.closest('#inputBox') || el.closest('.composer') || el.closest('.input-area'));
+}
+
+function _setComposerPathDragOver(on){
+  const composer = document.querySelector('.composer');
+  if (!composer) return;
+  composer.classList.toggle('drag-path-over', !!on);
+}
+
+function _clearTreePathDrag(){
+  _treePathDragging = false;
+  _treeDragPath = '';
+  document.body.classList.remove('tree-path-dragging');
+  _setComposerPathDragOver(false);
+  if (_treeDragGhost) {
+    _treeDragGhost.remove();
+    _treeDragGhost = null;
+  }
+}
+
+function _ensureTreeDragGhost(displayPath){
+  if (_treeDragGhost) return _treeDragGhost;
+  const ghost = document.createElement('div');
+  ghost.className = 'tree-path-drag-ghost';
+  ghost.textContent = displayPath;
+  ghost.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(ghost);
+  _treeDragGhost = ghost;
+  return ghost;
+}
+
+function _moveTreeDragGhost(clientX, clientY){
+  const ghost = _treeDragGhost;
+  if (!ghost) return;
+  ghost.style.transform = 'translate(' + (clientX + 12) + 'px, ' + (clientY + 12) + 'px)';
+}
+
+function _insertPathIntoInput(displayPath){
+  const input = document.getElementById('inputBox');
+  if (!input || !displayPath) return;
+  const insertBare = String(displayPath).replace(/\\/g, '/');
+  const insert = '`' + insertBare + '`';
+  const start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
+  const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : start;
+  const before = input.value.slice(0, start);
+  const after = input.value.slice(end);
+  let text = insert;
+  if (before && !/\s$/.test(before)) text = ' ' + text;
+  if (after && !/^\s/.test(after)) text = text + ' ';
+  input.value = before + text + after;
+  const caret = before.length + text.length;
+  autoResize(input);
+  input.focus();
+  input.setSelectionRange(caret, caret);
+}
+
+function _suppressNextClick(el){
+  const suppress = function(e){
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    el.removeEventListener('click', suppress, true);
+  };
+  el.addEventListener('click', suppress, true);
+}
+
+function _bindTreePathDrag(el, node){
+  if (!el || !node || !node.path || el._pathDragBound) return;
+  el._pathDragBound = true;
+  el.classList.add('tree-path-draggable');
+
+  el.addEventListener('pointerdown', function(e){
+    if (e.button !== 0 || e.target.closest('.arrow')) return;
+    if (_treePathDragging) _clearTreePathDrag();
+
+    const display = _treeNodeDisplayPath(node);
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const pointerId = e.pointerId;
+    let dragging = false;
+    let moved = false;
+
+    function onMove(ev){
+      if (ev.pointerId !== pointerId) return;
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!dragging) {
+        if ((dx * dx + dy * dy) < 25) return;
+        dragging = true;
+        moved = true;
+        _treePathDragging = true;
+        _treeDragPath = display;
+        document.body.classList.add('tree-path-dragging');
+        el.classList.add('dragging');
+        _ensureTreeDragGhost(display);
+        _moveTreeDragGhost(ev.clientX, ev.clientY);
+      }
+      if (!dragging) return;
+      _moveTreeDragGhost(ev.clientX, ev.clientY);
+      // 临时隐藏幽灵，避免挡住 elementFromPoint
+      if (_treeDragGhost) _treeDragGhost.style.visibility = 'hidden';
+      const under = document.elementFromPoint(ev.clientX, ev.clientY);
+      if (_treeDragGhost) _treeDragGhost.style.visibility = '';
+      _setComposerPathDragOver(_isPathDropTarget(under));
+    }
+
+    function onUp(ev){
+      if (ev.pointerId !== pointerId) return;
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('pointercancel', onUp, true);
+      el.classList.remove('dragging');
+
+      if (!dragging) {
+        _clearTreePathDrag();
+        return;
+      }
+
+      if (_treeDragGhost) _treeDragGhost.style.visibility = 'hidden';
+      const under = document.elementFromPoint(ev.clientX, ev.clientY);
+      const dropOk = _isPathDropTarget(under);
+      const path = _treeDragPath || display;
+      _clearTreePathDrag();
+      if (moved) _suppressNextClick(el);
+      if (dropOk && path) _insertPathIntoInput(path);
+    }
+
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onUp, true);
+  });
+}
+
+function _initPathDropToInput(){
+  // 路径拖入由 pointer 拖拽在 pointerup 时直接插入；此处无需 HTML5 drop。
+}
 
 function _initDragDrop(){
   const main = document.querySelector('.main');
@@ -2566,12 +2955,18 @@ function _initDragDrop(){
 
   main.addEventListener('dragenter', function(e){
     e.preventDefault();
+    if (_treePathDragging) return;
     _dragCounter++;
     main.classList.add('drag-over');
   });
 
   main.addEventListener('dragleave', function(e){
     e.preventDefault();
+    if (_treePathDragging) {
+      _dragCounter = 0;
+      main.classList.remove('drag-over');
+      return;
+    }
     _dragCounter--;
     if (_dragCounter <= 0){
       _dragCounter = 0;
@@ -2581,12 +2976,16 @@ function _initDragDrop(){
 
   main.addEventListener('dragover', function(e){
     e.preventDefault();
+    if (_treePathDragging) {
+      main.classList.remove('drag-over');
+    }
   });
 
   main.addEventListener('drop', function(e){
     e.preventDefault();
     _dragCounter = 0;
     main.classList.remove('drag-over');
+    if (_treePathDragging) return;
     const file = e.dataTransfer?.files?.[0];
     if (file) _validateAndSetFile(file);
   });
@@ -3185,6 +3584,35 @@ function _initFileDrawer(){
         copyMessage(copyBtn);
         return;
       }
+      const editBtn = e.target.closest('.btn-edit-msg');
+      if (editBtn && messages.contains(editBtn)) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (editBtn.disabled) return;
+        beginEditUserMsg(editBtn.closest('.msg.user'));
+        return;
+      }
+      const forkBtn = e.target.closest('.btn-fork-msg');
+      if (forkBtn && messages.contains(forkBtn)) {
+        e.preventDefault();
+        e.stopPropagation();
+        forkSessionAtMsg(forkBtn.closest('.msg.assistant'));
+        return;
+      }
+      const editCancel = e.target.closest('.btn-edit-cancel');
+      if (editCancel && messages.contains(editCancel)) {
+        e.preventDefault();
+        e.stopPropagation();
+        _exitMsgEdit(true);
+        return;
+      }
+      const editSend = e.target.closest('.btn-edit-send');
+      if (editSend && messages.contains(editSend)) {
+        e.preventDefault();
+        e.stopPropagation();
+        confirmEditUserMsg(editSend.closest('.msg.user'));
+        return;
+      }
       const chip = e.target.closest('.path-chip');
       if (!chip || !messages.contains(chip)) return;
       e.preventDefault();
@@ -3343,6 +3771,7 @@ function _createChatFileRow(node, level){
   row.appendChild(name);
   row.appendChild(size);
   div.appendChild(row);
+  _bindTreePathDrag(row, node);
 
   if (node.type === 'dir') {
     arrow.textContent = '▶';
@@ -3417,6 +3846,7 @@ function _createChatFileIconItem(node){
 
   btn.appendChild(glyph);
   btn.appendChild(name);
+  _bindTreePathDrag(btn, node);
 
   btn.addEventListener('click', function(e){
     e.stopPropagation();
@@ -3688,6 +4118,7 @@ function _initLeftSplitResize(){
 window.addEventListener('DOMContentLoaded', () => {
   _initScrollListener();
   _initDragDrop();
+  _initPathDropToInput();
   _initFileDrawer();
   _initShareMode();
   _initLeftSplitResize();

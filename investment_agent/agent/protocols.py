@@ -124,6 +124,12 @@ class Storage(Protocol):
         """最近一条用户消息的 id。"""
         ...
 
+    async def rewind_and_update_user_message(
+        self, session_id: str, message_id: str, content: str,
+    ) -> None:
+        """更新指定用户消息并删除其后的消息与相关快照。"""
+        ...
+
     async def get_agent_config(self, agent_id: str) -> dict | None:
         """查询 agent 配置（system_prompt, model_id, skills 等）。"""
         ...

@@ -38,6 +38,7 @@ class _TaskState:
         "task_id", "session_id", "engine", "runner", "config",
         "buffer", "subscribers", "status", "done",
         "accumulated_text", "asyncio_task", "last_step",
+        "assistant_saved",
     )
 
     def __init__(
@@ -60,6 +61,7 @@ class _TaskState:
         self.accumulated_text: str = ""
         self.asyncio_task: asyncio.Task | None = None
         self.last_step: int = 0
+        self.assistant_saved: bool = False
 
 
 class TaskManager:
@@ -156,6 +158,19 @@ class TaskManager:
 
             # 缓冲渲染事件并广播给订阅者（包括子Agent事件）
             if event_type in _RENDER_EVENTS or event_type.startswith("sub_"):
+                # done 前先落库，把 message_id 带给前端（便于 Fork）
+                if event_type == "done" and not state.assistant_saved:
+                    try:
+                        state.runner.set_assistant_content(state.accumulated_text)
+                        msg_id = await self._safe_save_response(state)
+                        state.assistant_saved = True
+                        if msg_id:
+                            event = {**event, "message_id": msg_id}
+                    except Exception:
+                        logger.exception(
+                            "Failed to save response before done for task %s",
+                            state.task_id,
+                        )
                 await self._broadcast(state, event)
 
             if event_type == "error":
@@ -176,11 +191,14 @@ class TaskManager:
             logger.exception("Failed to flush trace buffer for task %s", task_id)
 
         # 保存 assistant 回复和完整上下文快照 —— 必须在 cleanup 之前执行
-        try:
-            state.runner.set_assistant_content(state.accumulated_text)
-            await self._safe_save_response(state)
-        except Exception:
-            logger.exception("Failed to save response for task %s", task_id)
+        # （正常 done 路径已在广播前落库；此处兜底 error/interrupted）
+        if not state.assistant_saved:
+            try:
+                state.runner.set_assistant_content(state.accumulated_text)
+                await self._safe_save_response(state)
+                state.assistant_saved = True
+            except Exception:
+                logger.exception("Failed to save response for task %s", task_id)
         try:
             await self._safe_save_snapshot(state)
         except Exception:
@@ -211,9 +229,9 @@ class TaskManager:
         但引擎可能已被 cleanup 或因取消而不可用。此方法直接使用 state 中保存的信息。
         """
         if not state.accumulated_text:
-            return
+            return None
 
-        msg_id = await state.runner.storage.save_assistant_message(
+        return await state.runner.storage.save_assistant_message(
             state.session_id, state.accumulated_text,
         )
 

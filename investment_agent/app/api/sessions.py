@@ -20,6 +20,10 @@ class CollaborationModeRequest(BaseModel):
     mode: str
 
 
+class ForkRequest(BaseModel):
+    message_id: str
+
+
 @router.get("")
 async def list_sessions():
     """历史会话列表（最近 50 条）"""
@@ -117,6 +121,19 @@ async def generate_session_title(session_id: str):
         _log.exception("generate session title failed: %s", session_id)
         raise HTTPException(status_code=502, detail="标题生成失败")
     return {"title": title}
+
+
+@router.post("/{session_id}/fork")
+async def fork_session(session_id: str, body: ForkRequest):
+    """在指定消息处分叉：复制该节点及之前的消息到新会话。"""
+    message_id = (body.message_id or "").strip()
+    if not message_id:
+        raise HTTPException(status_code=400, detail="message_id 不能为空")
+    try:
+        new_id = await SessionService.fork_session_at_message(session_id, message_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"session_id": new_id}
 
 
 @router.delete("/{session_id}")

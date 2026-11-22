@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime, timezone
+
 from ...agent.context.auxiliary_tasks import TITLE_MAX_CHARS, generate_session_title
 from ..config_factory import get_utility_provider
 from ..db import get_db
@@ -102,6 +105,89 @@ class SessionService:
                 "DELETE FROM sessions WHERE id = ?", (session_id,)
             )
             await db.commit()
+
+    @staticmethod
+    async def fork_session_at_message(
+        source_session_id: str, message_id: str,
+    ) -> str:
+        """在指定消息处分叉：新建会话并复制该节点及之前的全部消息。
+
+        Returns:
+            new_session_id
+
+        Raises:
+            LookupError: 源会话或消息不存在 / 消息不属于该会话
+        """
+        async with get_db() as db:
+            cursor = await db.execute(
+                "SELECT id, agent_id, title, context_mode, collaboration_mode "
+                "FROM sessions WHERE id = ?",
+                (source_session_id,),
+            )
+            source = await cursor.fetchone()
+            if not source:
+                raise LookupError("Session not found")
+
+            cursor = await db.execute(
+                "SELECT id, created_at FROM messages "
+                "WHERE id = ? AND session_id = ?",
+                (message_id, source_session_id),
+            )
+            target = await cursor.fetchone()
+            if not target:
+                raise LookupError("Message not found")
+
+            created_at = target["created_at"] or ""
+            cursor = await db.execute(
+                "SELECT role, content, tool_calls, token_usage, created_at "
+                "FROM messages WHERE session_id = ? AND created_at <= ? "
+                "ORDER BY created_at",
+                (source_session_id, created_at),
+            )
+            rows = await cursor.fetchall()
+
+            new_session_id = str(uuid.uuid4())
+            now = datetime.now(timezone.utc).isoformat()
+            base_title = (source["title"] or "").strip() or "未命名"
+            suffix = " (分支)"
+            max_base = 50 - len(suffix)
+            title = (base_title[:max_base] + suffix) if len(base_title) > max_base else (base_title + suffix)
+
+            await db.execute(
+                "INSERT INTO sessions "
+                "(id, agent_id, title, status, current_task_id, "
+                " input_tokens, output_tokens, cost_usd, "
+                " cache_read_tokens, cache_creation_tokens, "
+                " context_mode, collaboration_mode, created_at) "
+                "VALUES (?, ?, ?, 'active', NULL, 0, 0, 0, 0, 0, ?, ?, ?)",
+                (
+                    new_session_id,
+                    source["agent_id"],
+                    title,
+                    source["context_mode"] or "chat",
+                    source["collaboration_mode"] or "agent",
+                    now,
+                ),
+            )
+
+            for r in rows:
+                await db.execute(
+                    "INSERT INTO messages "
+                    "(id, session_id, role, content, tool_calls, token_usage, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        str(uuid.uuid4()),
+                        new_session_id,
+                        r["role"],
+                        r["content"],
+                        r["tool_calls"],
+                        r["token_usage"],
+                        r["created_at"],
+                    ),
+                )
+            await db.commit()
+
+        return new_session_id
 
     @staticmethod
     async def generate_title(session_id: str) -> str:

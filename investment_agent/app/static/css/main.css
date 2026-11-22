@@ -177,17 +177,25 @@ body.left-split-resizing {
 .msg.assistant .msg-bubble { background: var(--c-surface); border: 1px solid var(--c-border-light); border-bottom-left-radius: 4px; color: var(--c-text-1); }
 .msg-actions { display: flex; align-items: center; gap: 4px; }
 .msg.user .msg-actions { justify-content: flex-end; }
-.btn-copy-msg {
+.btn-copy-msg,
+.btn-edit-msg,
+.btn-fork-msg {
   display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; padding: 0; border: none; border-radius: var(--r-sm);
   background: transparent; color: var(--c-text-4); cursor: pointer;
   transition: background var(--ease), color var(--ease);
 }
-.btn-copy-msg:hover { background: var(--c-primary-light); color: var(--c-text-2); }
+.btn-copy-msg:hover,
+.btn-edit-msg:hover,
+.btn-fork-msg:hover { background: var(--c-primary-light); color: var(--c-text-2); }
 .btn-copy-msg.copied { color: var(--c-success); }
 .btn-copy-msg .icon-check { display: none; }
 .btn-copy-msg.copied .icon-copy { display: none; }
 .btn-copy-msg.copied .icon-check { display: block; }
+.btn-edit-msg:disabled {
+  opacity: 0.4; cursor: not-allowed;
+}
+.messages.is-running .btn-edit-msg { opacity: 0.4; cursor: not-allowed; }
 .btn-share-msg {
   display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; padding: 0; border: none; border-radius: var(--r-sm);
@@ -195,6 +203,30 @@ body.left-split-resizing {
   transition: background var(--ease), color var(--ease);
 }
 .btn-share-msg:hover { background: var(--c-primary-light); color: var(--c-text-2); }
+.msg-edit-box {
+  display: flex; flex-direction: column; gap: 8px;
+  width: 100%; min-width: 220px; max-width: 100%;
+  padding: 10px 12px; border-radius: var(--r-lg);
+  background: var(--c-surface); border: 1px solid var(--c-border);
+  box-sizing: border-box;
+}
+.msg-edit-textarea {
+  width: 100%; min-height: 72px; resize: vertical;
+  padding: 8px 10px; border: 1px solid var(--c-border); border-radius: var(--r-sm);
+  font: inherit; font-size: var(--fs-base); line-height: var(--lh-base);
+  color: var(--c-text-1); background: #fff; box-sizing: border-box;
+}
+.msg-edit-textarea:focus { outline: 2px solid var(--c-accent); outline-offset: 1px; }
+.msg-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.btn-edit-cancel,
+.btn-edit-send {
+  border: none; border-radius: var(--r-sm); padding: 6px 12px;
+  font-size: var(--fs-sm); cursor: pointer;
+}
+.btn-edit-cancel { background: var(--c-primary-lighter); color: var(--c-text-2); }
+.btn-edit-cancel:hover { background: var(--c-primary-light); }
+.btn-edit-send { background: var(--c-primary); color: #fff; }
+.btn-edit-send:hover { filter: brightness(1.05); }
 .msg-error, .msg-info { align-self: stretch; }
 
 /* 分享选择：整行左槽，勾选点对齐气泡上沿（头像 28px + 消息间距 6px） */
@@ -392,6 +424,36 @@ body.left-split-resizing {
 .composer:focus-within {
   border-color: var(--c-accent);
   box-shadow: 0 0 0 3px rgba(74, 85, 128, 0.1), var(--sh-sm);
+}
+.composer.drag-path-over {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px rgba(74, 85, 128, 0.16), var(--sh-sm);
+}
+body.tree-path-dragging,
+body.tree-path-dragging * {
+  cursor: grabbing !important;
+}
+body.tree-path-dragging .file-drawer-overlay {
+  pointer-events: none !important;
+}
+.tree-path-drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2000;
+  pointer-events: none;
+  max-width: 280px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(26, 26, 46, 0.92);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: var(--sh-md);
+  will-change: transform;
 }
 .composer-attachments {
   display: flex;
@@ -989,7 +1051,11 @@ body.left-split-resizing {
   white-space: nowrap;
   color: var(--c-text-2);
   transition: background var(--ease);
+  cursor: grab;
 }
+.chat-file-tree .tree-row.tree-path-draggable { cursor: grab; }
+.chat-file-tree .tree-row:active,
+.chat-file-tree .tree-row.dragging { cursor: grabbing; }
 .chat-file-tree .tree-row:hover { background: var(--c-primary-lighter); }
 .chat-file-tree .tree-row.active {
   background: var(--c-primary-light);
@@ -1070,12 +1136,14 @@ body.left-split-resizing {
   border-radius: var(--r-md);
   border: none;
   background: transparent;
-  cursor: pointer;
+  cursor: grab;
   color: var(--c-text-2);
   min-width: 0;
   transition: background var(--ease);
   user-select: none;
 }
+.chat-file-tree.view-icons .file-icon-item:active,
+.chat-file-tree.view-icons .file-icon-item.dragging { cursor: grabbing; }
 .chat-file-tree.view-icons .file-icon-item:hover {
   background: var(--c-primary-lighter);
 }
