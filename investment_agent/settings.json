@@ -34,5 +34,9 @@
   "db": {
     "type": "sqlite",
     "sqlite_path": "./data/agent.db"
+  },
+  "file_browser": {
+    "include": [],
+    "exclude": [".gitkeep", "agent.db","avatars",".offload"]
   }
 }

@@ -393,6 +393,36 @@ body.left-split-resizing {
   border-color: var(--c-accent);
   box-shadow: 0 0 0 3px rgba(74, 85, 128, 0.1), var(--sh-sm);
 }
+.composer.drag-path-over {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px rgba(74, 85, 128, 0.16), var(--sh-sm);
+}
+body.tree-path-dragging,
+body.tree-path-dragging * {
+  cursor: grabbing !important;
+}
+body.tree-path-dragging .file-drawer-overlay {
+  pointer-events: none !important;
+}
+.tree-path-drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2000;
+  pointer-events: none;
+  max-width: 280px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(26, 26, 46, 0.92);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: var(--sh-md);
+  will-change: transform;
+}
 .composer-attachments {
   display: flex;
   align-items: center;
@@ -989,7 +1019,11 @@ body.left-split-resizing {
   white-space: nowrap;
   color: var(--c-text-2);
   transition: background var(--ease);
+  cursor: grab;
 }
+.chat-file-tree .tree-row.tree-path-draggable { cursor: grab; }
+.chat-file-tree .tree-row:active,
+.chat-file-tree .tree-row.dragging { cursor: grabbing; }
 .chat-file-tree .tree-row:hover { background: var(--c-primary-lighter); }
 .chat-file-tree .tree-row.active {
   background: var(--c-primary-light);
@@ -1070,12 +1104,14 @@ body.left-split-resizing {
   border-radius: var(--r-md);
   border: none;
   background: transparent;
-  cursor: pointer;
+  cursor: grab;
   color: var(--c-text-2);
   min-width: 0;
   transition: background var(--ease);
   user-select: none;
 }
+.chat-file-tree.view-icons .file-icon-item:active,
+.chat-file-tree.view-icons .file-icon-item.dragging { cursor: grabbing; }
 .chat-file-tree.view-icons .file-icon-item:hover {
   background: var(--c-primary-lighter);
 }

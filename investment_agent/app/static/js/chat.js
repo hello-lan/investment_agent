@@ -2555,9 +2555,156 @@ function _updateScrollButton(){
   btn.style.display = (userScrolledUp && hasNewContentSinceScroll) ? 'flex' : 'none';
 }
 
-/* ====== 文件拖拽上传 ====== */
+/* ====== 文件拖拽上传 / 文件树路径拖入输入框 ====== */
 
 let _dragCounter = 0;
+let _treePathDragging = false;
+let _treeDragPath = '';
+let _treeDragGhost = null;
+
+function _treeNodeDisplayPath(node){
+  const path = String((node && node.path) || '').replace(/\\/g, '/');
+  if (!path) return node && node.type === 'dir' ? 'data/' : 'data';
+  return _atDisplayPath({ path: path, type: node.type === 'dir' ? 'dir' : 'file' });
+}
+
+function _isPathDropTarget(el){
+  if (!el || !el.closest) return false;
+  return !!(el.closest('#inputBox') || el.closest('.composer') || el.closest('.input-area'));
+}
+
+function _setComposerPathDragOver(on){
+  const composer = document.querySelector('.composer');
+  if (!composer) return;
+  composer.classList.toggle('drag-path-over', !!on);
+}
+
+function _clearTreePathDrag(){
+  _treePathDragging = false;
+  _treeDragPath = '';
+  document.body.classList.remove('tree-path-dragging');
+  _setComposerPathDragOver(false);
+  if (_treeDragGhost) {
+    _treeDragGhost.remove();
+    _treeDragGhost = null;
+  }
+}
+
+function _ensureTreeDragGhost(displayPath){
+  if (_treeDragGhost) return _treeDragGhost;
+  const ghost = document.createElement('div');
+  ghost.className = 'tree-path-drag-ghost';
+  ghost.textContent = displayPath;
+  ghost.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(ghost);
+  _treeDragGhost = ghost;
+  return ghost;
+}
+
+function _moveTreeDragGhost(clientX, clientY){
+  const ghost = _treeDragGhost;
+  if (!ghost) return;
+  ghost.style.transform = 'translate(' + (clientX + 12) + 'px, ' + (clientY + 12) + 'px)';
+}
+
+function _insertPathIntoInput(displayPath){
+  const input = document.getElementById('inputBox');
+  if (!input || !displayPath) return;
+  const insertBare = String(displayPath).replace(/\\/g, '/');
+  const insert = '`' + insertBare + '`';
+  const start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
+  const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : start;
+  const before = input.value.slice(0, start);
+  const after = input.value.slice(end);
+  let text = insert;
+  if (before && !/\s$/.test(before)) text = ' ' + text;
+  if (after && !/^\s/.test(after)) text = text + ' ';
+  input.value = before + text + after;
+  const caret = before.length + text.length;
+  autoResize(input);
+  input.focus();
+  input.setSelectionRange(caret, caret);
+}
+
+function _suppressNextClick(el){
+  const suppress = function(e){
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    el.removeEventListener('click', suppress, true);
+  };
+  el.addEventListener('click', suppress, true);
+}
+
+function _bindTreePathDrag(el, node){
+  if (!el || !node || !node.path || el._pathDragBound) return;
+  el._pathDragBound = true;
+  el.classList.add('tree-path-draggable');
+
+  el.addEventListener('pointerdown', function(e){
+    if (e.button !== 0 || e.target.closest('.arrow')) return;
+    if (_treePathDragging) _clearTreePathDrag();
+
+    const display = _treeNodeDisplayPath(node);
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const pointerId = e.pointerId;
+    let dragging = false;
+    let moved = false;
+
+    function onMove(ev){
+      if (ev.pointerId !== pointerId) return;
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!dragging) {
+        if ((dx * dx + dy * dy) < 25) return;
+        dragging = true;
+        moved = true;
+        _treePathDragging = true;
+        _treeDragPath = display;
+        document.body.classList.add('tree-path-dragging');
+        el.classList.add('dragging');
+        _ensureTreeDragGhost(display);
+        _moveTreeDragGhost(ev.clientX, ev.clientY);
+      }
+      if (!dragging) return;
+      _moveTreeDragGhost(ev.clientX, ev.clientY);
+      // 临时隐藏幽灵，避免挡住 elementFromPoint
+      if (_treeDragGhost) _treeDragGhost.style.visibility = 'hidden';
+      const under = document.elementFromPoint(ev.clientX, ev.clientY);
+      if (_treeDragGhost) _treeDragGhost.style.visibility = '';
+      _setComposerPathDragOver(_isPathDropTarget(under));
+    }
+
+    function onUp(ev){
+      if (ev.pointerId !== pointerId) return;
+      window.removeEventListener('pointermove', onMove, true);
+      window.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('pointercancel', onUp, true);
+      el.classList.remove('dragging');
+
+      if (!dragging) {
+        _clearTreePathDrag();
+        return;
+      }
+
+      if (_treeDragGhost) _treeDragGhost.style.visibility = 'hidden';
+      const under = document.elementFromPoint(ev.clientX, ev.clientY);
+      const dropOk = _isPathDropTarget(under);
+      const path = _treeDragPath || display;
+      _clearTreePathDrag();
+      if (moved) _suppressNextClick(el);
+      if (dropOk && path) _insertPathIntoInput(path);
+    }
+
+    window.addEventListener('pointermove', onMove, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onUp, true);
+  });
+}
+
+function _initPathDropToInput(){
+  // 路径拖入由 pointer 拖拽在 pointerup 时直接插入；此处无需 HTML5 drop。
+}
 
 function _initDragDrop(){
   const main = document.querySelector('.main');
@@ -2566,12 +2713,18 @@ function _initDragDrop(){
 
   main.addEventListener('dragenter', function(e){
     e.preventDefault();
+    if (_treePathDragging) return;
     _dragCounter++;
     main.classList.add('drag-over');
   });
 
   main.addEventListener('dragleave', function(e){
     e.preventDefault();
+    if (_treePathDragging) {
+      _dragCounter = 0;
+      main.classList.remove('drag-over');
+      return;
+    }
     _dragCounter--;
     if (_dragCounter <= 0){
       _dragCounter = 0;
@@ -2581,12 +2734,16 @@ function _initDragDrop(){
 
   main.addEventListener('dragover', function(e){
     e.preventDefault();
+    if (_treePathDragging) {
+      main.classList.remove('drag-over');
+    }
   });
 
   main.addEventListener('drop', function(e){
     e.preventDefault();
     _dragCounter = 0;
     main.classList.remove('drag-over');
+    if (_treePathDragging) return;
     const file = e.dataTransfer?.files?.[0];
     if (file) _validateAndSetFile(file);
   });
@@ -3343,6 +3500,7 @@ function _createChatFileRow(node, level){
   row.appendChild(name);
   row.appendChild(size);
   div.appendChild(row);
+  _bindTreePathDrag(row, node);
 
   if (node.type === 'dir') {
     arrow.textContent = '▶';
@@ -3417,6 +3575,7 @@ function _createChatFileIconItem(node){
 
   btn.appendChild(glyph);
   btn.appendChild(name);
+  _bindTreePathDrag(btn, node);
 
   btn.addEventListener('click', function(e){
     e.stopPropagation();
@@ -3688,6 +3847,7 @@ function _initLeftSplitResize(){
 window.addEventListener('DOMContentLoaded', () => {
   _initScrollListener();
   _initDragDrop();
+  _initPathDropToInput();
   _initFileDrawer();
   _initShareMode();
   _initLeftSplitResize();
