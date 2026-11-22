@@ -10,7 +10,7 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-from .token_utils import truncate_text
+from .token_utils import count_tokens, truncate_text
 from ..prompts import TITLE_SYSTEM_PROMPT, TITLE_USER_PREFIX
 
 if TYPE_CHECKING:
@@ -18,9 +18,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-TITLE_MAX_CHARS = 50
+TITLE_MAX_CHARS = 30
 USER_TEXT_MAX_CHARS = 2000
-TITLE_MAX_TOKENS = 64
+TITLE_MAX_TOKENS = 1000
 TITLE_TEMPERATURE = 0.3
 
 _WRAP_QUOTES = "「」『』\"'“”‘’"
@@ -35,9 +35,25 @@ def _fallback_title(user_texts: list[str]) -> str:
     return "未命名"
 
 
+def _limit_output_tokens(text: str, limit: int) -> str:
+    """只截断正文。思考 token 不在这段文本里。"""
+    if not text or limit <= 0:
+        return ""
+    if count_tokens(text) <= limit:
+        return text
+    lo, hi = 0, len(text)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if count_tokens(text[:mid]) <= limit:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo]
+
+
 def _clean_title(raw: str) -> str:
-    """去掉模型输出中的引号、换行和多余空白。"""
-    text = (raw or "").strip()
+    """去掉模型输出中的引号、换行和多余空白，并限制正文长度。"""
+    text = _limit_output_tokens((raw or "").strip(), TITLE_MAX_TOKENS)
     if not text:
         return ""
     text = text.splitlines()[0].strip()
@@ -76,6 +92,8 @@ async def generate_session_title(
 
     messages = [{"role": "user", "content": prompt}]
     try:
+        # max_tokens 是这一次调用里思考加正文的共享上限。
+        # 标题长短另由提示词和 TITLE_MAX_CHARS 限制。
         resp = await provider.chat(
             messages=provider.convert_messages(messages),
             system=TITLE_SYSTEM_PROMPT,

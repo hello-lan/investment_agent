@@ -14,11 +14,12 @@
 2. 先确认 Markdown 存在
 3. 再确认同级索引是否存在
 4. 缺索引就同级补索引
-5. 先读关键章节
-6. 再用 `references/analysis-knowledge-map.md` 导航到对应的内部知识文件
-7. 若出现特定指标、经验阈值、现金流画像或修正规则，再补读 `references/terminology-and-metric-conventions.md`
-8. 只有异常触发时，才扩大到附注、管理层讨论、历史和同行
-9. 除了在聊天中输出结果，还要把最终分析 Markdown 写到 `output_path` 或默认同级路径
+5. 先读 P0 关键章节
+6. 固定读 `references/forensic-rules.md` 和 `references/mine-coverage.md`，填必查覆盖
+7. 只有命中或证据不够时，才按 `references/analysis-knowledge-map.md` 打开专题文件
+8. 若出现特定指标、经验阈值、现金流画像或修正规则，再补读 `references/terminology-and-metric-conventions.md`
+9. 用户只点某一块时，仍然先过硬伤和必查表，再把该块写深
+10. 除了在聊天中输出结果，还要把最终分析 Markdown 写到 `output_path` 或默认同级路径
 
 ---
 
@@ -32,18 +33,15 @@
 1. 确认 `report_path` 是 Markdown 且存在
 2. 检查同级对应索引是否存在
 3. 若索引已存在，先读取索引
-4. 先读关键章节，再按任务重点调用相应内部知识文件
+4. 先读 `references/forensic-rules.md` 和 `references/mine-coverage.md`，填必查覆盖；命中组再打开专题文件
 5. 把最终分析写到：
    - 用户给的 `output_path`
    - 或默认同级 `<report_stem>.analysis.md`
 
 ### 默认知识路径
-- 若用户没限定主题：先读 `references/analysis-principles.md` 做前置排雷
+- 先读 `references/forensic-rules.md` 和 `references/mine-coverage.md`
+- 硬伤与必查表完成后，只对命中组补专题文件
 - 若过程中出现现金债务比、现金流肖像、净利润含金量、销售收现比、有效税率等非纯通用术语，再补读 `references/terminology-and-metric-conventions.md`
-- 再根据主线，进入：
-  - `references/liability-profit-cashflow-linkage.md`
-  - `references/asset-quality-and-capital-allocation.md`
-  - `references/governance-and-fraud-signals.md`
 
 ### 不应做的事
 - 不应直接全文通读
@@ -120,21 +118,16 @@
 - 我只关心财务风险、回款风险和现金流
 
 ### skill 应做的事
-1. 先按前置排雷模块读审计意见、重要提示、重要事项、公司治理
-2. 再优先看：
-   - 股份变动及股东情况
-   - 资产及负债状况分析
-   - 合并现金流量表
-   - 现金流量表补充资料
-   - 应收、存货、借款、预计负债等附注
-3. 输出“是否存在立即排除信号 + 风险集中在哪里”
+1. 先读 `references/forensic-rules.md` 和 `references/mine-coverage.md`，完成硬伤和必查表
+2. 再优先看股东、现金流量表、应收、存货、借款等与命中组对应的节点
+3. 输出覆盖表、是否存在立即排除信号，以及风险集中在哪里
 4. 把最终 Markdown 分析报告写到约定路径
 
 ### 内部知识文件路由
-- 前置排雷：`references/analysis-principles.md`
-- 现金与回款风险：`references/asset-quality-and-capital-allocation.md`
-- 三表闭环与现金流验证：`references/liability-profit-cashflow-linkage.md`
-- 治理与舞弊雷点：`references/governance-and-fraud-signals.md`
+- 必查：`references/mine-coverage.md`、`references/forensic-rules.md`、`references/analysis-principles.md`
+- 命中现金与回款：`references/asset-quality-and-capital-allocation.md`
+- 命中现金流：`references/liability-profit-cashflow-linkage.md`
+- 命中治理与舞弊：`references/governance-and-fraud-signals.md`
 
 ### 不应做的事
 - 不应把全部科目平均展开
@@ -150,16 +143,16 @@
 - 看一下收入、毛利、现金流能不能对上
 
 ### skill 应做的事
-1. 先读利润表、现金流量表、现金流补充资料、主要财务指标
-2. 回到管理层讨论中的主营业务分析
-3. 再按异常点回查收入、应收、减值、费用、关联方相关附注
-4. 输出三表联动是否闭环
-5. 把最终 Markdown 分析报告写到约定路径
+1. 先完成硬伤和 `references/mine-coverage.md` 必查表
+2. 再把用户点名的科目写深，并按异常回查对应附注
+3. 输出仍包含覆盖表、评级和三大前提，不只回答那一个科目
+4. 把最终 Markdown 分析报告写到约定路径
 
 ### 内部知识文件路由
-- 利润质量主模块：`references/liability-profit-cashflow-linkage.md`
-- 若毛利率、客户、异常定价可疑：`references/governance-and-fraud-signals.md`
-- 若涉及应收和存货拖累利润现金含量：`references/asset-quality-and-capital-allocation.md`
+- 必查：`references/forensic-rules.md`、`references/mine-coverage.md`
+- 命中利润、现金流、负债后：`references/liability-profit-cashflow-linkage.md`
+- 命中资产后：`references/asset-quality-and-capital-allocation.md`
+- 命中治理、粉饰、资本化后：`references/governance-and-fraud-signals.md`
 
 ### 重点关注的问题
 - 收入增长来自需求、份额、提价还是并表
@@ -176,14 +169,15 @@
 - 帮我看应收、存货和现金流有没有问题
 
 ### skill 应做的事
-1. 先看合并资产负债表、合并现金流量表、现金流补充资料、主营业务分析
+1. 先完成硬伤和必查表
 2. 再按异常回查应收票据、应收账款、合同资产、存货、预付款、其他应收款附注
 3. 把收入—应收—收现、存货—销量—毛利率串起来
 4. 把最终 Markdown 分析报告写到约定路径
 
 ### 内部知识文件路由
+- 必查：`references/forensic-rules.md`、`references/mine-coverage.md`
 - 经营与资产质量：`references/asset-quality-and-capital-allocation.md`
-- 三表联动与收现验证：`references/liability-profit-cashflow-linkage.md`
+- 收现验证：`references/liability-profit-cashflow-linkage.md`
 - 若涉及异常客户、渠道和收入粉饰：`references/governance-and-fraud-signals.md`
 
 ### 重点关注的问题
@@ -201,12 +195,13 @@
 - 重点排查在建工程、固定资产、商誉风险
 
 ### skill 应做的事
-1. 先看投资状况分析、资产及负债状况分析、资产负债表
+1. 先完成硬伤和必查表
 2. 再回查固定资产、在建工程、开发支出、商誉、合并范围变更附注
 3. 判断资本开支是否形成收入、利润、现金回报闭环
 4. 把最终 Markdown 分析报告写到约定路径
 
 ### 内部知识文件路由
+- 必查：`references/forensic-rules.md`、`references/mine-coverage.md`
 - 长期资产与资本开支：`references/asset-quality-and-capital-allocation.md`
 - 三表回报闭环：`references/liability-profit-cashflow-linkage.md`
 - 若涉及并购或商誉风险：`references/governance-and-fraud-signals.md`
@@ -226,15 +221,15 @@
 - 重点看短债、现金债务比和分红质量
 
 ### skill 应做的事
-1. 先看负债结构、现金流量表、现金流补充资料、权益变动表
+1. 先完成硬伤和必查表（质押、冻结、审计已含在硬伤里）
 2. 再回查借款、应付、预计负债、合同负债、回购、股份支付、分红相关说明
 3. 判断公司是在主动优化资本结构，还是依赖再融资与拖款维持
 4. 把最终 Markdown 分析报告写到约定路径
 
 ### 内部知识文件路由
-- 负债、利润、现金流主线：`references/liability-profit-cashflow-linkage.md`
+- 必查：`references/forensic-rules.md`、`references/mine-coverage.md`
+- 负债、利润、现金流：`references/liability-profit-cashflow-linkage.md`
 - 若存在担保、诉讼、股东异常行为：`references/governance-and-fraud-signals.md`
-- 若需要先重建排雷顺序：`references/analysis-principles.md`
 
 ### 重点关注的问题
 - 现金是否足以覆盖一年内到期债务
@@ -250,15 +245,16 @@
 1. 先拿到显式 `report_path`
 2. 再找同级索引
 3. 缺索引就同级补索引
-4. 先读关键章节
-5. 用 `analysis-knowledge-map.md` 定位到对应的内部知识文件
-6. 异常触发时再定向回查附注、管理层讨论、历史和同行
-7. 输出结论、证据和待验证问题
+4. 先读 P0 关键章节
+5. 读 `forensic-rules.md` 和 `mine-coverage.md`，填八行必查覆盖
+6. 命中或证据不够时，再用 `analysis-knowledge-map.md` 打开对应专题文件
+7. 输出结论、覆盖表、证据和待验证问题
 8. 把最终 Markdown 报告写到 `output_path` 或默认同级路径
 
 关键提醒：
+- 必查表是排雷下限，专题文件只服务命中组
 - `analysis-knowledge-map.md` 是导航，不是唯一知识源
-- 其中的 `Quick trigger routing` 用来把“回款、商誉、短债、毛利率、分红、并购并表”等词，快速路由到正确内部知识文件
-- 财务知识细节已经拆分到 `references/` 目录下，不再依赖外部参考文件
-- 目标始终是“主线判断 + 风险含义 + 证据定位”，不是把知识点整段复述一遍
+- 用户只问一个科目时，仍然先过硬伤和必查表
+- 目标是“主线判断 + 风险含义 + 证据定位”，不是把知识点整段复述一遍
 - 不要回退到旧的 ticker / company / year 自动发现路径假设
+- 不要改走切割清单

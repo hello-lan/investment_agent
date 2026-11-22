@@ -65,15 +65,15 @@ run_python_script(
 
 `run_command` 兜底：`python extensions/skills/pdf-to-markdown/scripts/pdf2markdown_fast.py <pdf> -o <md>`
 
-若省略 `-o`，输出文件自动命名为 `<输入文件名>.md`（与 PDF 同目录；请确保输出仍在 `data/` 下）。
+**必须传 `-o`。** 输出为 `data/reports/md/{code}/{stem}.md`，`{stem}` 与 PDF 文件名去掉扩展名相同（下载脚本按公告标题命名，不要改成别的文件名）。不要写到 PDF 同目录，也不要写到 `data/reports/{code}/2_markdown/`。
 
-转换成功后直接进入下一步（分割/建索引），**不要再 `find` / 全量 `list_files` 探路**。
+转换成功后直接进入下一步（建索引），**不要再 `find` / 全量 `list_files` 探路**。
 
 ## 执行流程
 
 1. 从用户输入提取 PDF 文件路径和输出路径（可选）
 2. 检测用户输入中的质量关键词，选择对应脚本
-3. 若未指定输出路径，默认写到 `data/reports/md/...`，文件名为 `{原文件名}.md`
+3. `-o` 写成 `data/reports/md/{code}/{stem}.md`，`{stem}` 与 PDF 文件名去掉扩展名相同。未指定时也用这一路径，不要落到 PDF 同目录
 4. 用 `run_python_script` 执行（**脚本自动创建输出目录，无需先 `mkdir`**）
 5. 脚本输出包含行数和字符数，**无需额外行数校验**
 
@@ -100,4 +100,4 @@ run_python_script(
 
 ## 配合其他 Skill 使用
 
-本 skill 通常作为前置步骤，转换后的 markdown 可交给 `split-financial-report` / `build_annual_report_index` 进行章节切割与索引。
+本 skill 通常作为前置步骤，转换后的 markdown 可交给 `build-annual-report-index` 建同级 `<stem>.sections.json`。

@@ -1,12 +1,12 @@
 ---
 name: business-operating-analysis
-description: A股上市公司合并三大报表的经营分析。简化与重分类只是读表手段：资产负债表看生产、经营、投资和融资、分配、经营结构，利润表看逐级利润，现金流量表看质量指标和现金流画像。结束后列出各产出 markdown 路径并给出汇总概要。Use when: 三表经营分析，读懂资产结构、利润形成、现金流画像，简化报表。 Not for: 财报风险排雷
+description: A股上市公司合并三大报表的经营分析。...
 ---
 
 # 合并三表经营分析
 
 ```text
-base_dir = data/report/result
+base_dir = data/reports/result
 ```
 
 后文的 `{base_dir}` 都指上面这一行。改输出目录只改这里。路径相对项目根，用 `/`。写出的文件是 `{base_dir}/<code>/<report>.<后缀>.md`。

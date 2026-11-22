@@ -1,27 +1,27 @@
 ---
 name: full-financial-analysis
-description: 完整财报分析流程：下载A股财报PDF → PDF转Markdown → 年报章节索引构建 → 结构化财报分析；若用户要多年分析，再汇总多年综合报告。单年需求只做到单年分析即止。当用户要求对某只A股进行完整/单年/多年财务分析且 Agent 已挂载 build_annual_report_index / analyze_financial_report 时触发。
+description: 完整财报分析流程：按公司按年准备年报 PDF、Markdown 与同级索引 → 结构化财报分析；若用户要多年分析，再汇总多年综合报告。单年需求只做到单年分析即止。当用户要求对某只A股进行完整/单年/多年财务分析且 Agent 已挂载 prepare_financial_reports / analyze_financial_report 时触发。
 ---
 
 # 完整财报分析流程（Subagent 版）
 
-步骤 1–4 按本次年份范围执行；**步骤 5 仅多年模式**。步骤 1–2 由本 Agent **加载原子 skill 后亲自执行**；步骤 3–4 调用已挂载 Subagent；步骤 5（若触发）由本 Agent **读取各年分析报告后亲自汇总**。
+步骤 1–4 按本次年份范围执行；**步骤 5 仅多年模式**。步骤 1–4 调用已挂载 Subagent；步骤 5（若触发）由本 Agent **读取各年分析报告后亲自汇总**。父 Agent 不亲自下载、转写或建索引。
 
 ## 前置条件
 
-当前 Agent **必须已挂载**以下两个 Subagent（否则步骤 3/4 无可用工具，应停止并提示用户挂载）：
-- `build_annual_report_index`
+当前 Agent **必须已挂载**以下两个 Subagent（否则步骤 1–4 无可用工具，应停止并提示用户挂载）：
+- `prepare_financial_reports`
 - `analyze_financial_report`
 
 ## ⚠️ 核心规则（必须严格遵守）
 
-1. **步骤 1–2**：先 `Skill(name=...)` 加载对应原子 skill 完整说明，**下一轮**再按说明用 `run_python_script` 等执行。同一步不要「加载 Skill 又立刻按正文执行」。**禁止**对步骤 1–2 使用 `DelegateTask`。
-2. **步骤 3–4**：必须调用对应 **Subagent 工具名**；**禁止** `DelegateTask`，也禁止父 Agent 亲自跑索引脚本或通读年报做分析。
+1. **步骤 1–3**：每个目标年份各调用一次 `prepare_financial_reports`。task 只写一个 `code` 和一个 `year`。多年时由父 Agent 拆开；互不依赖的年份可以同一轮并行。**禁止**把年份范围、`start`/`end` 或多家公司塞进一次 task。**禁止** `DelegateTask`，也禁止父 Agent 亲自下载、转写或跑建索引脚本。
+2. **步骤 4**：必须调用 `analyze_financial_report`；**禁止** `DelegateTask`，也禁止父 Agent 亲自通读年报做分析。`report_path` 用该年 prepare 交回的实际 Markdown 路径。
 3. **步骤 5**：仅**多年模式**执行；由本 Agent 亲自读取步骤 4 产出的各年 `.analysis.md`，按 `references/multi-year-synthesis-contract.md` 汇总并写出多年综合报告。单年需求跳过本步。**禁止**再委派 Subagent 重跑单年分析；**禁止**为汇总而全文通读原始年报。
 4. **禁止调试脚本**：Subagent / 脚本报错时不要亲自调试；反馈用户或按降级策略处理。
 5. **步骤预算**：每个步骤最多消耗父 Agent 5 步。超过后进入下一步。
 6. **降级优先**：某步骤连续失败 2 次后跳过，用已有存量数据继续。
-7. **目录规范**：输出路径是绝对约束；每步完成后校验产物是否落在预期路径。
+7. **目录规范**：只认 `prepare_financial_reports` 交回的路径。约定外目录里的旧文件不算已有。
 
 ## 前置确认
 
@@ -43,56 +43,30 @@ description: 完整财报分析流程：下载A股财报PDF → PDF转Markdown �
 
 ---
 
-## 步骤 1：下载财报 PDF
+## 步骤 1–3：准备该年年报（PDF、Markdown、索引）
 
-1. 调用 `Skill(name="download-a-share-reports")` 加载完整说明
-2. 按该 skill 说明执行下载（优先 `run_python_script`）
+调用 Subagent 工具 `prepare_financial_reports`（禁止 `DelegateTask` / 禁止本 Agent 亲自下载、转写或建索引）。
 
-**关键参数**：
-- 股票代码 / 名称：`{code}` / `{name}`
-- 年份：`{start_year}`–`{end_year}`
-- 类别：年报
-- 保存目录：`data/reports/pdf/`（产物在 `data/reports/pdf/{code}/`）
+- 每家公司、每一年各调用一次
+- 互不依赖的年份可以同一轮并行
+- 子 Agent 自己判断缺 PDF、缺 Markdown 还是缺索引；有索引但没有同年报 Markdown 时，它会补 Markdown 并覆盖重建索引
+- 父 Agent 不要把 `data/reports/index/`、`1_pdf/`、`2_markdown/` 里的旧文件当作已齐
 
-**输出**：`data/reports/pdf/{code}/` 下的 PDF 路径列表  
-**失败处理**：失败 2 次后检查已有 PDF，有则继续下一步
-
----
-
-## 步骤 2：PDF 转 Markdown
-
-1. 调用 `Skill(name="pdf-to-markdown")` 加载完整说明
-2. 按该 skill 说明转换（默认快速模式；优先 `run_python_script`）
-3. 一次处理所有待转换 PDF；已有 `.md` 的年份跳过
-
-**路径约定**：
+**task 模板**（只有这两个字段）：
 ```
-输入: data/reports/pdf/{code}/{code}_{year}年年度报告_{year}.pdf
-输出: data/reports/md/{code}/{code}_{year}年年度报告_{year}.md
-```
-> 实际 PDF 文件名以步骤 1 返回为准。
-
-**输出**：`data/reports/md/{code}/` 下的 `.md`  
-**校验**：目标年份 `.md` 均存在，缺失则补转
-
----
-
-## 步骤 3：年报章节索引构建
-
-调用 Subagent 工具 `build_annual_report_index`（禁止 `DelegateTask` / 禁止本 Agent 亲自跑建索引脚本）。
-
-- 每个待建索引的 `.md` 各调用一次；互不依赖时可同 turn 并行
-- 已有同级 `<stem>.sections.json` 则跳过
-- `output_path` **必须**为报告同级 `.sections.json`（供步骤 4 复用）
-
-**task 模板**：
-```
-report_path: data/reports/md/{code}/{code}_{year}年年度报告_{year}.md
-output_path: data/reports/md/{code}/{code}_{year}年年度报告_{year}.sections.json
+code: 600519
+year: 2024
 ```
 
-**输出**：同级 `<stem>.sections.json`  
-**校验**：各年份索引存在，缺失则补调
+**输出**：子 Agent 交回的三个相对路径。文件名以它交回的 `{stem}` 为准，不要改写成 `{code}_{year}年年度报告_{year}`。
+
+```
+pdf: data/reports/pdf/{code}/{stem}.pdf
+markdown: data/reports/md/{code}/{stem}.md
+index: data/reports/md/{code}/{stem}.sections.json
+```
+
+**失败处理**：同一年失败 2 次后，若交回路径里 Markdown 与同级索引都在，则继续步骤 4；否则跳过该年。
 
 ---
 
@@ -104,13 +78,13 @@ output_path: data/reports/md/{code}/{code}_{year}年年度报告_{year}.sections
 - `task` 只写路径
 - 本步只做**单年**分析；多年对比留给步骤 5
 
-**task 模板**：
+**task 模板**（路径用该年 prepare 交回的 Markdown，不要另写一套文件名）：
 ```
-report_path: data/reports/md/{code}/{code}_{year}年年度报告_{year}.md
-output_path: data/reports/md/{code}/{code}_{year}年年度报告_{year}.analysis.md
+report_path: data/reports/md/{code}/{stem}.md
+output_path: data/reports/md/{code}/{stem}.analysis.md
 ```
 
-**输出**：`data/reports/md/{code}/<stem>.analysis.md`
+**输出**：`data/reports/md/{code}/{stem}.analysis.md`
 
 ### 降级策略
 
@@ -152,9 +126,9 @@ output_path: data/reports/md/{code}/{code}_{year}年年度报告_{year}.analysis
 ### 输入
 
 ```
-data/reports/md/{code}/{code}_{year}年年度报告_{year}.analysis.md
+data/reports/md/{code}/{stem}.analysis.md
 ```
-（仅本次多年任务覆盖到、且步骤 4 成功的年份）
+（`{stem}` 是该年 prepare 交回的 Markdown 文件名；仅本次多年任务覆盖到、且步骤 4 成功的年份）
 
 ### 输出
 
@@ -186,21 +160,20 @@ data/reports/md/{code}/{code}_{start_year}-{end_year}_多年综合财务分析.m
 
 ```
 用户输入（股票名称/代码 + 单年或多年范围）
-  → 步骤1: Skill(download-a-share-reports) → data/reports/pdf/{code}/*.pdf
-    → 步骤2: Skill(pdf-to-markdown) → data/reports/md/{code}/{code}_{year}年年度报告_{year}.md
-      → 步骤3: build_annual_report_index → 同级 .sections.json
-        → 步骤4: analyze_financial_report → 同级 .analysis.md
+  → 步骤1–3: 每个 code+year 一次 prepare_financial_reports
+      → pdf/{code}/{stem}.pdf
+      → md/{code}/{stem}.md
+      → md/{code}/{stem}.sections.json
+        → 步骤4: analyze_financial_report → 同 stem 的 .analysis.md
           → 步骤5（仅多年模式）: 读取本次各年 .analysis.md → {code}_{start}-{end}_多年综合财务分析.md
 ```
 
-> 步骤 3 索引必须写到 Markdown **同级** `.sections.json`，勿写到 `data/reports/index/`。  
+> 索引由 `prepare_financial_reports` 写到 Markdown **同级** `.sections.json`。  
 > 单年模式在步骤 4 结束；步骤 5 不执行。
 
 ## 增量策略
 
-- 步骤1：已有 PDF → 跳过
-- 步骤2：已有 `.md` → 跳过
-- 步骤3：已有同级 `.sections.json` → 跳过
+- 步骤 1–3：交给 `prepare_financial_reports`。Markdown 与同级索引都在它会跳过；有索引但没有 Markdown 时它会补 Markdown 并覆盖重建索引。父 Agent 不要凭约定外的旧文件跳过
 - 步骤4：始终执行（覆盖本次目标年份的单年分析）
 - 步骤5：仅多年模式；目标综合报告已存在且本次各年 `.analysis.md` 未更新时可跳过，否则在步骤 4 后重跑汇总
 

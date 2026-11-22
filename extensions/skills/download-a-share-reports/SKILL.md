@@ -5,6 +5,15 @@ description: 从巨潮资讯网、东方财富、新浪财经等多数据源下�
 
 # A股财报下载（多数据源）
 
+```text
+base_dir = data/reports/pdf
+```
+
+- 上面这一行是默认值。执行前先看 agent 系统提示词里有没有另外给出 `base_dir = ...`。有则以系统提示词为准，没有才用默认值。
+- 后文的 `{base_dir}` 都指解析后的那一个值。路径相对项目根，用 `/`。PDF 写到 `{base_dir}/<code>/`。
+- 调用脚本时把解析后的值传给 `save_dir` / `--save-dir`，不要省略。这样系统提示词里的目录会盖过脚本自带的 `data/reports/pdf`。
+- 完整 PDF 只认 `{base_dir}/<code>/`。`data/reports/<code>/1_pdf/` 以及其它目录里的文件忽略，不读取、不搬迁。
+
 通过巨潮资讯网、东方财富、新浪财经等多数据源下载上市公司定期报告 PDF 文件。**某个数据源失败时自动切换下一数据源**，解决网络不稳定和反爬机制导致的下载失败问题。
 
 ## 数据源
@@ -54,12 +63,12 @@ description: 从巨潮资讯网、东方财富、新浪财经等多数据源下�
 
 ## 调用模板
 
-**优先 `run_python_script`**（cwd=项目根）。**不要 `cd` 进 `scripts/`**；相对 `--save-dir` 会按项目根解析，默认已是 `data/reports/pdf`。仅当专用工具不可用时再用 `run_command`。
+**优先 `run_python_script`**（cwd=项目根）。**不要 `cd` 进 `scripts/`**；相对 `--save-dir` 按项目根解析，取值用解析后的 `{base_dir}`。仅当专用工具不可用时再用 `run_command`。
 
 ```text
 run_python_script(
   script_path="extensions/skills/download-a-share-reports/scripts/download_report.py",
-  kwargs={"stock": "600519", "start": 2020, "end": 2024, "category": "年报", "save_dir": "data/reports/pdf"},
+  kwargs={"stock": "600519", "start": 2020, "end": 2024, "category": "年报", "save_dir": "{base_dir}"},
   timeout_seconds=120
 )
 ```
@@ -70,7 +79,7 @@ run_python_script(
 
 ```bash
 python extensions/skills/download-a-share-reports/scripts/download_report.py \
-  --stock 600519 --start 2020 --end 2024 --category 年报 --save-dir data/reports/pdf
+  --stock 600519 --start 2020 --end 2024 --category 年报 --save-dir {base_dir}
 ```
 
 下载成功后直接使用脚本打印的路径，**不要再 `find` / 全量 `list_files` 探路**。
@@ -105,9 +114,7 @@ python extensions/skills/download-a-share-reports/scripts/download_report.py \
 
 ## 输出位置
 
-默认保存到 `data/reports/pdf`（也可显式传 `--save-dir` / `save_dir`）：
-
-PDF 保存到 `{项目根}/{save_dir}/{stock_code}/`（如 `data/reports/pdf/600519/`）。
+PDF 保存到 `{base_dir}/{stock_code}/`（如 `{base_dir}/600519/`）。只有这个目录下的文件算已下载；约定外路径里的同名 PDF 忽略。
 
 ## 限制说明
 

@@ -597,20 +597,9 @@ def infer_ticker_and_year(report_path: Path, lines: list[str]) -> tuple[str, int
     return ticker, None
 
 
-def default_output_path(report_path: Path, ticker: str, year: int | None) -> Path:
-    indexes_dir = report_path.parent / "indexes"
-    if report_path.parent.name == "annual_report":
-        indexes_dir = report_path.parent / "indexes"
-    elif report_path.parent.parent.name == "annual_report":
-        indexes_dir = report_path.parent.parent / "indexes"
-    elif report_path.parent.name.isdigit() and report_path.parent.parent.name == "2_markdown":
-        indexes_dir = report_path.parent / "indexes"
-    elif report_path.parent.name == "2_markdown":
-        report_root = report_path.parent.parent
-        indexes_dir = report_root / "4_output" / "indexes"
-    if ticker and year:
-        return indexes_dir / f"{ticker}_{year}.sections.json"
-    return indexes_dir / f"{report_path.stem}.sections.json"
+def default_output_path(report_path: Path) -> Path:
+    """索引与 Markdown 同级：<stem>.sections.json。"""
+    return report_path.with_name(f"{report_path.stem}.sections.json")
 
 
 def report_file_value(report_path: Path) -> str:
@@ -975,7 +964,7 @@ def main() -> int:
     output_data, summary = build_index(args.report_path)
     errors = validate_structure(output_data)
 
-    output_path = args.output or default_output_path(args.report_path, output_data.get("ticker", ""), output_data.get("year"))
+    output_path = args.output or default_output_path(args.report_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
         json.dumps(output_data, ensure_ascii=False, indent=2 if args.pretty else None),

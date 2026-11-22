@@ -14,7 +14,7 @@ A 股基本面分析智能助手。浏览器里对话、上传财报，由 LLM A
 - **子 Agent** — 可定义独立上下文的 Subagent，也可通过 `DelegateTask` 把多步任务委派出去。同一轮里互不依赖的子任务可以并行。子任务有自己的步数和 token 预算。
 - **文件与脚本工具** — 列举、读取、搜索、写入 `data/`；在已启用技能目录里跑 Python 脚本；需要时再执行 shell。
 - **外部检索** — 工具页可配置 HTTP 检索实例，把公司材料和投资通识片段接进对话。
-- **财报流水线** — 下载年报 → PDF 转 Markdown → 章节索引或按章节切开 → 结构化分析与排雷。多年分析可再汇总。
+- **财报流水线** — 下载年报 → PDF 转 Markdown → 章节索引 → 结构化分析与排雷。多年分析可再汇总。
 - **个股看板** — 按代码或名称查询。七步法展示营收质量、成本、成长、业务构成、资产负债、投入产出和收益率；商业八问给出读公告和研报时的问题清单。数据来自 AKShare，结果缓存在 SQLite。
 - **会话与观测** — 历史会话可继续。上下文可按「可见对话」或「完整轨迹」回放。统计页查看 token 成本、执行轨迹，并支持导出和清理。
 
@@ -103,8 +103,8 @@ start.bat --port 8000
 
 | Skill | 怎么跑 |
 |-------|--------|
-| `full-financial-analysis` | 父 Agent 亲自下载并转 Markdown；索引和分析交给已挂载的 `build_annual_report_index`、`analyze_financial_report`。多年需求由父 Agent 汇总各年报告 |
-| `orch-full-financial-analysis` | 编排技能。每一步用 `DelegateTask` 委派，依赖下载、转写、章节切割和排雷四个原子技能 |
+| `full-financial-analysis` | 父 Agent 按公司、按年调用 `prepare_financial_reports` 准备 PDF、Markdown 和同级索引；分析交给 `analyze_financial_report`。多年需求由父 Agent 汇总各年报告 |
+| `orch-full-financial-analysis` | 旧编排。每一步用 `DelegateTask` 委派，只依赖下载和转写；排雷改走 full-financial-analysis |
 
 ---
 
@@ -139,7 +139,7 @@ data/
 ├── reports/<股票代码>/
 │   ├── 1_pdf/                    # 下载的 PDF
 │   ├── 2_markdown/               # PDF 转写结果
-│   ├── 3_split/                  # 按章节切开的 Markdown
+│   ├── 3_split/                  # 旧切割产物，当前流程不再写入
 │   └── 4_output/                 # 分析报告
 ├── tmp/                          # 仅文件名写入时的默认位置
 ├── tmp/subagents/                # 子 Agent 工作区
@@ -199,14 +199,12 @@ investment_agent/                 # 仓库根目录
 | `a-share-financial-data` | 利润表、资产负债表、现金流量表、估值与财务指标 |
 | `a-share-valuation` | DCF、相对估值、周期股调整，输出前提显式的观察区间 |
 | `industry-compare` | 同业关键指标对比，标出异常偏离 |
-| `a-share-financial-forensic` | 三表联动排雷，输出疑点、分级和证据链 |
-| `analyze-financial-report` | 基于年报索引做结构化分析（利润、现金流、资产、治理、R001–R038） |
+| `analyze-financial-report` | 年报索引定向排雷：R001–R038、必查覆盖、风险评级与三大前提 |
 | `build-annual-report-index` | 为年报 Markdown 生成两级章节索引 |
 | `download-a-share-reports` | 从巨潮、东方财富、新浪下载年报、半年报、季报 |
 | `pdf-to-markdown` | PDF 转 Markdown（默认 pdfplumber，可切高质量模式） |
-| `split-financial-report` | 按章节切开大型财报 Markdown |
 | `full-financial-analysis` | 下载 → 转写 → 建索引 → 单年分析；多年需求再汇总 |
-| `orch-full-financial-analysis` | 编排完整流程：下载、转写、按章节切开、再做排雷 |
+| `orch-full-financial-analysis` | 旧编排：下载、转写；排雷已改走 full-financial-analysis |
 | `demo_echo` / `demo_brief_report` | 调用链与多参数报告的演示技能 |
 
 行情和财务报表数据来自 AKShare。
@@ -250,7 +248,7 @@ depends_on: []
 | 名称 | 作用 |
 |------|------|
 | `analyze_financial_report` | 对指定年报 Markdown 做最小必要阅读和可复核的排雷分析 |
-| `build_annual_report_index` | 优先跑脚本，为年报生成章节索引 JSON |
+| `prepare_financial_reports` | 只处理一家公司的一个年份：核对约定路径下的年报 PDF、Markdown 和同级索引，缺则补齐；孤立索引在补完 Markdown 后覆盖重建 |
 
 在 `/agents` 的「Subagent 定义」里可以新建。写清 `description`（主模型靠它决定何时调用）、允许的 `tools` / `skills`，以及可选的 token 与裁剪覆盖。
 

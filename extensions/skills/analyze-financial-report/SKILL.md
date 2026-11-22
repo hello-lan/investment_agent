@@ -1,20 +1,20 @@
 ---
 name: analyze-financial-report
-description: 对 A 股年报 Markdown 做结构化财报分析与排雷。基于索引定向阅读，对照 R001–R038 规则库评估利润质量、现金流、资产风险与治理信号，输出含风险评级与三大前提的分析报告。用户提到分析/阅读/排查某公司年报、财报、利润质量、现金流、资产负债表、三张表联动、排雷时，应优先使用本 skill。
+description: 对 A 股年报 Markdown 做排雷。基于索引定向阅读，对照 R001–R038 与必查覆盖表，判断利润是否为真、现金流、资产风险与治理硬伤，输出风险评级、覆盖表与三大前提。用户提到分析年报、排雷、造假识别、利润质量、现金流、资产风险时，应优先使用本 skill。
 ---
 
 # Analyze Financial Report
 
 把“校验 Markdown 路径 → 检查同级索引 → 必要时补索引 → 定向阅读 → 输出分析并写报告”串成稳定流程。
 
-这个 skill 的目标不是复述年报，而是基于最小必要阅读范围，对照排雷规则给出**财务判断、证据位置、风险含义、风险评级和下一步核查方向**。
+这个 skill 只做排雷：基于最小必要阅读，对照规则和必查覆盖表，给出**财务判断、证据位置、风险含义、风险评级和下一步核查方向**。用户说「全面分析」时，指走完必查表，不是另起一套泛读。
 
 ## 适用范围
 
 适合以下任务：
-- 分析某一份已准备好的年报 Markdown
-- 排查利润质量、现金流质量、资产质量、负债压力与治理疑点
-- 判断三表是否闭环，并给出总体风险评级与三大前提判定
+- 对一份已准备好的年报 Markdown 做排雷
+- 排查利润是否为真、现金流、资产质量、负债压力与治理硬伤
+- 判断三表是否闭环，并给出总体风险评级、必查覆盖与三大前提
 
 不适合以下任务：
 - 默认全文通读年报
@@ -113,24 +113,25 @@ description: 对 A 股年报 Markdown 做结构化财报分析与排雷。基于
 - 附注中的一层科目节点，例如 `货币资金`、`应收账款`、`存货`、`短期借款`
 - 财务报告专题节点，例如 `关联方及关联交易`、`合并范围的变更`、`承诺及或有事项`、`资产负债表日后事项`
 
-### Step 6: 按问题类型路由内部知识
-分析时按以下顺序取知识：
-1. 先读 `references/analysis-knowledge-map.md`，确定本次任务属于哪些分析模块
-2. 若任务涉及排雷、疑点排查、造假识别、风险定级，或用户要“全面分析”，先读 `references/forensic-rules.md`（R001–R038 为对照下限）
-3. 若出现术语、公式、阈值、现金流画像或修正规则，读取 `references/terminology-and-metric-conventions.md`
-4. 再读取对应的专题知识文件，提取核查问题、最低覆盖项、异常模式、风险含义、追加核查动作
-5. 用已读章节与附注节点对照规则表；命中写成「事实数据 + R0xx + 风险推断」；规则外重大发现单独保留
-6. 最后形成结论，并按 output contract 给出评级、三大前提与肖像标注
+### Step 6: 先过必查表，再按命中读专题
+P0 读完后，固定按这个顺序取知识：
 
-常用路由：
-- 排雷 / 规则对照 / R0xx → `references/forensic-rules.md`（再按命中科目补专题文件）
-- 应收、票据、合同资产、销售收现异常 → `references/asset-quality-and-capital-allocation.md` + `references/liability-profit-cashflow-linkage.md`
-- 存货、预付、其他应收款、固定资产、在建工程、开发支出、商誉异常 → `references/asset-quality-and-capital-allocation.md`
-- 短债压力、高现金高负债、预计负债、低分红、股份支付、毛利率/费用率/税率异常、利润与经营现金流背离 → `references/liability-profit-cashflow-linkage.md`
-- 并购并表、募投变更、关联交易、治理异常、收入粉饰、费用资本化、现金流包装 → `references/governance-and-fraud-signals.md`
+1. 读 `references/forensic-rules.md`（R001–R038 是对照下限）
+2. 读 `references/mine-coverage.md`，对硬伤、货币资金、应收、存货、长期资产与商誉、利润质量、现金流肖像、联动逐组给出命中 / 未触发 / 待验证
+3. 只有某一组命中，或证据不够、需要下钻时，才读对应专题文件
+4. 出现术语、公式、阈值、现金流肖像或修正规则时，读 `references/terminology-and-metric-conventions.md`
+5. 命中写成「事实数据 + R0xx + 风险推断」；规则外重大发现单独保留
+6. 按 output contract 给出评级、必查覆盖表、三大前提与肖像类型名
 
-不要把 `analysis-knowledge-map.md` 当成唯一知识来源；它负责导航，不负责替代专题知识与规则库。
-对照规则时仍保持定向阅读：只对已读或因异常扩读的节点下结论，缺证据标待验证，禁止为刷规则全文通读。
+专题文件只在命中或待验证需要补证据时打开：
+
+- 应收、票据、合同资产、存货、预付、其他应收、固定资产、在建工程、开发支出、商誉、货币资金 → `references/asset-quality-and-capital-allocation.md`
+- 短债、存贷双高、毛利率、费用率、税率、利润与经营现金流背离、现金流肖像 → `references/liability-profit-cashflow-linkage.md`
+- 并购并表、募投变更、关联交易、质押、收入粉饰、费用资本化、洗大澡、现金流包装 → `references/governance-and-fraud-signals.md`
+
+用户只点名某一块（例如只看利润或只看应收）时，仍然先完成硬伤和必查表，再把该块写深。`analysis-knowledge-map.md` 只负责导航，不替代规则库和必查表。
+
+只对已读或因异常扩读的节点下结论。缺证据标待验证。禁止为刷规则通读附注。
 
 ### Step 7: 命中异常时扩大回查
 出现以下情况时，扩大回查，但仍保持定向阅读：
@@ -159,17 +160,18 @@ description: 对 A 股年报 Markdown 做结构化财报分析与排雷。基于
 至少覆盖：
 1. 一句话结论 + 总体风险评级
 2. 前置排雷结果
-3. 核心财务观察（现金流主题须标注肖像类型名）
-4. 重点风险清单（尽量含 `R0xx` 与高/中/低分层；可附规则外重大发现）
-5. 三表联动判断
-6. 三大前提判定（利润是否为真 / 是否可持续 / 维持是否需大量资本投入）
-7. 杜邦驱动一问（指标可得时）
-8. 待验证问题与下一步回查方向
+3. 必查覆盖表（硬伤、货币资金、应收、存货、长期资产与商誉、利润质量、现金流肖像、联动；每行写未触发 / 命中规则 / 待验证）
+4. 核心财务观察（只展开 3–5 条最重要的雷；现金流须标注肖像类型名）
+5. 重点风险清单（含 `R0xx` 与高/中/低分层；可附规则外重大发现）
+6. 三表联动判断
+7. 三大前提判定（利润是否为真 / 是否可持续 / 维持是否需大量资本投入）
+8. 杜邦驱动一问（指标可得时）
+9. 待验证问题、下一步回查，以及 P0/P1/P2 跟踪建议
 
 输出要求：
 - 不做“摘要复述”，而做“分析结论 + 证据定位 + 风险含义”
 - 每个关键判断尽量同时落到“年报证据”与“内部分析逻辑”两层
-- 排雷命中尽量引用 `references/forensic-rules.md` 中的 `R0xx`
+- 排雷命中引用 `references/forensic-rules.md` 中的 `R0xx`；分组是否覆盖以 `references/mine-coverage.md` 为准
 - 涉及指标、阈值、经验口径、现金流画像、修正规则时，以 `references/terminology-and-metric-conventions.md` 为准
 - 除了在聊天中给出结论，还要把最终 Markdown 报告写到：
   - `output_path`（若用户提供）
@@ -184,8 +186,9 @@ description: 对 A 股年报 Markdown 做结构化财报分析与排雷。基于
 - 不要只罗列数字，要解释数字之间是否闭环
 - 不要把无法解释的异常轻描淡写；解释不闭环本身就是风险信号
 - 不要在命中异常后跳过对应专题知识文件
-- 不要跳过 `forensic-rules.md` 的规则对照（排雷/全面分析场景）；也不要为刷规则全文通读
-- 不要省略总体风险评级、三大前提或现金流肖像类型名
+- 不要跳过 `forensic-rules.md` 和 `mine-coverage.md`；也不要为刷规则全文通读
+- 不要省略总体风险评级、必查覆盖表、三大前提或现金流肖像类型名
+- 不要因为用户只问某一科目就跳过硬伤和必查表
 - 第一版不要生成 digest 文件
 - 不要自行从 ticker / company / year 推测报告路径
 - 不要默认回退到任何项目专属的固定索引目录
@@ -205,6 +208,7 @@ description: 对 A 股年报 Markdown 做结构化财报分析与排雷。基于
 - `references/report-discovery-rules.md`：报告路径校验、同级索引与输出路径规则
 - `references/analysis-knowledge-map.md`：执行型知识导航
 - `references/forensic-rules.md`：R001–R038 排雷规则、严重度与回查映射
+- `references/mine-coverage.md`：排雷必查分组、触发条件与覆盖表收口
 - `references/terminology-and-metric-conventions.md`：术语、公式、阈值、经验口径、修正规则
 - `references/analysis-principles.md`：前置排雷、分析顺序、对比纪律、扩大回查规则
 - `references/asset-quality-and-capital-allocation.md`：经营性资产、长期资产、资本开支、非主业资产与投资问题

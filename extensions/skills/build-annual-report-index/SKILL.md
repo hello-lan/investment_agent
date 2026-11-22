@@ -44,19 +44,21 @@ description: 为 A 股年报 Markdown 生成最多两级的 chapter 索引 JSON�
 run_python_script(
   script_path="extensions/skills/build-annual-report-index/scripts/build_minimal_index.py",
   argv=[
-    "data/reports/md/<code>/<report>.md",
-    "--output", "data/reports/index/<code>_<year>年年度报告_index.json",
+    "data/reports/md/<code>/<stem>.md",
+    "--output", "data/reports/md/<code>/<stem>.sections.json",
     "--pretty"
   ]
 )
 ```
+
+`<stem>` 与 Markdown 文件名去掉扩展名相同。`--output` 必须是这份 Markdown 的同级 `<stem>.sections.json`。文件已存在时照样执行，脚本会覆盖；禁止因为文件已在就跳过。不要写到 `data/reports/index/`。
 
 校验：
 
 ```text
 run_python_script(
   script_path="extensions/skills/build-annual-report-index/scripts/validate_sections_index.py",
-  argv=["data/reports/index/<code>_<year>年年度报告_index.json"]
+  argv=["data/reports/md/<code>/<stem>.sections.json"]
 )
 ```
 
@@ -64,18 +66,18 @@ run_python_script(
 
 ```bash
 python extensions/skills/build-annual-report-index/scripts/build_minimal_index.py \
-  data/reports/md/<code>/<report>.md \
-  --output data/reports/index/<code>_<year>年年度报告_index.json \
+  data/reports/md/<code>/<stem>.md \
+  --output data/reports/md/<code>/<stem>.sections.json \
   --pretty
 ```
 
-若上游指定了 `output_path`，把 `--output` 改成该路径。默认也可写到报告同级 `*_index.json`。
+上游若另给 `output_path`，仍只接受 Markdown 同级的 `<stem>.sections.json`。不要改到其它目录。
 
 ## Inputs / Outputs
 
 输入：
 - `report_path`（必填）：年报 Markdown 相对路径
-- `output_path`（可选）：索引 JSON 输出路径
+- `output_path`（可选）：只接受 Markdown 同级的 `<stem>.sections.json`；已存在则覆盖
 
 产出：
 1. 一个 chapter 索引 JSON（脚本写入）
@@ -120,5 +122,5 @@ python extensions/skills/build-annual-report-index/scripts/build_minimal_index.p
 - 不要输出旧的平面 `sections`
 - 不要保留原始 `财务报告` 父节点
 - 不要把附注展开到第三层
-- 若上游已指定 `output_path`，不要擅自改到其他目录
+- `--output` 只用 Markdown 同级的 `<stem>.sections.json`；上游给了别的路径也改回这一处，并覆盖已有文件
 - 不要 `cd`；不要通读脚本源码；路径用相对路径 + `/`

@@ -36,7 +36,7 @@ SUBAGENT_SYSTEM_PROMPT = """你是一个专业的子Agent，负责执行父Agent
 - 数据目录: data/reports/<股票代码>/（读写默认限定在 data/）
   - 1_pdf/ → 下载的PDF年报
   - 2_markdown/ → PDF转换后的Markdown文件
-  - 3_split/ → 按章节目录切割后的文件
+  - 3_split/ → 旧流程按章节切割的历史文件，新分析不使用、不写入
   - 4_output/ → 最终分析报告输出
 - data/.offload/ → 上下文卸载临时文件（自动管理，可用 read_file 读取）"""
 
