@@ -177,17 +177,25 @@ body.left-split-resizing {
 .msg.assistant .msg-bubble { background: var(--c-surface); border: 1px solid var(--c-border-light); border-bottom-left-radius: 4px; color: var(--c-text-1); }
 .msg-actions { display: flex; align-items: center; gap: 4px; }
 .msg.user .msg-actions { justify-content: flex-end; }
-.btn-copy-msg {
+.btn-copy-msg,
+.btn-edit-msg,
+.btn-fork-msg {
   display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; padding: 0; border: none; border-radius: var(--r-sm);
   background: transparent; color: var(--c-text-4); cursor: pointer;
   transition: background var(--ease), color var(--ease);
 }
-.btn-copy-msg:hover { background: var(--c-primary-light); color: var(--c-text-2); }
+.btn-copy-msg:hover,
+.btn-edit-msg:hover,
+.btn-fork-msg:hover { background: var(--c-primary-light); color: var(--c-text-2); }
 .btn-copy-msg.copied { color: var(--c-success); }
 .btn-copy-msg .icon-check { display: none; }
 .btn-copy-msg.copied .icon-copy { display: none; }
 .btn-copy-msg.copied .icon-check { display: block; }
+.btn-edit-msg:disabled {
+  opacity: 0.4; cursor: not-allowed;
+}
+.messages.is-running .btn-edit-msg { opacity: 0.4; cursor: not-allowed; }
 .btn-share-msg {
   display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; padding: 0; border: none; border-radius: var(--r-sm);
@@ -195,6 +203,30 @@ body.left-split-resizing {
   transition: background var(--ease), color var(--ease);
 }
 .btn-share-msg:hover { background: var(--c-primary-light); color: var(--c-text-2); }
+.msg-edit-box {
+  display: flex; flex-direction: column; gap: 8px;
+  width: 100%; min-width: 220px; max-width: 100%;
+  padding: 10px 12px; border-radius: var(--r-lg);
+  background: var(--c-surface); border: 1px solid var(--c-border);
+  box-sizing: border-box;
+}
+.msg-edit-textarea {
+  width: 100%; min-height: 72px; resize: vertical;
+  padding: 8px 10px; border: 1px solid var(--c-border); border-radius: var(--r-sm);
+  font: inherit; font-size: var(--fs-base); line-height: var(--lh-base);
+  color: var(--c-text-1); background: #fff; box-sizing: border-box;
+}
+.msg-edit-textarea:focus { outline: 2px solid var(--c-accent); outline-offset: 1px; }
+.msg-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.btn-edit-cancel,
+.btn-edit-send {
+  border: none; border-radius: var(--r-sm); padding: 6px 12px;
+  font-size: var(--fs-sm); cursor: pointer;
+}
+.btn-edit-cancel { background: var(--c-primary-lighter); color: var(--c-text-2); }
+.btn-edit-cancel:hover { background: var(--c-primary-light); }
+.btn-edit-send { background: var(--c-primary); color: #fff; }
+.btn-edit-send:hover { filter: brightness(1.05); }
 .msg-error, .msg-info { align-self: stretch; }
 
 /* 分享选择：整行左槽，勾选点对齐气泡上沿（头像 28px + 消息间距 6px） */
