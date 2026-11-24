@@ -14,7 +14,6 @@ PLAN_BLOCKED_TOOLS = frozenset({
     "write_file",
     "run_command",
     "run_python_script",
-    "DelegateTask",
 })
 
 PLAN_MODE_PROMPT = (

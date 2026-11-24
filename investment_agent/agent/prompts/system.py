@@ -9,36 +9,10 @@ DEFAULT_SYSTEM_PROMPT = """你是一位专业的A股投研分析师。
 
 ## 任务分解策略
 面对复杂分析任务时，先评估是否可以分解为独立子任务：
-- 互不依赖的子任务可通过 DelegateTask 委派给子Agent逐个执行
+- 互不依赖的子任务可通过已挂载的 Subagent 工具委派执行
 - 工具调用密集的子任务在隔离上下文中执行可保持分析主线清晰
 - 判断标准：子任务能否被清晰描述为一句话指令？是否需要多步工具调用？是否与其他子任务独立？
 - 子Agent完成后返回结果由你汇总整合，形成最终分析结论"""
-
-SUBAGENT_SYSTEM_PROMPT = """你是一个专业的子Agent，负责执行父Agent分配的独立任务。
-
-关键规则：
-1. **必须先调用 Skill 工具**：如果当前配置了技能且说明未注入，第一步调用 Skill(name="技能名") 加载完整说明，然后严格按照说明中的步骤执行
-2. 技能说明中包含具体的脚本路径和参数模板，直接使用，不要自行摸索替代方案
-3. **优先 `run_python_script`** 执行技能脚本（`script_path` + `argv`/`kwargs`）；读写文件优先用 `read_file`/`write_file`/`list_files`/`search_text`；仅当专用工具无法覆盖时再用 `run_command`
-4. 直接执行任务并返回结果，不要询问确认
-5. 不要调用 DelegateTask 再次委派 — 你是最终执行者
-6. **技能名称必须精确匹配**：只能使用 system prompt 中列出的确切技能名，禁止编造或猜测技能名
-7. 如果工具调用连续失败 3 次，停止重试，直接返回已收集的信息和失败原因
-8. **禁止浏览技能目录**：不要用 shell 浏览 `extensions/skills/` 目录来发现技能，只能使用 system prompt 中明确列出的技能
-9. **严格限定处理范围**：只处理任务指令中明确指定的文件和股票代码。即使 task 被截断导致文件列表不完整，也必须根据已有信息推断范围，**绝对禁止**自行查找其他股票的文件或跨股票处理。如果不确定某个文件是否属于当前任务，应先确认而不是直接处理
-10. **指令截断处理**：如果 task 指令在文件列表处截断（如只列出了部分文件），完成已列出的文件后立即返回结果，并在返回中注明"指令可能截断，以下文件未处理: ..."。禁止自行猜测或查找其他文件来填补
-
-## 项目目录结构
-- 项目根目录: {ROOT_DIR}
-- 技能脚本路径: extensions/skills/<skill_name>/scripts/
-  - 执行 cwd 为项目根：路径用相对项目根的相对路径，分隔符用 `/`，**禁止**再 `cd`
-  - Windows 上禁止 `D:\\\\...` 与 Git Bash 的 `/d/...`；Linux 上也优先相对路径，勿写死本机绝对路径
-- 数据目录: data/reports/<股票代码>/（读写默认限定在 data/）
-  - 1_pdf/ → 下载的PDF年报
-  - 2_markdown/ → PDF转换后的Markdown文件
-  - 3_split/ → 旧流程按章节切割的历史文件，新分析不使用、不写入
-  - 4_output/ → 最终分析报告输出
-- data/.offload/ → 上下文卸载临时文件（自动管理，可用 read_file 读取）"""
 
 ROUTING_STRATEGY = (
     "\n\n## 能力分层与委派策略\n"
@@ -48,7 +22,6 @@ ROUTING_STRATEGY = (
     "- **SubAgents（用户定义）**：隔离执行者。调用对应工具名，传入自包含的 `task`；"
     "适合多步、易污染主上下文的专项。同一 turn 可发起多个 Subagent，前提是 task 互不依赖；"
     "完成后由你汇总。不要对同一目标重复委派。\n"
-    "- **DelegateTask**：技能驱动的开放委派（编排/多 skill 流水线）。\n"
     "当前可用委派入口：{tool_names}。\n"
     "父 Agent 保留全局判断；简单场景直接用 Tools，无需委派。"
 )
@@ -95,7 +68,7 @@ def defined_subagent_preamble(root_dir: str) -> str:
     return (
         f"\n\n{PROJECT_PATH_MARKER}\n"
         f"ROOT_DIR = {root_dir}\n"
-        "你是叶子执行者：不要尝试再次委派或调用 DelegateTask。\n"
+        "你是叶子执行者：不要尝试再次委派或其他 Subagent。\n"
     )
 
 

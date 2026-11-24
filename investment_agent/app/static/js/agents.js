@@ -5,7 +5,7 @@ let availableSkills = [];
 let availableTools = [];
 let availableSubagents = [];
 
-const FORBIDDEN_SUBAGENT_TOOLS = new Set(['DelegateTask', 'Subagent']);
+const FORBIDDEN_SUBAGENT_TOOLS = new Set(['Subagent']);
 const DEFAULT_AGENT_AVATAR = '/static/img/avatar-agent.svg';
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 const AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
@@ -543,7 +543,6 @@ function fillEngineFields(cfg) {
       maxParallel.value = 3;
       document.getElementById('agentMaxParallelSubagentsVal').textContent = '3';
     }
-    document.getElementById('agentPlanningMaxTokens').value = '';
     document.getElementById('agentOffloadThreshold').value = '';
     document.getElementById('agentOffloadStrategy').value = 'truncate';
     document.getElementById('agentOffloadSummaryChars').value = '';
@@ -574,7 +573,6 @@ function fillEngineFields(cfg) {
     maxParallel.value = cfg.max_parallel_subagents ?? 3;
     document.getElementById('agentMaxParallelSubagentsVal').textContent = cfg.max_parallel_subagents ?? 3;
   }
-  document.getElementById('agentPlanningMaxTokens').value = cfg.planning_max_tokens ?? '';
   document.getElementById('agentOffloadThreshold').value = cfg.offload_threshold ?? '';
   document.getElementById('agentOffloadStrategy').value = cfg.offload_summary_strategy || 'truncate';
   document.getElementById('agentOffloadSummaryChars').value = cfg.offload_summary_chars ?? '';
@@ -664,7 +662,6 @@ async function saveAgent(){
   const engineLoopThreshold = parseInt(document.getElementById('agentLoopThreshold').value) || 3;
   const maxSubagentDepth = parseInt(document.getElementById('agentMaxSubagentDepth').value) || 3;
   const maxParallelSubagents = parseInt(document.getElementById('agentMaxParallelSubagents').value) || 3;
-  const planningMaxTokens = toNullableInt(document.getElementById('agentPlanningMaxTokens').value);
 
   const offloadThreshold = toNullableInt(document.getElementById('agentOffloadThreshold').value);
   const offloadStrategy = document.getElementById('agentOffloadStrategy').value;
@@ -684,7 +681,6 @@ async function saveAgent(){
     context_trim_token_threshold: trimTokenThreshold,
     max_subagent_depth: maxSubagentDepth,
     max_parallel_subagents: maxParallelSubagents,
-    planning_max_tokens: planningMaxTokens,
     offload_threshold: offloadThreshold,
     offload_summary_strategy: offloadStrategy,
     offload_summary_chars: offloadSummaryChars,

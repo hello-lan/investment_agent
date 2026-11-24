@@ -241,7 +241,7 @@
           <div id="agentSkills" class="skill-list tab-panel active"></div>
           <div id="agentTools" class="skill-list tab-panel"></div>
           <div id="agentSubagents" class="skill-list tab-panel"></div>
-          <div class="hint">文件类工具默认勾选，可以手动取消。`run_command` 与 `DelegateTask` 需手动勾选。勾选的 Subagent 会以独立工具形式暴露给主模型（name/description 用于命中），执行时隔离上下文，仅返回摘要。`DelegateTask` 仍用于技能型委派。</div>
+          <div class="hint">文件类工具默认勾选，可以手动取消。`run_command` 需手动勾选。勾选的 Subagent 会以独立工具形式暴露给主模型（name/description 用于命中），执行时隔离上下文，仅返回摘要。</div>
         </div>
       </div>
     </div>
@@ -369,7 +369,7 @@
             <div class="form-row">
               <label>最大嵌套深度</label>
               <div class="range-row"><input type="range" id="agentMaxSubagentDepth" min="0" max="5" step="1" oninput="document.getElementById('agentMaxSubagentDepthVal').textContent=this.value;updateAgentSubagentDepthUI()"><span class="range-val" id="agentMaxSubagentDepthVal">3</span></div>
-              <div class="hint">DelegateTask / 用户定义 Subagent 可继续分派的最大层数；用户定义 Subagent 自身不可再委派；0=不允许创建子Agent</div>
+              <div class="hint">用户定义 Subagent 可继续分派的最大层数；用户定义 Subagent 自身不可再委派；0=不允许创建子Agent</div>
             </div>
             <div id="agentSubagentActiveFields">
               <div class="form-row">
@@ -402,12 +402,7 @@
               <div class="form-row">
                 <label>同一步最多委派数</label>
                 <div class="range-row"><input type="range" id="agentMaxParallelSubagents" min="1" max="8" step="1" oninput="document.getElementById('agentMaxParallelSubagentsVal').textContent=this.value"><span class="range-val" id="agentMaxParallelSubagentsVal">3</span></div>
-                <div class="hint">同一 LLM 步内可发起的 Subagent/DelegateTask 上限，防止失控扇出</div>
-              </div>
-              <div class="form-row">
-                <label>任务指令输出上限</label>
-                <input type="number" id="agentPlanningMaxTokens" min="256" max="4096" step="256" placeholder="留空=默认 1024">
-                <div class="hint">planning_max_tokens：DelegateTask 生成任务指令的单轮输出上限</div>
+                <div class="hint">同一 LLM 步内可发起的 Subagent 上限，防止失控扇出</div>
               </div>
             </div>
           </div>
@@ -462,7 +457,7 @@
           </div>
           <div id="subagentTools" class="skill-list tab-panel active"></div>
           <div id="subagentSkills" class="skill-list tab-panel"></div>
-          <div class="hint">不可勾选 DelegateTask；不可再挂载 Subagent。模型留空=继承主 Agent。</div>
+          <div class="hint">不可再挂载 Subagent。模型留空=继承主 Agent。</div>
         </div>
         <details class="sa-runtime-overrides" style="margin-top:14px;border:1px solid #e3eaf5;border-radius:8px;padding:10px 12px;background:#f8fbff;">
           <summary style="cursor:pointer;font-weight:600;font-size:13px;">运行时覆盖（可选，空=跟随主 Agent）</summary>

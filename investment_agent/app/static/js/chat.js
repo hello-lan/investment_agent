@@ -1338,7 +1338,6 @@ const _TOOL_LABELS = {
   write_file: '写入文件',
   list_files: '列出文件',
   search_text: '搜索文本',
-  DelegateTask: '委派子任务',
   Skill: '运行技能',
   propose_plan: '提交计划',
 };
@@ -1385,10 +1384,6 @@ function _summarizeToolInput(toolName, rawInput){
     summary = _pickInputField(obj, ['command', 'cmd', 'value']);
   } else if (name === 'run_python_script') {
     summary = _pickInputField(obj, ['script_path', 'path', 'script', 'value']);
-  } else if (name === 'DelegateTask') {
-    const skills = _pickInputField(obj, ['skills', 'skill_names', 'skill']);
-    const task = _pickInputField(obj, ['task', 'prompt', 'instruction', 'value']);
-    summary = [skills, task].filter(Boolean).join(' · ');
   } else if (name === 'Skill') {
     summary = _pickInputField(obj, ['name', 'skill', 'skill_name', 'value']);
   } else if (name === 'read_file' || name === 'write_file' || name === 'list_files') {
@@ -1518,10 +1513,10 @@ function _findRunningStep(steps, toolName){
 
 function _findDelegateParent(steps, delegateId){
   const list = steps || [];
-  for (let i = list.length - 1; i >= 0; i--) {
-    const s = list[i];
-    if (s.tool === 'DelegateTask' || s.kind === 'delegate') {
-      if (!delegateId || !s.delegateId || s.delegateId === delegateId) return s;
+  if (delegateId) {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const s = list[i];
+      if (s.delegateId === delegateId || s.kind === 'delegate') return s;
     }
   }
   for (let i = list.length - 1; i >= 0; i--) {
@@ -1893,7 +1888,7 @@ function _handleStreamEvent(ev, state){
     let label = _toolLabel(toolName);
     if (toolName === 'Skill' && inputSummary) label = '运行技能: ' + inputSummary;
     _startThinkStep(b, s, {
-      kind: toolName === 'DelegateTask' ? 'delegate' : 'tool',
+      kind: 'tool',
       tool: toolName,
       label: label,
       inputSummary: toolName === 'Skill' ? '' : inputSummary,

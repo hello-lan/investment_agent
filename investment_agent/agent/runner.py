@@ -283,7 +283,6 @@ class AgentRunner:
             offload_threshold=config.offload_threshold,
             offload_summary_strategy=config.offload_summary_strategy,
             offload_summary_chars=config.offload_summary_chars,
-            planning_max_tokens=config.planning_max_tokens,
             subagent_workspace_dir=config.subagent_workspace_dir,
         )
         engine = create_loop_engine(
@@ -306,7 +305,7 @@ class AgentRunner:
             allowed_tools = allowed_tools - PLAN_BLOCKED_TOOLS
         enable_run_command = "run_command" in allowed_tools
 
-        # 设置允许的技能名称集合（含依赖，供 prepare_delegate_task 委派到依赖技能）
+        # 设置允许的技能名称集合（含依赖）
         engine._allowed_skill_names = set(all_skill_names)
 
         # 用户定义 Subagent 挂载快照

@@ -59,7 +59,6 @@ class AgentRegistry:
         Args:
             skill_names: 已启用技能名；会加入文件工具只读 targets（extensions/skills/{name}/）。
         """
-        from .tools.delegate_task import DelegateTaskTool
         from .tools.file_scope_policy import FileScopePolicy
         from .tools.list_files import ListFilesTool
         from .tools.read_file import ReadFileTool
@@ -73,7 +72,6 @@ class AgentRegistry:
         main_scope = FileScopePolicy.for_main_agent(skill_names=names)
         self.register_tool(SkillTool())
         self.register_tool(RunCommandTool())
-        self.register_tool(DelegateTaskTool())
         self.register_tool(ListFilesTool(main_scope))
         self.register_tool(ReadFileTool(main_scope))
         self.register_tool(SearchTextTool(main_scope))

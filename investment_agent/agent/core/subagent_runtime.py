@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from typing import AsyncGenerator
 
-from ..config import EngineConfig, PLANNING_MAX_TOKENS_DEFAULT
+from ..config import EngineConfig
 from ..prompts import OFFLOAD_AWARE_PROMPT, defined_subagent_preamble, skill_quick_reference
 from ..constants import EventType, LoopMode
 from ...config import ROOT_DIR
@@ -140,7 +140,6 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
         offload_threshold=resolved.offload_threshold,
         offload_summary_strategy=resolved.offload_summary_strategy,
         offload_summary_chars=resolved.offload_summary_chars,
-        planning_max_tokens=PLANNING_MAX_TOKENS_DEFAULT,
         subagent_workspace_dir=parent.subagent_workspace_dir,
     )
 
@@ -167,7 +166,7 @@ def _create_child_engine(parent, request: DefinedSubagentRequest, subagent_id: s
     all_skill_names = expand_with_dependencies(skill_names) if skill_names else []
     # 工具只认定义里的 tools（Markdown frontmatter / 数据库），不补默认写工具
     tool_names = set(definition.get("tools") or [])
-    tool_names -= {"DelegateTask", "Subagent"}
+    tool_names -= {"Subagent"}
 
     scope = FileScopePolicy.for_main_agent(skill_names=all_skill_names)
     include_write = bool(tool_names & {"write_file", "run_command", "run_python_script"})
