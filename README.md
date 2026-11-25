@@ -11,7 +11,7 @@ A 股基本面分析智能助手。浏览器里对话、上传财报，由 LLM A
 - **多模型** — 兼容 Anthropic 与 OpenAI 兼容接口（Claude、DeepSeek、Qwen、Ollama 等）。可设默认模型，以及用于生成会话标题的 utility 模型。支持输入/输出价格，以及缓存读取、缓存创建价格。
 - **三种执行循环** — 每个 Agent 可选双循环（快循环 + 慢思考）、ReAct，或 Plan Execute（先拆解再委派汇总）。
 - **Skill 插件** — `extensions/skills/` 下的 `SKILL.md` 会被自动发现。对话中按需加载完整说明，需要时再跑技能脚本。编排技能可声明依赖的原子技能。
-- **子 Agent** — 可定义独立上下文的 Subagent，也可通过 `DelegateTask` 把多步任务委派出去。同一轮里互不依赖的子任务可以并行。子任务有自己的步数和 token 预算。
+- **子 Agent** — 可定义独立上下文的 Subagent，把多步任务委派出去。同一轮里互不依赖的子任务可以并行。子任务有自己的步数和 token 预算。
 - **文件与脚本工具** — 列举、读取、搜索、写入 `data/`；在已启用技能目录里跑 Python 脚本；需要时再执行 shell。
 - **外部检索** — 工具页可配置 HTTP 检索实例，把公司材料和投资通识片段接进对话。
 - **财报流水线** — 下载年报 → PDF 转 Markdown → 章节索引 → 结构化分析与排雷。多年分析可再汇总。
@@ -104,7 +104,7 @@ start.bat --port 8000
 | Skill | 怎么跑 |
 |-------|--------|
 | `full-financial-analysis` | 父 Agent 按公司、按年调用 `prepare_financial_reports` 准备 PDF、Markdown 和同级索引；分析交给 `analyze_financial_report`。多年需求由父 Agent 汇总各年报告 |
-| `orch-full-financial-analysis` | 旧编排。每一步用 `DelegateTask` 委派，只依赖下载和转写；排雷改走 full-financial-analysis |
+| `orch-full-financial-analysis` | 旧编排。父 Agent 按 Skill 执行下载和转写；排雷改走 full-financial-analysis |
 
 ---
 
@@ -123,7 +123,7 @@ start.bat --port 8000
 
 Skill 正文按需加载，并按 `skill_body_ttl` 做内存缓存。系统提示词里先放技能名称和描述；模型调用 `Skill` 工具后，下一轮才能按正文执行。同一步里不要「加载说明并立刻按正文执行」。
 
-Subagent 与父对话隔离：只拿任务说明和自己的工具集，结束后把文本结果交回父 Agent。同一轮可以并行发起多个互不依赖的子任务，默认最多 3 个。子 Agent 不能再挂 `DelegateTask`，也不能再挂其他 Subagent。默认定义在 `extensions/subagents/`，启动时补齐数据库里缺失的条目。挂到 Agent 上之后，它们会以独立工具的形式暴露给主模型。模型留空时继承主 Agent。
+Subagent 与父对话隔离：只拿任务说明和自己的工具集，结束后把文本结果交回父 Agent。同一轮可以并行发起多个互不依赖的子任务，默认最多 3 个。子 Agent 不能再挂其他 Subagent。默认定义在 `extensions/subagents/`，启动时补齐数据库里缺失的条目。挂到 Agent 上之后，它们会以独立工具的形式暴露给主模型。模型留空时继承主 Agent。
 
 ---
 
@@ -227,7 +227,7 @@ depends_on: []
 
 ## 工具
 
-内置工具在 Agent 配置里勾选。文件类工具默认绑定；`run_command` 和 `DelegateTask` 需要手动打开。
+内置工具在 Agent 配置里勾选。文件类工具默认绑定；`run_command` 需要手动打开。
 
 | 工具 | 作用 |
 |------|------|
@@ -236,7 +236,6 @@ depends_on: []
 | `write_file` | 把文本写到 `data/`（仅文件名时进 `data/tmp/`） |
 | `run_python_script` | 只运行已启用技能目录里的 `.py` |
 | `run_command` | 在项目根执行 shell（风险更高，默认不勾） |
-| `DelegateTask` | 把多步子任务交给隔离的子 Agent |
 | HTTP 检索实例 | 在 `/tools` 配置外部检索服务，每个实例是一个独立工具 |
 
 路径访问受策略约束：业务上限制敏感目录，写文件落在 `data/`。检索实例保存后，连通性测试请求的是 `{base_url}/health`。
@@ -318,7 +317,6 @@ depends_on: []
 |------|------|------|
 | `runtime_context_compression_enabled` | `true` | 是否在运行中裁剪上下文 |
 | `max_parallel_subagents` | `3` | 同一轮并行子任务上限 |
-| `planning_max_tokens` | `1024` | 生成委派指令时的单轮输出上限 |
 | `subagent_workspace_dir` | `data/tmp/subagents` | 子 Agent 工作目录 |
 
 改文件后需重启进程。`get_settings()` 有缓存，代码里调用 `reload_settings()` 才会重读。
@@ -429,6 +427,7 @@ Agent / Subagent
 - 根据使用情况进化 Skill
 - `find_skills` / skill 投票
 - search_tools
+- akshare 接入：历史分红、股票回购、公司动态、信息披露调研
 
 ---
 

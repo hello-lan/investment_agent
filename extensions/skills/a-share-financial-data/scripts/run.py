@@ -3,7 +3,8 @@
 
 import argparse
 import asyncio
-import sys
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 
@@ -68,12 +69,97 @@ async def _get_financial_indicators(symbol: str) -> str:
         return f"获取财务指标失败: {e}"
 
 
+async def _get_dividend_history(symbol: str) -> str:
+    """历史分红配送详情（东方财富）。"""
+    import akshare as ak
+    try:
+        df = await _run_sync(ak.stock_fhps_detail_em, symbol=symbol)
+        if df is None or df.empty:
+            return f"未找到 {symbol} 的历史分红数据"
+        return df.to_string(index=False)
+    except Exception as e:
+        return f"获取历史分红失败: {e}"
+
+
+_REPURCHASE_CACHE_TTL = 24 * 3600  # 全市场回购接口较慢，本地缓存 24h
+_REPURCHASE_CACHE = Path(__file__).resolve().parent / ".cache" / "repurchase_em.pkl"
+
+
+def _load_repurchase_cache():
+    import pickle
+
+    if not _REPURCHASE_CACHE.exists():
+        return None
+    try:
+        with _REPURCHASE_CACHE.open("rb") as f:
+            payload = pickle.load(f)
+        if time.time() - payload.get("ts", 0) > _REPURCHASE_CACHE_TTL:
+            return None
+        return payload.get("df")
+    except Exception:
+        return None
+
+
+def _save_repurchase_cache(df) -> None:
+    import pickle
+
+    try:
+        _REPURCHASE_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        with _REPURCHASE_CACHE.open("wb") as f:
+            pickle.dump({"ts": time.time(), "df": df}, f)
+    except Exception:
+        pass
+
+
+async def _get_share_repurchase(symbol: str) -> str:
+    """股票回购（东方财富全市场接口，按代码过滤）。"""
+    import akshare as ak
+
+    try:
+        df = _load_repurchase_cache()
+        if df is None:
+            df = await _run_sync(ak.stock_repurchase_em)
+            _save_repurchase_cache(df)
+
+        code_col = "股票代码" if "股票代码" in df.columns else "代码"
+        matched = df[df[code_col].astype(str) == str(symbol)]
+        if matched.empty:
+            return f"未找到 {symbol} 的股票回购记录"
+        return matched.to_string(index=False)
+    except Exception as e:
+        return f"获取股票回购失败: {e}"
+
+
+async def _get_company_dynamics(symbol: str) -> str:
+    """公司动态：近一年个股公告（东方财富）。"""
+    import akshare as ak
+
+    try:
+        end = datetime.now().strftime("%Y%m%d")
+        begin = (datetime.now() - timedelta(days=365)).strftime("%Y%m%d")
+        df = await _run_sync(
+            ak.stock_individual_notice_report,
+            security=symbol,
+            symbol="全部",
+            begin_date=begin,
+            end_date=end,
+        )
+        if df is None or df.empty:
+            return f"未找到 {symbol} 近一年的公司公告/动态"
+        return df.head(30).to_string(index=False)
+    except Exception as e:
+        return f"获取公司动态失败: {e}"
+
+
 _HANDLERS = {
     "get_income_statement": _get_income_statement,
     "get_balance_sheet": _get_balance_sheet,
     "get_cash_flow": _get_cash_flow,
     "get_valuation": _get_valuation,
     "get_financial_indicators": _get_financial_indicators,
+    "get_dividend_history": _get_dividend_history,
+    "get_share_repurchase": _get_share_repurchase,
+    "get_company_dynamics": _get_company_dynamics,
 }
 
 
