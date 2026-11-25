@@ -15,8 +15,8 @@ description: 完整财报分析流程：按公司按年准备年报 PDF、Markdo
 
 ## ⚠️ 核心规则（必须严格遵守）
 
-1. **步骤 1–3**：每个目标年份各调用一次 `prepare_financial_reports`。task 只写一个 `code` 和一个 `year`。多年时由父 Agent 拆开；互不依赖的年份可以同一轮并行。**禁止**把年份范围、`start`/`end` 或多家公司塞进一次 task。**禁止** `DelegateTask`，也禁止父 Agent 亲自下载、转写或跑建索引脚本。
-2. **步骤 4**：必须调用 `analyze_financial_report`；**禁止** `DelegateTask`，也禁止父 Agent 亲自通读年报做分析。`report_path` 用该年 prepare 交回的实际 Markdown 路径。
+1. **步骤 1–3**：每个目标年份各调用一次 `prepare_financial_reports`。task 只写一个 `code` 和一个 `year`。多年时由父 Agent 拆开；互不依赖的年份可以同一轮并行。**禁止**把年份范围、`start`/`end` 或多家公司塞进一次 task。**禁止**父 Agent 亲自下载、转写或跑建索引脚本。
+2. **步骤 4**：必须调用 `analyze_financial_report`；**禁止**父 Agent 亲自通读年报做分析。`report_path` 用该年 prepare 交回的实际 Markdown 路径。
 3. **步骤 5**：仅**多年模式**执行；由本 Agent 亲自读取步骤 4 产出的各年 `.analysis.md`，按 `references/multi-year-synthesis-contract.md` 汇总并写出多年综合报告。单年需求跳过本步。**禁止**再委派 Subagent 重跑单年分析；**禁止**为汇总而全文通读原始年报。
 4. **禁止调试脚本**：Subagent / 脚本报错时不要亲自调试；反馈用户或按降级策略处理。
 5. **步骤预算**：每个步骤最多消耗父 Agent 5 步。超过后进入下一步。
@@ -45,7 +45,7 @@ description: 完整财报分析流程：按公司按年准备年报 PDF、Markdo
 
 ## 步骤 1–3：准备该年年报（PDF、Markdown、索引）
 
-调用 Subagent 工具 `prepare_financial_reports`（禁止 `DelegateTask` / 禁止本 Agent 亲自下载、转写或建索引）。
+调用 Subagent 工具 `prepare_financial_reports`（禁止本 Agent 亲自下载、转写或建索引）。
 
 - 每家公司、每一年各调用一次
 - 互不依赖的年份可以同一轮并行
@@ -72,7 +72,7 @@ index: data/reports/md/{code}/{stem}.sections.json
 
 ## 步骤 4：结构化财报分析（各年）
 
-调用 Subagent 工具 `analyze_financial_report`（禁止 `DelegateTask` / 禁止本 Agent 亲自通读分析）。
+调用 Subagent 工具 `analyze_financial_report`（禁止本 Agent 亲自通读分析）。
 
 - 每个年份各调用一次；互不依赖时可同 turn 并行
 - `task` 只写路径

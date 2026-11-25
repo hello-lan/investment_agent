@@ -99,12 +99,7 @@ start.bat --port 8000
 | 估值观察 | 「用 DCF 和 PE/PB 给海康威视一个前提显式的估值区间」 |
 | 看数字 | 打开 `/dashboard`，搜索 `600519` 或「茅台」 |
 
-两条完整财报路径不要混用：
-
-| Skill | 怎么跑 |
-|-------|--------|
-| `full-financial-analysis` | 父 Agent 按公司、按年调用 `prepare_financial_reports` 准备 PDF、Markdown 和同级索引；分析交给 `analyze_financial_report`。多年需求由父 Agent 汇总各年报告 |
-| `orch-full-financial-analysis` | 旧编排。父 Agent 按 Skill 执行下载和转写；排雷改走 full-financial-analysis |
+完整财报分析路径：挂载 `full-financial-analysis`。父 Agent 按公司、按年调用 `prepare_financial_reports` 准备 PDF、Markdown 和同级索引；分析交给 `analyze_financial_report`。多年需求由父 Agent 汇总各年报告。
 
 ---
 
@@ -195,8 +190,7 @@ investment_agent/                 # 仓库根目录
 
 | Skill | 作用 |
 |-------|------|
-| `a-share-stock-market` | 股票资料、历史行情、实时行情、指数 |
-| `a-share-financial-data` | 利润表、资产负债表、现金流量表、估值与财务指标 |
+| `a-share-financial-data` | 股票资料、历史/实时行情、指数、利润表、资产负债表、现金流量表、估值与财务指标 |
 | `a-share-valuation` | DCF、相对估值、周期股调整，输出前提显式的观察区间 |
 | `industry-compare` | 同业关键指标对比，标出异常偏离 |
 | `analyze-financial-report` | 年报索引定向排雷：R001–R038、必查覆盖、风险评级与三大前提 |
@@ -204,7 +198,6 @@ investment_agent/                 # 仓库根目录
 | `download-a-share-reports` | 从巨潮、东方财富、新浪下载年报、半年报、季报 |
 | `pdf-to-markdown` | PDF 转 Markdown（默认 pdfplumber，可切高质量模式） |
 | `full-financial-analysis` | 下载 → 转写 → 建索引 → 单年分析；多年需求再汇总 |
-| `orch-full-financial-analysis` | 旧编排：下载、转写；排雷已改走 full-financial-analysis |
 | `demo_echo` / `demo_brief_report` | 调用链与多参数报告的演示技能 |
 
 行情和财务报表数据来自 AKShare。

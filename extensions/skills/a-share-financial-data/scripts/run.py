@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""A股上市公司财务数据查询脚本。"""
+"""A股上市公司行情与财务数据查询脚本。"""
 
 import argparse
 import asyncio
+import inspect
+import json
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -13,6 +15,53 @@ def _run_sync(func, *args, **kwargs):
     loop = asyncio.get_event_loop()
     return loop.run_in_executor(None, lambda: func(*args, **kwargs))
 
+
+# ── 行情 / 基本信息 ──────────────────────────────────────────
+
+async def _get_stock_info(symbol: str) -> str:
+    import akshare as ak
+    try:
+        df = await _run_sync(ak.stock_individual_info_em, symbol=symbol)
+        result = {row["item"]: row["value"] for _, row in df.iterrows()}
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return f"获取股票信息失败: {e}"
+
+
+async def _get_stock_price(symbol: str, period: str = "daily", count: int = 30) -> str:
+    import akshare as ak
+    try:
+        df = await _run_sync(ak.stock_zh_a_hist, symbol=symbol, period=period, adjust="qfq")
+        df = df.tail(count)
+        df.columns = [c.strip() for c in df.columns]
+        return df.to_string(index=False)
+    except Exception as e:
+        return f"获取行情数据失败: {e}"
+
+
+async def _get_stock_realtime(symbol: str) -> str:
+    import akshare as ak
+    try:
+        df = await _run_sync(ak.stock_zh_a_spot_em)
+        row = df[df["代码"] == symbol]
+        if row.empty:
+            return f"未找到股票 {symbol} 的实时数据"
+        return row.iloc[0].to_json(force_ascii=False)
+    except Exception as e:
+        return f"获取实时行情失败: {e}"
+
+
+async def _get_market_index(symbol: str, count: int = 20) -> str:
+    import akshare as ak
+    try:
+        df = await _run_sync(ak.index_zh_a_hist, symbol=symbol, period="daily")
+        df = df.tail(count)
+        return df.to_string(index=False)
+    except Exception as e:
+        return f"获取指数数据失败: {e}"
+
+
+# ── 财务报表 / 估值 / 指标 ────────────────────────────────────
 
 async def _get_income_statement(symbol: str) -> str:
     import akshare as ak
@@ -152,6 +201,12 @@ async def _get_company_dynamics(symbol: str) -> str:
 
 
 _HANDLERS = {
+    # 行情 / 基本信息
+    "get_stock_info": _get_stock_info,
+    "get_stock_price": _get_stock_price,
+    "get_stock_realtime": _get_stock_realtime,
+    "get_market_index": _get_market_index,
+    # 财务报表 / 估值 / 指标
     "get_income_statement": _get_income_statement,
     "get_balance_sheet": _get_balance_sheet,
     "get_cash_flow": _get_cash_flow,
@@ -164,17 +219,32 @@ _HANDLERS = {
 
 
 def main():
-    parser = argparse.ArgumentParser(description="A股上市公司财务数据查询")
+    parser = argparse.ArgumentParser(description="A股上市公司行情与财务数据查询")
     parser.add_argument(
         "--action", required=True,
         choices=list(_HANDLERS.keys()),
         help="操作类型"
     )
-    parser.add_argument("--symbol", required=True, help="股票代码，如 600519")
+    parser.add_argument("--symbol", required=True, help="股票/指数代码，如 600519")
+    parser.add_argument(
+        "--period", default="daily", choices=["daily", "weekly", "monthly"],
+        help="行情周期（仅 get_stock_price，默认 daily）",
+    )
+    parser.add_argument(
+        "--count", type=int, default=30,
+        help="返回数据条数（仅行情/指数类 action，默认 30）",
+    )
     args = parser.parse_args()
 
     handler = _HANDLERS[args.action]
-    result = asyncio.run(handler(args.symbol))
+    kwargs = {"symbol": args.symbol}
+    params = inspect.signature(handler).parameters
+    if "period" in params:
+        kwargs["period"] = args.period
+    if "count" in params:
+        kwargs["count"] = args.count
+
+    result = asyncio.run(handler(**kwargs))
     print(result)
 
 
