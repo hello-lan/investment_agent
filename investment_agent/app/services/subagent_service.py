@@ -74,11 +74,12 @@ def _row_to_dict(row) -> dict:
     d["skills"] = _parse_json_list(d.get("skills"))
     d["model_id"] = d.get("model_id") or ""
     d["runtime_config"] = _parse_runtime_config(d.get("runtime_config"))
+    d["builtin"] = False
     return d
 
 
 class SubagentService:
-    """用户定义 Subagent CRUD。"""
+    """用户定义 Subagent CRUD；内置定义来自内存注册表。"""
 
     @staticmethod
     def validate_name(name: str) -> str | None:
@@ -122,6 +123,9 @@ class SubagentService:
 
     @staticmethod
     async def list_subagents() -> list[dict]:
+        from .subagent_seed import list_builtins
+
+        builtins = list_builtins()
         async with get_db() as db:
             cursor = await db.execute(
                 "SELECT id, name, description, system_prompt, model_id, "
@@ -129,10 +133,16 @@ class SubagentService:
                 "FROM subagents ORDER BY created_at"
             )
             rows = await cursor.fetchall()
-        return [_row_to_dict(r) for r in rows]
+        customs = [_row_to_dict(r) for r in rows]
+        return builtins + customs
 
     @staticmethod
     async def get_subagent(subagent_id: str) -> dict | None:
+        from .subagent_seed import get_builtin, is_builtin_id
+
+        if is_builtin_id(subagent_id):
+            return get_builtin(subagent_id)
+
         async with get_db() as db:
             cursor = await db.execute(
                 "SELECT * FROM subagents WHERE id = ?", (subagent_id,)
@@ -141,7 +151,8 @@ class SubagentService:
         return _row_to_dict(row) if row else None
 
     @staticmethod
-    async def get_by_name(name: str) -> dict | None:
+    async def get_by_name_db_only(name: str) -> dict | None:
+        """仅查数据库（迁移用，不含内置内存项）。"""
         async with get_db() as db:
             cursor = await db.execute(
                 "SELECT * FROM subagents WHERE name = ?", (name,)
@@ -150,20 +161,43 @@ class SubagentService:
         return _row_to_dict(row) if row else None
 
     @staticmethod
+    async def get_by_name(name: str) -> dict | None:
+        from .subagent_seed import get_builtin
+
+        builtin = get_builtin(name)
+        if builtin:
+            return builtin
+        return await SubagentService.get_by_name_db_only(name)
+
+    @staticmethod
     async def get_by_ids(ids: list[str]) -> list[dict]:
         if not ids:
             return []
-        placeholders = ",".join("?" * len(ids))
-        async with get_db() as db:
-            cursor = await db.execute(
-                f"SELECT * FROM subagents WHERE id IN ({placeholders})",
-                tuple(ids),
-            )
-            rows = await cursor.fetchall()
-        by_id = {}
-        for r in rows:
-            d = _row_to_dict(r)
-            by_id[d["id"]] = d
+
+        from .subagent_seed import get_builtin, is_builtin_id
+
+        by_id: dict[str, dict] = {}
+        db_ids: list[str] = []
+        for sid in ids:
+            if is_builtin_id(sid):
+                item = get_builtin(sid)
+                if item:
+                    by_id[sid] = item
+            else:
+                db_ids.append(sid)
+
+        if db_ids:
+            placeholders = ",".join("?" * len(db_ids))
+            async with get_db() as db:
+                cursor = await db.execute(
+                    f"SELECT * FROM subagents WHERE id IN ({placeholders})",
+                    tuple(db_ids),
+                )
+                rows = await cursor.fetchall()
+            for r in rows:
+                d = _row_to_dict(r)
+                by_id[d["id"]] = d
+
         # 保持挂载顺序
         return [by_id[i] for i in ids if i in by_id]
 
@@ -177,12 +211,17 @@ class SubagentService:
         skills: list[str] | None = None,
         runtime_config: dict | None = None,
     ) -> str:
+        from .subagent_seed import builtin_names
+
         err = SubagentService.validate_name(name)
         if err:
             raise ValueError(err)
 
         name = name.strip()
-        existing = await SubagentService.get_by_name(name)
+        if name in builtin_names():
+            raise ValueError(f"name '{name}' 与内置 Subagent 冲突")
+
+        existing = await SubagentService.get_by_name_db_only(name)
         if existing:
             raise ValueError(f"name '{name}' 已存在")
 
@@ -223,11 +262,19 @@ class SubagentService:
         skills: list[str] | None = None,
         runtime_config: dict | None = None,
     ) -> bool:
+        from .subagent_seed import builtin_names, is_builtin_id
+
+        if is_builtin_id(subagent_id):
+            raise ValueError("内置 Subagent 不可修改")
+
         err = SubagentService.validate_name(name)
         if err:
             raise ValueError(err)
 
         name = name.strip()
+        if name in builtin_names():
+            raise ValueError(f"name '{name}' 与内置 Subagent 冲突")
+
         runtime_json = _serialize_runtime_config(
             SubagentService.sanitize_runtime_config(runtime_config)
         )
@@ -280,6 +327,11 @@ class SubagentService:
 
     @staticmethod
     async def delete_subagent(subagent_id: str) -> None:
+        from .subagent_seed import is_builtin_id
+
+        if is_builtin_id(subagent_id):
+            raise ValueError("内置 Subagent 不可删除")
+
         mounted = await SubagentService.find_agents_mounting(subagent_id)
         if mounted:
             names = ", ".join(a["name"] for a in mounted)

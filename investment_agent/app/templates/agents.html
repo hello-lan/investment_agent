@@ -25,6 +25,7 @@
 .skill-item-text{display:flex;flex-direction:column;gap:2px;min-width:0;}
 .skill-type-tag{display:inline-block;font-size:10px;font-weight:600;padding:1px 5px;border-radius:3px;margin-right:4px;vertical-align:middle;}
 .skill-type-tag.orch{background:#f6ffed;color:#52c41a;border:1px solid #b7eb8f;}
+.skill-type-tag.builtin{background:#eef1f6;color:#5b6472;border:none;border-radius:999px;padding:1px 7px;font-weight:500;letter-spacing:0.02em;}
 .skill-deps{font-size:11px;color:#999;display:block;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .tabs{display:flex;gap:0;border-bottom:1px solid #ddd;margin-bottom:0;}
 .tab-btn{padding:8px 16px;border:none;background:none;font-size:13px;color:#888;cursor:pointer;border-bottom:2px solid transparent;transition:color 0.15s,border-color 0.15s,background 0.15s;}
@@ -518,11 +519,11 @@
 
     <div class="modal-footer">
       <button class="btn btn-cancel" onclick="closeSubagentModal()">取消</button>
-      <button class="btn btn-primary" onclick="saveSubagent()">保存</button>
+      <button class="btn btn-primary" id="subagentSaveBtn" onclick="saveSubagent()">保存</button>
     </div>
   </div>
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/agents.js?v=4"></script>
+<script src="/static/js/agents.js?v=5"></script>
 {% endblock %}

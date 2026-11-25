@@ -18,7 +18,7 @@ from .agent.skills.loader import init_skills_dir
 from .agent.tools.http_retrieve import set_instance_loaders
 from .agent.tools.run_command import set_project_root
 from .app.services.tool_instances import get_tool_instance, list_tool_instances
-from .app.services.subagent_seed import seed_default_subagents
+from .app.services.subagent_seed import load_builtin_subagents, migrate_seeded_builtins
 from .config import ROOT_DIR, resolve_skills_dir
 
 STATIC_DIR = ROOT_DIR / "investment_agent" / "app" / "static"
@@ -42,7 +42,8 @@ TABS = [
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化数据库、Skills、全局依赖"""
     await init_db()
-    await seed_default_subagents()
+    await load_builtin_subagents()
+    await migrate_seeded_builtins()
     # 注入 agent 包所需的全局依赖
     set_project_root(str(ROOT_DIR))
     set_instance_loaders(get_tool_instance, list_tool_instances)

@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ..services.subagent_seed import is_builtin_id
 from ..services.subagent_service import SubagentService
 
 router = APIRouter(prefix="/api/subagents", tags=["subagents"])
@@ -50,6 +51,8 @@ async def get_subagent(subagent_id: str):
 
 @router.put("/{subagent_id}")
 async def update_subagent(subagent_id: str, body: SubagentEntry):
+    if is_builtin_id(subagent_id):
+        raise HTTPException(status_code=403, detail="内置 Subagent 不可编辑")
     try:
         ok = await SubagentService.update_subagent(
             subagent_id=subagent_id,
@@ -70,6 +73,8 @@ async def update_subagent(subagent_id: str, body: SubagentEntry):
 
 @router.delete("/{subagent_id}")
 async def delete_subagent(subagent_id: str):
+    if is_builtin_id(subagent_id):
+        raise HTTPException(status_code=403, detail="内置 Subagent 不可删除")
     try:
         await SubagentService.delete_subagent(subagent_id)
     except ValueError as e:

@@ -159,10 +159,19 @@ async function loadSubagentGrid() {
     const skills = normalizeList(s.skills);
     const toolPreview = tools.slice(0, 4).map(t => `<code>${esc(toolLabel(t))}</code>`).join('')
       + (tools.length > 4 ? `<code>+${tools.length - 4}</code>` : '');
+    const idAttr = esc(s.id);
+    const builtinTag = s.builtin
+      ? '<span class="skill-type-tag builtin">内置</span>'
+      : '';
+    const actions = s.builtin
+      ? `<button class="btn-ghost" onclick="viewSubagentMarkdown('${idAttr}')">查看</button>`
+      : `<button class="btn-ghost" onclick="viewSubagentMarkdown('${idAttr}')">Markdown</button>
+         <button class="btn btn-primary btn-sm" onclick="editSubagent('${idAttr}')">编辑</button>
+         <button class="btn btn-danger btn-sm" onclick="deleteSubagent('${idAttr}')">删除</button>`;
     return `
     <div class="sa-row">
       <div class="sa-row-main">
-        <div class="sa-row-title">${esc(s.name)}</div>
+        <div class="sa-row-title">${builtinTag}${esc(s.name)}</div>
         <div class="sa-row-desc" title="${esc(s.description || '')}">${esc(s.description || '暂无描述')}</div>
         <div class="sa-row-meta">
           <span>模型 ${esc(modelNameById(s.model_id))}</span>
@@ -171,11 +180,7 @@ async function loadSubagentGrid() {
           ${toolPreview}
         </div>
       </div>
-      <div class="actions">
-        <button class="btn-ghost" onclick="viewSubagentMarkdown('${s.id}')">Markdown</button>
-        <button class="btn btn-primary btn-sm" onclick="editSubagent('${s.id}')">编辑</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteSubagent('${s.id}')">删除</button>
-      </div>
+      <div class="actions">${actions}</div>
     </div>`;
   }).join('');
 }
@@ -265,10 +270,13 @@ function renderMountedSubagentOptions(selected = []) {
   const selectedSet = new Set(selected || []);
   box.innerHTML = availableSubagents.map(s => {
     const cls = selectedSet.has(s.id) ? 'skill-item selected' : 'skill-item';
+    const builtinTag = s.builtin
+      ? '<span class="skill-type-tag builtin">内置</span>'
+      : '';
     return `<div class="${cls}" data-skill="${esc(s.id)}">
       <span class="skill-mark">&#10003;</span>
       <div class="skill-item-text">
-        <span>${esc(s.name)}</span>
+        <span>${builtinTag}${esc(s.name)}</span>
         <span class="skill-deps">${esc(s.description || '')}</span>
       </div>
     </div>`;
@@ -737,6 +745,33 @@ async function saveAgent(){
 // ── Subagent CRUD / Markdown ─────────────────────────────────────
 
 let saCurrentView = 'form';
+let saReadonly = false;
+
+function setSaModalReadonly(readonly) {
+  saReadonly = !!readonly;
+  const overlay = document.getElementById('subagentModalOverlay');
+  const fields = [
+    'subagentName', 'subagentDesc', 'subagentPrompt', 'subagentModel',
+    'subagentMarkdown',
+    'saRuntimeTokenBudget', 'saRuntimeMaxSingleTurnOutputTokens',
+    'saRuntimeCompression', 'saRuntimeTrimThreshold',
+    'saRuntimeOffloadThreshold', 'saRuntimeOffloadSummaryChars',
+    'saRuntimeOffloadStrategy',
+  ];
+  fields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = saReadonly;
+  });
+  overlay.querySelectorAll('#subagentTools .skill-item, #subagentSkills .skill-item')
+    .forEach(el => {
+      if (saReadonly) el.classList.add('disabled');
+      else el.classList.remove('disabled');
+    });
+  const saveBtn = document.getElementById('subagentSaveBtn');
+  if (saveBtn) saveBtn.style.display = saReadonly ? 'none' : '';
+  const cancelBtn = overlay.querySelector('.modal-footer .btn-cancel');
+  if (cancelBtn) cancelBtn.textContent = saReadonly ? '关闭' : '取消';
+}
 
 function yamlEscape(value) {
   const text = String(value ?? '');
@@ -885,7 +920,7 @@ function switchSaView(view) {
   try {
     if (view === 'markdown') {
       syncFormToMarkdown();
-    } else {
+    } else if (!saReadonly) {
       syncMarkdownToForm();
     }
   } catch (e) {
@@ -901,9 +936,15 @@ function switchSaView(view) {
 }
 
 function openSubagentModal(item, {view = 'form'} = {}) {
-  document.getElementById('subagentModalTitle').textContent = item?.id ? '编辑 Subagent' : '新建 Subagent';
+  const isBuiltin = !!item?.builtin;
+  if (isBuiltin) {
+    document.getElementById('subagentModalTitle').textContent = '查看内置 Subagent';
+  } else {
+    document.getElementById('subagentModalTitle').textContent = item?.id ? '编辑 Subagent' : '新建 Subagent';
+  }
   applySubagentForm(item || {});
   document.getElementById('subagentMarkdown').value = formatSubagentMarkdown(item || {});
+  setSaModalReadonly(isBuiltin);
   saCurrentView = view === 'markdown' ? 'markdown' : 'form';
   document.querySelectorAll('.sa-view-tab').forEach(b => {
     b.classList.toggle('active', b.dataset.saView === saCurrentView);
@@ -915,22 +956,31 @@ function openSubagentModal(item, {view = 'form'} = {}) {
 
 function closeSubagentModal() {
   document.getElementById('subagentModalOverlay').classList.remove('open');
+  setSaModalReadonly(false);
   saCurrentView = 'form';
 }
 
+function subagentApiPath(id) {
+  return `/api/subagents/${encodeURIComponent(id)}`;
+}
+
 async function editSubagent(id) {
-  const item = await fetch(`/api/subagents/${id}`).then(r => r.json());
+  const item = await fetch(subagentApiPath(id)).then(r => r.json());
+  if (item?.builtin) {
+    openSubagentModal(item, {view: 'form'});
+    return;
+  }
   openSubagentModal(item, {view: 'form'});
 }
 
 async function viewSubagentMarkdown(id) {
-  const item = await fetch(`/api/subagents/${id}`).then(r => r.json());
-  openSubagentModal(item, {view: 'markdown'});
+  const item = await fetch(subagentApiPath(id)).then(r => r.json());
+  openSubagentModal(item, {view: item?.builtin ? 'form' : 'markdown'});
 }
 
 async function deleteSubagent(id) {
   if (!confirm('确认删除该 Subagent？')) return;
-  const resp = await fetch(`/api/subagents/${id}`, {method: 'DELETE'});
+  const resp = await fetch(subagentApiPath(id), {method: 'DELETE'});
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
     alert(err.detail || '删除失败');
@@ -941,6 +991,7 @@ async function deleteSubagent(id) {
 }
 
 async function saveSubagent() {
+  if (saReadonly) return;
   // Markdown 模式下先同步回表单
   if (saCurrentView === 'markdown') {
     try {
@@ -958,6 +1009,10 @@ async function saveSubagent() {
   }
 
   const data = collectSubagentForm();
+  if (data.id && String(data.id).startsWith('builtin:')) {
+    alert('内置 Subagent 不可保存');
+    return;
+  }
   if (!data.name) { alert('请输入名称'); return; }
   if (!data.description) { alert('请输入描述'); return; }
   if (!data.system_prompt.trim()) { alert('请输入系统提示词'); return; }
@@ -972,7 +1027,7 @@ async function saveSubagent() {
     runtime_config: data.runtime_config || {},
   };
 
-  const url = data.id ? `/api/subagents/${data.id}` : '/api/subagents';
+  const url = data.id ? subagentApiPath(data.id) : '/api/subagents';
   const method = data.id ? 'PUT' : 'POST';
   const resp = await fetch(url, {
     method,
