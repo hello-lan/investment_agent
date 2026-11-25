@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}投研 Agent{% endblock %}
 {% block head %}
-<link rel="stylesheet" href="/static/css/main.css?v=7">
+<link rel="stylesheet" href="/static/css/main.css?v=8">
 {% endblock %}
 {% block content %}
 <div class="layout">
@@ -89,7 +89,7 @@
           </button>
           <div class="slash-wrap">
             <div id="slashMenu" class="slash-menu" style="display:none" role="listbox"></div>
-            <textarea id="inputBox" rows="1" placeholder="/ 快捷命令，@ 引用文件 · Enter 发送，Shift+Enter 换行"
+            <textarea id="inputBox" rows="1" placeholder="/ 快捷命令 · @ 引用文件 · Enter 发送 · Shift+Enter 换行"
               onkeydown="handleKey(event)" oninput="onInputBoxInput(this)"></textarea>
           </div>
           <div class="collab-mode" id="collabMode">
@@ -151,5 +151,5 @@
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="/static/js/chat.js?v=10"></script>
+<script src="/static/js/chat.js?v=11"></script>
 {% endblock %}

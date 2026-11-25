@@ -371,22 +371,36 @@ body.left-split-resizing {
 .thinking-inline span:nth-child(2) { animation-delay: 0.2s; }
 .thinking-inline span:nth-child(3) { animation-delay: 0.4s; }
 
-.think-process { margin-top: 10px; border-top: 1px dashed var(--c-border); padding: 4px 10px; font-size: var(--fs-xs); color: var(--c-text-4); background: var(--c-primary-lighter); border-radius: 0 0 var(--r-sm) var(--r-sm); margin-left: -16px; margin-right: -16px; margin-bottom: -12px; min-height: 24px; line-height: 22px; }
-.think-process .think-current { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.think-process .think-current .think-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--c-border); border-top-color: var(--c-primary); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 2px; }
-.think-process .think-current .step-detail-inline { color: var(--c-text-5); font-size: 10px; margin-left: 6px; }
+.think-process { margin-top: 10px; border-top: 1px dashed var(--c-border); padding: 6px 10px 8px; font-size: var(--fs-xs); color: var(--c-text-4); background: var(--c-primary-lighter); border-radius: 0 0 var(--r-sm) var(--r-sm); margin-left: -16px; margin-right: -16px; margin-bottom: -12px; min-height: 24px; line-height: 22px; }
+.think-process .think-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--c-border); border-top-color: var(--c-primary); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; flex-shrink: 0; }
+.think-process .think-spinner-sm { width: 10px; height: 10px; border-width: 1.5px; margin-right: 4px; }
+.think-process .think-header { display: flex; align-items: center; gap: 2px; padding: 2px 0 4px; color: var(--c-text-3); font-weight: 500; overflow: hidden; }
+.think-process .think-header-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .think-process .think-summary { cursor: pointer; color: var(--c-text-4); user-select: none; padding: 1px 0; transition: color var(--ease); }
 .think-process .think-summary:hover { color: var(--c-primary); }
 .think-process .think-arrow { font-size: 9px; margin-left: 2px; }
 .think-process.collapsed .think-steps { display: none; }
-.think-process .think-steps { margin-top: 4px; }
-.think-process .think-step { display: flex; gap: 5px; padding: 2px 0; align-items: baseline; }
-.think-process .think-step .step-icon { flex-shrink: 0; font-size: var(--fs-xs); }
-.think-process .think-step .step-label { color: var(--c-text-3); }
-.think-process .think-step .step-detail { color: var(--c-text-5); font-size: 10px; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; display: inline-block; vertical-align: bottom; }
-.think-process .think-step .step-detail-expandable { white-space: pre-wrap; max-width: none; }
+.think-process .think-steps { margin-top: 2px; max-height: 200px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.think-process .think-step { padding: 3px 0; line-height: 1.45; }
+.think-process .think-steps > .think-step + .think-step { border-top: 1px solid color-mix(in srgb, var(--c-border) 45%, transparent); }
+.think-process .think-step-main { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.think-process .think-step .step-icon { flex-shrink: 0; font-size: var(--fs-xs); width: 1em; text-align: center; }
+.think-process .think-step .step-label { color: var(--c-text-3); font-weight: 500; flex-shrink: 0; }
+.think-process .think-step .step-input { color: var(--c-text-5); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.think-process .think-step .step-duration { color: var(--c-text-5); font-size: 10px; font-variant-numeric: tabular-nums; margin-left: auto; flex-shrink: 0; }
+.think-process .think-step .step-detail-row { display: flex; align-items: flex-start; gap: 4px; padding: 1px 0 0 1.4em; min-width: 0; }
+.think-process .think-step .step-detail { color: var(--c-text-5); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.think-process .think-step .step-detail-expandable { white-space: pre-wrap; }
 .think-process .think-step .step-detail-full { white-space: pre-wrap; word-break: break-all; }
-.step-toggle-btn { background: none; border: none; color: var(--c-accent); font-size: 10px; cursor: pointer; padding: 0 4px; margin-left: 4px; transition: color var(--ease); }
+.think-process .think-step.is-running .step-label { color: var(--c-primary); }
+.think-process .think-step.is-running .step-icon { color: var(--c-primary); }
+.think-process .think-step.is-done .step-icon { color: var(--c-text-4); }
+.think-process .think-step.is-error .step-icon,
+.think-process .think-step.is-error .step-label { color: var(--c-danger, #c0392b); }
+.think-process .think-step-children { margin: 2px 0 0 0.6em; padding-left: 8px; border-left: 2px solid color-mix(in srgb, var(--c-border) 70%, transparent); }
+.think-process .think-step-sub { padding: 2px 0; }
+.think-process .think-step-sub + .think-step-sub { border-top: none; }
+.step-toggle-btn { background: none; border: none; color: var(--c-accent); font-size: 10px; cursor: pointer; padding: 0 4px; margin-left: 0; flex-shrink: 0; transition: color var(--ease); }
 .step-toggle-btn:hover { color: var(--c-primary); text-decoration: underline; }
 
 /* ========================================

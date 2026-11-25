@@ -17,7 +17,6 @@ _NAME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{1,63}$")
 RESERVED_TOOL_NAMES = frozenset({
     "Skill",
     "run_command",
-    "DelegateTask",
     "Subagent",
     "list_files",
     "read_file",
@@ -28,7 +27,6 @@ RESERVED_TOOL_NAMES = frozenset({
 
 # Subagent 自身不可挂载的委派类工具
 FORBIDDEN_SUBAGENT_TOOLS = frozenset({
-    "DelegateTask",
     "Subagent",
 })
 

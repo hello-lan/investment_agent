@@ -592,6 +592,8 @@ function _createStreamState(replyBlock){
     aText: '',
     pendingTool: null,
     thinkSteps: [],
+    thinkStepSeq: 0,
+    thinkLive: true,
     renderTimer: null,
   };
 }
@@ -1292,9 +1294,12 @@ function _createReplyBlock(){
         '<div class="thinking-inline"><span></span><span></span><span></span></div>' +
       '</div>' +
       '<div class="think-process" style="display:none">' +
-        '<div class="think-current"></div>' +
+        '<div class="think-header" style="display:none">' +
+          '<span class="think-spinner"></span>' +
+          '<span class="think-header-text"></span>' +
+        '</div>' +
         '<div class="think-summary" style="display:none"></div>' +
-        '<div class="think-steps" style="display:none"></div>' +
+        '<div class="think-steps"></div>' +
       '</div>' +
     '</div>' +
     _msgCopyBtnHtml(true) +
@@ -1307,53 +1312,412 @@ function _createReplyBlock(){
     container,
     bodyEl: container.querySelector('.bubble-content'),
     thinkEl: container.querySelector('.think-process'),
-    currentEl: container.querySelector('.think-current'),
+    headerEl: container.querySelector('.think-header'),
+    headerTextEl: container.querySelector('.think-header-text'),
     stepsEl: container.querySelector('.think-steps'),
     summaryEl: container.querySelector('.think-summary'),
     retryEl: container.querySelector('.retry-area'),
   };
 }
 
-function _addThinkStep(block, thinkSteps, icon, label, detail){
-  block.thinkEl.style.display = '';
-  thinkSteps.push({ icon, label, detail });
-  let html = '<span class="think-spinner"></span> <span class="step-icon">' + icon + '</span> <span class="step-label">' + escapeHtml(label) + '</span>';
-  if (detail) {
-    html += ' <span class="step-detail-inline">' + escapeHtml((detail || '').slice(0, 80)) + '</span>';
+/* ---- Live Step Ledger ---- */
+
+const _TOOL_LABELS = {
+  get_stock_info: '查询股票信息',
+  get_stock_price: '查询股价',
+  get_income_statement: '获取利润表',
+  get_balance_sheet: '获取资产负债表',
+  get_cash_flow: '获取现金流量表',
+  get_valuation: '获取估值数据',
+  get_financial_indicators: '获取财务指标',
+  get_stock_realtime: '查询实时行情',
+  get_market_index: '查询市场指数',
+  run_command: '执行命令',
+  run_python_script: '运行 Python 脚本',
+  read_file: '读取文件',
+  write_file: '写入文件',
+  list_files: '列出文件',
+  search_text: '搜索文本',
+  Skill: '运行技能',
+  propose_plan: '提交计划',
+};
+
+const _THINK_DETAIL_TRUNCATE = 120;
+
+function _parseToolInput(raw){
+  if (raw == null) return null;
+  if (typeof raw === 'object') return raw;
+  const text = String(raw).trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return (parsed && typeof parsed === 'object') ? parsed : { value: text };
+  } catch (_) {
+    return { value: text };
   }
-  block.currentEl.innerHTML = html;
+}
+
+function _toolLabel(toolName){
+  const name = String(toolName || '');
+  if (_TOOL_LABELS[name]) return _TOOL_LABELS[name];
+  if (name.startsWith('retrieve_') || name.startsWith('http_')) return '检索: ' + name;
+  return name || '工具调用';
+}
+
+function _pickInputField(obj, keys){
+  if (!obj || typeof obj !== 'object') return '';
+  for (let i = 0; i < keys.length; i++) {
+    const v = obj[keys[i]];
+    if (v == null || v === '') continue;
+    if (Array.isArray(v)) return v.map(String).filter(Boolean).join(', ');
+    return String(v);
+  }
+  return '';
+}
+
+function _summarizeToolInput(toolName, rawInput){
+  const obj = _parseToolInput(rawInput);
+  if (!obj) return '';
+  const name = String(toolName || '');
+  let summary = '';
+  if (name === 'run_command') {
+    summary = _pickInputField(obj, ['command', 'cmd', 'value']);
+  } else if (name === 'run_python_script') {
+    summary = _pickInputField(obj, ['script_path', 'path', 'script', 'value']);
+  } else if (name === 'Skill') {
+    summary = _pickInputField(obj, ['name', 'skill', 'skill_name', 'value']);
+  } else if (name === 'read_file' || name === 'write_file' || name === 'list_files') {
+    summary = _pickInputField(obj, ['path', 'file_path', 'directory', 'value']);
+  } else if (name === 'search_text') {
+    summary = _pickInputField(obj, ['query', 'pattern', 'path', 'value']);
+  } else if (name === 'propose_plan') {
+    summary = _pickInputField(obj, ['overview', 'title', 'path', 'value']);
+  } else {
+    summary = _pickInputField(obj, [
+      'symbol', 'stock_code', 'code', 'ts_code', 'name',
+      'path', 'query', 'command', 'prompt', 'value',
+    ]);
+    if (!summary) {
+      const keys = Object.keys(obj);
+      if (keys.length === 1) summary = String(obj[keys[0]]);
+    }
+  }
+  summary = String(summary || '').replace(/\s+/g, ' ').trim();
+  if (summary.length > 80) summary = summary.slice(0, 80) + '…';
+  return summary;
+}
+
+function _formatDuration(ms){
+  if (ms == null || isNaN(ms) || ms < 0) return '';
+  if (ms < 1000) return ms + 'ms';
+  const sec = ms / 1000;
+  if (sec < 60) return (sec < 10 ? sec.toFixed(1) : Math.round(sec)) + 's';
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return m + 'm' + (s ? s + 's' : '');
+}
+
+function _statusIcon(status, kind){
+  if (kind === 'slow_think') return '💭';
+  if (status === 'running') return '⏳';
+  if (status === 'error') return '✗';
+  return '✓';
+}
+
+function _detailHtml(detail, idx){
+  if (!detail) return '';
+  const text = String(detail);
+  const isLong = text.length > _THINK_DETAIL_TRUNCATE;
+  const shortText = escapeHtml(text.slice(0, _THINK_DETAIL_TRUNCATE));
+  const fullText = escapeHtml(text);
+  if (isLong) {
+    return '<div class="step-detail-row">' +
+      '<span class="step-detail step-detail-expandable" data-step="' + idx + '">' +
+      '<span class="step-detail-short">' + shortText + '...</span>' +
+      '<span class="step-detail-full" style="display:none">' + fullText + '</span>' +
+      '</span>' +
+      '<button type="button" class="step-toggle-btn" onclick="_toggleStepDetail(this)">展开</button>' +
+      '</div>';
+  }
+  return '<div class="step-detail-row"><span class="step-detail">' + shortText + '</span></div>';
+}
+
+function _stepRowHtml(step, idx, isSub){
+  const cls = 'think-step' +
+    (isSub ? ' think-step-sub' : '') +
+    ' is-' + (step.status || 'done');
+  const icon = _statusIcon(step.status, step.kind);
+  const spinner = step.status === 'running'
+    ? '<span class="think-spinner think-spinner-sm"></span>'
+    : '';
+  const input = step.inputSummary
+    ? '<span class="step-input">' + escapeHtml(step.inputSummary) + '</span>'
+    : '';
+  const dur = (step.status !== 'running' && step.durationMs != null)
+    ? '<span class="step-duration">' + escapeHtml(_formatDuration(step.durationMs)) + '</span>'
+    : '';
+  const detail = step.status === 'running'
+    ? ''
+    : _detailHtml(step.detail, idx);
+  let childrenHtml = '';
+  if (step.children && step.children.length) {
+    childrenHtml = '<div class="think-step-children">' +
+      step.children.map(function(child, cIdx){
+        return _stepRowHtml(child, idx + '-' + cIdx, true);
+      }).join('') +
+      '</div>';
+  }
+  return '<div class="' + cls + '" data-step-id="' + step.id + '">' +
+    '<div class="think-step-main">' +
+      spinner +
+      '<span class="step-icon">' + icon + '</span>' +
+      '<span class="step-label">' + escapeHtml(step.label) + '</span>' +
+      input + dur +
+    '</div>' +
+    detail +
+    childrenHtml +
+    '</div>';
+}
+
+function _countThinkSteps(steps){
+  let n = 0;
+  (steps || []).forEach(function(s){
+    n += 1;
+    if (s.children) n += s.children.length;
+  });
+  return n;
+}
+
+function _sumThinkDuration(steps){
+  let total = 0;
+  (steps || []).forEach(function(s){
+    if (s.durationMs != null) total += s.durationMs;
+    (s.children || []).forEach(function(c){
+      if (c.durationMs != null) total += c.durationMs;
+    });
+  });
+  return total;
+}
+
+function _findRunningStep(steps, toolName){
+  const list = steps || [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const s = list[i];
+    if (s.status === 'running' && (!toolName || s.tool === toolName)) return s;
+  }
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i].status === 'running') return list[i];
+  }
+  return null;
+}
+
+function _findDelegateParent(steps, delegateId){
+  const list = steps || [];
+  if (delegateId) {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const s = list[i];
+      if (s.delegateId === delegateId || s.kind === 'delegate') return s;
+    }
+  }
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i].status === 'running') return list[i];
+  }
+  return list.length ? list[list.length - 1] : null;
+}
+
+function _ensureThinkVisible(block){
+  if (!block || !block.thinkEl) return;
+  block.thinkEl.style.display = '';
+  if (block.stepsEl) block.stepsEl.style.display = '';
+}
+
+function _updateThinkHeader(block, s){
+  if (!block || !block.headerEl) return;
+  if (!s.thinkLive) {
+    block.headerEl.style.display = 'none';
+    return;
+  }
+  const steps = s.thinkSteps || [];
+  const n = _countThinkSteps(steps);
+  const running = _findRunningStep(steps);
+  let text = '执行中 · ' + n + ' 步';
+  if (running) {
+    text += ' · ' + running.label;
+    if (running.inputSummary) text += ' ' + running.inputSummary;
+  }
+  block.headerEl.style.display = '';
+  if (block.headerTextEl) block.headerTextEl.textContent = text;
+}
+
+function _renderThinkSteps(block, s){
+  if (!block || !block.stepsEl) return;
+  const steps = s.thinkSteps || [];
+  block.stepsEl.innerHTML = steps.map(function(step, idx){
+    return _stepRowHtml(step, idx, false);
+  }).join('');
+  block.stepsEl.scrollTop = block.stepsEl.scrollHeight;
+}
+
+function _renderThinkLive(block, s){
+  if (!block) return;
+  _ensureThinkVisible(block);
+  if (block.summaryEl) block.summaryEl.style.display = 'none';
+  block.thinkEl.classList.remove('collapsed');
+  _updateThinkHeader(block, s);
+  _renderThinkSteps(block, s);
+  if (!userScrolledUp) scrollToBottom();
+}
+
+function _startThinkStep(block, s, opts){
+  opts = opts || {};
+  s.thinkStepSeq = (s.thinkStepSeq || 0) + 1;
+  const step = {
+    id: s.thinkStepSeq,
+    status: 'running',
+    kind: opts.kind || 'tool',
+    tool: opts.tool || '',
+    icon: opts.icon || '',
+    label: opts.label || _toolLabel(opts.tool),
+    inputSummary: opts.inputSummary || '',
+    detail: opts.detail || '',
+    durationMs: null,
+    startedAt: Date.now(),
+    delegateId: opts.delegateId || null,
+    children: [],
+  };
+  s.thinkSteps.push(step);
+  s.thinkLive = true;
+  _renderThinkLive(block, s);
+  return step;
+}
+
+function _finishThinkStep(block, s, opts){
+  opts = opts || {};
+  const step = _findRunningStep(s.thinkSteps, opts.tool);
+  if (!step) {
+    // 兜底：没有 running 步时补一条已完成记录
+    s.thinkStepSeq = (s.thinkStepSeq || 0) + 1;
+    s.thinkSteps.push({
+      id: s.thinkStepSeq,
+      status: opts.error ? 'error' : 'done',
+      kind: opts.kind || 'tool',
+      tool: opts.tool || '',
+      label: opts.label || _toolLabel(opts.tool),
+      inputSummary: opts.inputSummary || '',
+      detail: opts.detail || '',
+      durationMs: opts.durationMs != null ? opts.durationMs : null,
+      startedAt: Date.now(),
+      children: [],
+    });
+  } else {
+    step.status = opts.error ? 'error' : 'done';
+    if (opts.detail != null) step.detail = String(opts.detail);
+    if (opts.durationMs != null) step.durationMs = opts.durationMs;
+    else if (step.startedAt) step.durationMs = Date.now() - step.startedAt;
+    if (opts.delegateId) step.delegateId = opts.delegateId;
+  }
+  _renderThinkLive(block, s);
+}
+
+function _startSubThinkStep(block, s, opts){
+  opts = opts || {};
+  const parent = _findDelegateParent(s.thinkSteps, opts.delegateId);
+  if (!parent) {
+    return _startThinkStep(block, s, {
+      kind: 'sub_tool',
+      tool: opts.tool,
+      label: _toolLabel(opts.tool),
+      inputSummary: opts.inputSummary || '',
+      delegateId: opts.delegateId,
+    });
+  }
+  if (opts.delegateId) parent.delegateId = opts.delegateId;
+  if (!parent.children) parent.children = [];
+  s.thinkStepSeq = (s.thinkStepSeq || 0) + 1;
+  const child = {
+    id: s.thinkStepSeq,
+    status: 'running',
+    kind: 'sub_tool',
+    tool: opts.tool || '',
+    label: _toolLabel(opts.tool),
+    inputSummary: opts.inputSummary || '',
+    detail: '',
+    durationMs: null,
+    startedAt: Date.now(),
+    delegateId: opts.delegateId || null,
+  };
+  parent.children.push(child);
+  s.thinkLive = true;
+  _renderThinkLive(block, s);
+  return child;
+}
+
+function _finishSubThinkStep(block, s, opts){
+  opts = opts || {};
+  const parent = _findDelegateParent(s.thinkSteps, opts.delegateId);
+  let child = null;
+  if (parent && parent.children && parent.children.length) {
+    for (let i = parent.children.length - 1; i >= 0; i--) {
+      const c = parent.children[i];
+      if (c.status === 'running' && (!opts.tool || c.tool === opts.tool)) {
+        child = c;
+        break;
+      }
+    }
+    if (!child) {
+      for (let i = parent.children.length - 1; i >= 0; i--) {
+        if (parent.children[i].status === 'running') {
+          child = parent.children[i];
+          break;
+        }
+      }
+    }
+  }
+  if (!child) {
+    _finishThinkStep(block, s, opts);
+    return;
+  }
+  child.status = opts.error ? 'error' : 'done';
+  if (opts.detail != null) child.detail = String(opts.detail);
+  if (opts.durationMs != null) child.durationMs = opts.durationMs;
+  else if (child.startedAt) child.durationMs = Date.now() - child.startedAt;
+  _renderThinkLive(block, s);
 }
 
 function _collapseThink(block, thinkSteps){
-  const n = thinkSteps.length;
-  if (!n) { block.thinkEl.style.display = 'none'; return; }
+  const steps = thinkSteps || [];
+  const n = _countThinkSteps(steps);
+  if (!n) { if (block.thinkEl) block.thinkEl.style.display = 'none'; return; }
 
-  block.currentEl.style.display = 'none';
-  block.stepsEl.style.display = '';
-  block.summaryEl.style.display = '';
+  _ensureThinkVisible(block);
+  if (block.headerEl) block.headerEl.style.display = 'none';
+  if (block.summaryEl) block.summaryEl.style.display = '';
 
-  const TRUNCATE_AT = 120;
-  block.stepsEl.innerHTML = thinkSteps.map((s, idx) => {
-    let detailHtml = '';
-    if (s.detail) {
-      const isLong = s.detail.length > TRUNCATE_AT;
-      const shortText = escapeHtml(s.detail.slice(0, TRUNCATE_AT));
-      const fullText = escapeHtml(s.detail);
-      if (isLong) {
-        detailHtml = ' <span class="step-detail step-detail-expandable" data-step="' + idx + '">' +
-          '<span class="step-detail-short">' + shortText + '...</span>' +
-          '<span class="step-detail-full" style="display:none">' + fullText + '</span>' +
-          '</span>' +
-          '<button class="step-toggle-btn" onclick="_toggleStepDetail(this)">展开</button>';
-      } else {
-        detailHtml = ' <span class="step-detail">' + shortText + '</span>';
+  // 将仍在 running 的步骤标记为中断态，避免结束后仍转圈
+  steps.forEach(function(step){
+    if (step.status === 'running') {
+      step.status = 'done';
+      if (step.startedAt && step.durationMs == null) {
+        step.durationMs = Date.now() - step.startedAt;
       }
     }
-    return '<div class="think-step"><span class="step-icon">' + s.icon + '</span><span class="step-label">' + escapeHtml(s.label) + '</span>' +
-      detailHtml + '</div>';
+    (step.children || []).forEach(function(child){
+      if (child.status === 'running') {
+        child.status = 'done';
+        if (child.startedAt && child.durationMs == null) {
+          child.durationMs = Date.now() - child.startedAt;
+        }
+      }
+    });
+  });
+
+  block.stepsEl.innerHTML = steps.map(function(step, idx){
+    return _stepRowHtml(step, idx, false);
   }).join('');
 
-  block.summaryEl.innerHTML = '思考过程 (' + n + '步) <span class="think-arrow">▼</span>';
+  const totalMs = _sumThinkDuration(steps);
+  const durText = totalMs > 0 ? ' · ' + _formatDuration(totalMs) : '';
+  block.summaryEl.innerHTML = '思考过程 (' + n + '步)' + durText + ' <span class="think-arrow">▼</span>';
   block.thinkEl.classList.add('collapsed');
 
   block.summaryEl.onclick = function(){
@@ -1519,11 +1883,67 @@ function _handleStreamEvent(ev, state){
     const spin = b.bodyEl.querySelector('.thinking-inline');
     if (spin) spin.remove();
     s.pendingTool = ev;
+    const toolName = ev.tool || '';
+    const inputSummary = _summarizeToolInput(toolName, ev.input);
+    let label = _toolLabel(toolName);
+    if (toolName === 'Skill' && inputSummary) label = '运行技能: ' + inputSummary;
+    _startThinkStep(b, s, {
+      kind: 'tool',
+      tool: toolName,
+      label: label,
+      inputSummary: toolName === 'Skill' ? '' : inputSummary,
+    });
   } else if (ev.type === 'tool_result'){
-    _addThinkStep(_ensureBlock(s, setState), s.thinkSteps, '🔧', s.pendingTool?.tool || ev.tool, ev.output);
+    const b = _ensureBlock(s, setState);
+    const toolName = (s.pendingTool && s.pendingTool.tool) || ev.tool || '';
+    const output = ev.output != null ? String(ev.output) : '';
+    const isError = /^(Tool error:|错误：|子任务执行错误:)/.test(output) ||
+      output.indexOf("Tool '") === 0;
+    _finishThinkStep(b, s, {
+      tool: toolName,
+      detail: output,
+      durationMs: ev.duration_ms,
+      error: isError,
+      delegateId: ev.delegate_id || null,
+    });
     s.pendingTool = null;
   } else if (ev.type === 'slow_think'){
-    _addThinkStep(_ensureBlock(s, setState), s.thinkSteps, '💭', '策略复盘', ev.content);
+    const b = _ensureBlock(s, setState);
+    const spin = b.bodyEl.querySelector('.thinking-inline');
+    if (spin) spin.remove();
+    _startThinkStep(b, s, {
+      kind: 'slow_think',
+      tool: 'slow_think',
+      label: '策略复盘',
+      detail: '',
+    });
+    _finishThinkStep(b, s, {
+      tool: 'slow_think',
+      detail: ev.content || '',
+      kind: 'slow_think',
+    });
+  } else if (ev.type === 'sub_tool_call' || (typeof ev.type === 'string' && /(?:^|_)sub_tool_call$/.test(ev.type))){
+    const b = _ensureBlock(s, setState);
+    const spin = b.bodyEl.querySelector('.thinking-inline');
+    if (spin) spin.remove();
+    const toolName = ev.tool || '';
+    _startSubThinkStep(b, s, {
+      tool: toolName,
+      inputSummary: _summarizeToolInput(toolName, ev.input),
+      delegateId: ev.delegate_id || null,
+    });
+  } else if (ev.type === 'sub_tool_result' || (typeof ev.type === 'string' && /(?:^|_)sub_tool_result$/.test(ev.type))){
+    const b = _ensureBlock(s, setState);
+    const toolName = ev.tool || '';
+    const output = ev.output != null ? String(ev.output) : '';
+    const isError = /^(Tool error:|错误：|子任务执行错误:)/.test(output);
+    _finishSubThinkStep(b, s, {
+      tool: toolName,
+      detail: output,
+      durationMs: ev.duration_ms,
+      error: isError,
+      delegateId: ev.delegate_id || null,
+    });
   } else if (ev.type === 'plan_ready'){
     _renderPlanCard(_ensureBlock(s, setState), ev);
   } else if (ev.type === 'done'){
@@ -1532,6 +1952,7 @@ function _handleStreamEvent(ev, state){
     if (b) {
       const spin = b.bodyEl.querySelector('.thinking-inline');
       if (spin) spin.remove();
+      s.thinkLive = false;
       _collapseThink(b, s.thinkSteps);
       if (ev.message_id) b.container.dataset.messageId = String(ev.message_id);
     } else { removeThinking(); }
@@ -1544,12 +1965,14 @@ function _handleStreamEvent(ev, state){
     removeThinking();
     if (ev.message) _append('<div class="msg-info">' + escapeHtml(ev.message) + '</div>');
     const b = s.replyBlock;
+    s.thinkLive = false;
     if (b) _collapseThink(b, s.thinkSteps);
     finishStream();
   } else if (ev.type === 'error'){
     _finalizeAssistantRender(s);
     removeThinking();
     const b = s.replyBlock;
+    s.thinkLive = false;
     if (b) _collapseThink(b, s.thinkSteps);
     // 显示错误信息
     const errorEl = _append('<div class="stream-error msg-error">' + escapeHtml(ev.message || '执行出错') + '</div>');
@@ -3008,9 +3431,10 @@ function _initScrollListener(){
 }
 
 function _toggleStepDetail(btn){
-  const step = btn.parentElement;
-  const shortEl = step.querySelector('.step-detail-short');
-  const fullEl = step.querySelector('.step-detail-full');
+  const row = btn.closest('.step-detail-row') || btn.parentElement;
+  const shortEl = row.querySelector('.step-detail-short');
+  const fullEl = row.querySelector('.step-detail-full');
+  if (!shortEl || !fullEl) return;
   const expanded = btn.textContent === '收起';
   if (expanded) {
     shortEl.style.display = '';

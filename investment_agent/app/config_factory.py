@@ -10,7 +10,6 @@ import json
 from ..agent.config import (
     AgentRunConfig,
     MAX_PARALLEL_SUBAGENTS_DEFAULT,
-    PLANNING_MAX_TOKENS_DEFAULT,
     SUBAGENT_WORKSPACE_DIR_DEFAULT,
 )
 from ..agent.prompts import DEFAULT_SYSTEM_PROMPT
@@ -148,9 +147,6 @@ def _resolve_engine_params(agent_cfg: dict | None) -> dict:
             agent_cfg, global_cfg, "offload_summary_strategy", OffloadSummaryStrategy.TRUNCATE,
         ),
         "offload_summary_chars": _resolve_preferring_agent(agent_cfg, global_cfg, "offload_summary_chars", 200),
-        "planning_max_tokens": _resolve_preferring_agent(
-            agent_cfg, global_cfg, "planning_max_tokens", PLANNING_MAX_TOKENS_DEFAULT,
-        ),
         "subagent_workspace_dir": _resolve_preferring_agent(
             agent_cfg, global_cfg, "subagent_workspace_dir", SUBAGENT_WORKSPACE_DIR_DEFAULT,
         ),
@@ -290,7 +286,6 @@ async def load_agent_run_config(
         offload_threshold=engine_params["offload_threshold"],
         offload_summary_strategy=engine_params["offload_summary_strategy"],
         offload_summary_chars=engine_params["offload_summary_chars"],
-        planning_max_tokens=engine_params["planning_max_tokens"],
         subagent_workspace_dir=engine_params["subagent_workspace_dir"],
         input_price=provider.input_price,
         output_price=provider.output_price,

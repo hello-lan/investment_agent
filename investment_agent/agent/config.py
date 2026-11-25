@@ -8,7 +8,6 @@ from typing import Any
 from .constants import OffloadSummaryStrategy, LoopMode
 
 # ── 默认值常量（全局单一来源，避免多文件硬编码）──────────────────────────
-PLANNING_MAX_TOKENS_DEFAULT = 1024  # 委派任务指令生成的单轮输出上限默认值
 SUBAGENT_WORKSPACE_DIR_DEFAULT = "data/tmp/subagents"
 MAX_PARALLEL_SUBAGENTS_DEFAULT = 3
 
@@ -31,7 +30,6 @@ class EngineConfig:
     offload_threshold: int = 800
     offload_summary_strategy: str = OffloadSummaryStrategy.TRUNCATE
     offload_summary_chars: int = 200
-    planning_max_tokens: int = PLANNING_MAX_TOKENS_DEFAULT  # 任务指令生成单轮输出上限
     subagent_workspace_dir: str = SUBAGENT_WORKSPACE_DIR_DEFAULT
 
 
@@ -67,7 +65,6 @@ class AgentRunConfig:
     loop_detection_threshold: int = 3
     runtime_context_compression_enabled: bool = True
     context_trim_token_threshold: int = 0
-    planning_max_tokens: int = PLANNING_MAX_TOKENS_DEFAULT  # 任务指令生成单轮输出上限
 
     # ── 上下文卸载参数 ──
     offload_threshold: int = 800

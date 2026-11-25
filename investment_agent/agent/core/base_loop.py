@@ -10,10 +10,9 @@ from ..constants import EventType, StopReason
 from .provider import ModelProvider, LLMResponse, ToolCall
 from .prompt_builder import PromptBuilder
 from .tool_executor import ToolExecutor, LoopDetector
-from .task_planner import TaskPlanner, extract_text_from_content
 from .safety_checker import SafetyChecker
 from .context_trimmer import ContextTrimmer
-from ..config import EngineConfig, PLANNING_MAX_TOKENS_DEFAULT
+from ..config import EngineConfig
 from ..prompts import DATE_NOTE, DATE_NOTE_RE, PROGRESS_EVAL, TRUNCATION_CONTINUE_PROMPT
 from ..context.runtime_compressor import RuntimeCompressor
 
@@ -47,7 +46,7 @@ class BaseLoopEngine:
     SLOW_THINK_MAX_TOKENS = 200       # 预留给子类反思阶段的单轮输出上限
     SYSTEM_PROMPT_EXCERPT_CHARS = 200 # system prompt 截取长度
     REASONING_MAX_CHARS = 300         # 推理内容保留长度
-    LOOP_WHITELIST = {"run_command", "run_python_script", "DelegateTask"}  # 不受死循环检测限制的工具（挂载 Subagent 名运行时并入）
+    LOOP_WHITELIST = {"run_command", "run_python_script"}  # 不受死循环检测限制的工具（挂载 Subagent 名运行时并入）
 
     def __init__(
         self,
@@ -97,9 +96,6 @@ class BaseLoopEngine:
         self.offload_summary_chars = config.offload_summary_chars
         self.subagent_workspace_dir = config.subagent_workspace_dir
 
-        # 任务指令生成参数
-        self.planning_max_tokens = getattr(config, "planning_max_tokens", PLANNING_MAX_TOKENS_DEFAULT)
-
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         # 子 Agent 用量：仅用于费用统计，不计入本引擎 token_budget
@@ -127,7 +123,6 @@ class BaseLoopEngine:
             compressor=runtime_compressor,
             token_threshold=config.context_trim_token_threshold,
         )
-        self.task_planner: TaskPlanner | None = None  # 延迟初始化（需要 provider）
 
         self._messages: list[dict] = []
 
@@ -148,12 +143,7 @@ class BaseLoopEngine:
     def system_prompt(self) -> str | list[dict]:
         """动态拼接：基础 prompt + 项目路径 + 已注册 skill 的名称/描述"""
         if self._prompt_builder is None:
-            delegation_tool_names: list[str] = []
-            if "DelegateTask" in self.tool_handlers or any(
-                t.get("name") == "DelegateTask" for t in self.tools
-            ):
-                delegation_tool_names.append("DelegateTask")
-            delegation_tool_names.extend(sorted(self._mounted_subagent_names))
+            delegation_tool_names = sorted(self._mounted_subagent_names)
             self._prompt_builder = PromptBuilder(
                 self._system_prompt,
                 self._skills,
@@ -170,18 +160,6 @@ class BaseLoopEngine:
     def interrupt(self) -> None:
         """发送中断信号，优雅停止当前任务"""
         self._interrupt.set()
-
-    def _ensure_task_planner(self) -> TaskPlanner:
-        """延迟初始化 TaskPlanner（需要 provider 就绪后调用）。"""
-        if self.task_planner is None and self.provider:
-            self.task_planner = TaskPlanner(
-                provider=self.provider,
-                temperature=self.temperature,
-                max_single_turn_output_tokens=self.max_single_turn_output_tokens,
-                planning_max_tokens=self.planning_max_tokens,
-                skill_body_max_chars=self.SKILL_BODY_MAX_CHARS,
-            )
-        return self.task_planner
 
     # ── 模板方法 / Hook ───────────────────────────────────────────────
 
@@ -279,7 +257,6 @@ class BaseLoopEngine:
             yield {"type": EventType.ERROR, "message": "No model provider configured."}
             return
 
-        self._ensure_task_planner()
         self._start_ts = __import__("time").monotonic()
         loop_whitelist = set(self.LOOP_WHITELIST) | set(self._mounted_subagent_names)
         loop_detector = LoopDetector(
@@ -515,10 +492,6 @@ class BaseLoopEngine:
                 blocks.append({"type": "text", "text": response.content})
             return {"role": "assistant", "content": blocks}
         return {"role": "assistant", "content": response.content}
-
-    @staticmethod
-    def _extract_text_from_content(content) -> str:
-        return extract_text_from_content(content)
 
     def _extract_role_from_system(self) -> str:
         """从 system_prompt 中提取角色定义（第一段），用于精简 system。"""
