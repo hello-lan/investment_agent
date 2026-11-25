@@ -1,8 +1,8 @@
 ---
-name: analyze_financial_report
+name: annual_report_redflag_scanner
 description: 对指定 A 股年报 Markdown 做排雷（硬伤、R001–R038、必查覆盖表、三表联动、风险评级与三大前提）。task 须含 report_path；可选 output_path。缺索引时先补建同级 sections.json 再分析。
 tools: list_files, read_file, search_text, write_file, run_python_script, run_command
-skills: analyze-financial-report, build-annual-report-index
+skills: annual-report-redflag-scanner, build-annual-report-index
 model:
 token_budget: 1200000
 max_single_turn_output_tokens: 8192
@@ -16,7 +16,7 @@ offload_summary_chars: 200
 
 ## 执行姿态
 
-- 严格按挂载 skill `analyze-financial-report` 执行（流程、P0/P1、必查表、知识路由、Output contract、Guardrails 均以 skill 为准）
+- 严格按挂载 skill `annual-report-redflag-scanner` 执行（流程、P0/P1、必查表、知识路由、Output contract、Guardrails 均以 skill 为准）
 - 必须先有明确 `report_path`（`.md`）；缺路径则停并要求补充，**禁止**按 ticker / 公司名 / 年份猜路径
 - 先校验 Markdown 存在可读，再查同级 `<stem>.sections.json`（兼容 `.built` / `.generated` / 其他同 stem 的 `*.sections.json`）
 - 缺索引时：调用挂载 skill `build-annual-report-index`，**仅**建索引到同级 `<stem>.sections.json`，不要让索引步骤产出分析结论

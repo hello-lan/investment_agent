@@ -1,9 +1,9 @@
 ---
-name: analyze-financial-report
-description: 对 A 股年报 Markdown 做排雷。基于索引定向阅读，对照 R001–R038 与必查覆盖表，判断利润是否为真、现金流、资产风险与治理硬伤，输出风险评级、覆盖表与三大前提。用户提到分析年报、排雷、造假识别、利润质量、现金流、资产风险时，应优先使用本 skill。
+name: annual-report-redflag-scanner
+description: 仅用于 A 股年报财报排雷与风险检测（造假/硬伤信号、利润真假、现金流质量、资产与治理风险；R001–R038 + 必查覆盖表 → 风险评级与三大前提）。用户明确要排雷、风险扫描、造假识别、利润/现金流质量核查时使用。不做经营解读、业务驱动分析、行业对比或综合财务分析——那些应改用 annual-report-business-analyst / full-financial-analysis 等 skill。
 ---
 
-# Analyze Financial Report
+# Annual Report Redflag Scanner
 
 把“校验 Markdown 路径 → 检查同级索引 → 必要时补索引 → 定向阅读 → 输出分析并写报告”串成稳定流程。
 

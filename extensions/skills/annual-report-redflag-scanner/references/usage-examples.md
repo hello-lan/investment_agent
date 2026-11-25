@@ -1,6 +1,6 @@
 # Usage examples
 
-这个文件展示 analyze-financial-report skill 的典型工作流，以及**如何从任务类型跳到 skill 内部的分类知识文件**。
+这个文件展示 annual-report-redflag-scanner skill 的典型工作流，以及**如何从任务类型跳到 skill 内部的分类知识文件**。
 
 它不是某家公司的固定答案模板，而是帮助你判断：
 - 什么时候该先校验 `report_path`

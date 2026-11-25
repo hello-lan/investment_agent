@@ -99,7 +99,7 @@ start.bat --port 8000
 | 估值观察 | 「用 DCF 和 PE/PB 给海康威视一个前提显式的估值区间」 |
 | 看数字 | 打开 `/dashboard`，搜索 `600519` 或「茅台」 |
 
-完整财报分析路径：挂载 `full-financial-analysis`。父 Agent 按公司、按年调用 `prepare_financial_reports` 准备 PDF、Markdown 和同级索引；分析交给 `analyze_financial_report`。多年需求由父 Agent 汇总各年报告。
+完整财报分析路径：挂载 `full-financial-analysis`。父 Agent 按公司、按年调用 `prepare_financial_reports` 准备 PDF、Markdown 和同级索引；分析交给 `annual_report_redflag_scanner`。多年需求由父 Agent 汇总各年报告。
 
 ---
 
@@ -193,7 +193,7 @@ investment_agent/                 # 仓库根目录
 | `a-share-financial-data` | 股票资料、历史/实时行情、指数、利润表、资产负债表、现金流量表、估值与财务指标 |
 | `a-share-valuation` | DCF、相对估值、周期股调整，输出前提显式的观察区间 |
 | `industry-compare` | 同业关键指标对比，标出异常偏离 |
-| `analyze-financial-report` | 年报索引定向排雷：R001–R038、必查覆盖、风险评级与三大前提 |
+| `annual-report-redflag-scanner` | 年报索引定向排雷：R001–R038、必查覆盖、风险评级与三大前提 |
 | `build-annual-report-index` | 为年报 Markdown 生成两级章节索引 |
 | `download-a-share-reports` | 从巨潮、东方财富、新浪下载年报、半年报、季报 |
 | `pdf-to-markdown` | PDF 转 Markdown（默认 pdfplumber，可切高质量模式） |
@@ -239,7 +239,7 @@ depends_on: []
 
 | 名称 | 作用 |
 |------|------|
-| `analyze_financial_report` | 对指定年报 Markdown 做最小必要阅读和可复核的排雷分析 |
+| `annual_report_redflag_scanner` | 对指定年报 Markdown 做最小必要阅读和可复核的排雷分析 |
 | `prepare_financial_reports` | 只处理一家公司的一个年份：核对约定路径下的年报 PDF、Markdown 和同级索引，缺则补齐；孤立索引在补完 Markdown 后覆盖重建 |
 
 在 `/agents` 的「Subagent 定义」里可以新建。写清 `description`（主模型靠它决定何时调用）、允许的 `tools` / `skills`，以及可选的 token 与裁剪覆盖。

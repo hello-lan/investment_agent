@@ -1,9 +1,9 @@
 ---
-name: business-operating-analysis
-description: A股上市公司合并三大报表的经营分析。简化资产负债表、利润表和现金流量表之后，对占比或变动大的科目读合并附注，并按索引阅读管理层讨论，写成经营阅读。
+name: annual-report-business-analyst
+description: 仅用于 A 股年报的经营解读与业务分析（合并三表简化/重分类 → 关键附注与管理层讨论印证 → 经营阅读）。用户要读懂商业模式、资产结构、利润构成、现金流画像或经营自洽时使用。不做财报排雷、造假识别或 R001–R038 风险扫描——那些应改用 annual-report-redflag-scanner。
 ---
 
-# 合并三表经营分析
+# Annual Report Business Analyst
 
 ```text
 base_dir = data/reports/result

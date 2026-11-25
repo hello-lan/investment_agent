@@ -1,6 +1,6 @@
 ---
 name: full-financial-analysis
-description: 完整财报分析流程：按公司按年准备年报 PDF、Markdown 与同级索引 → 结构化财报分析；若用户要多年分析，再汇总多年综合报告。单年需求只做到单年分析即止。当用户要求对某只A股进行完整/单年/多年财务分析且 Agent 已挂载 prepare_financial_reports / analyze_financial_report 时触发。
+description: 完整财报分析流程：按公司按年准备年报 PDF、Markdown 与同级索引 → 结构化财报分析；若用户要多年分析，再汇总多年综合报告。单年需求只做到单年分析即止。当用户要求对某只A股进行完整/单年/多年财务分析且 Agent 已挂载 prepare_financial_reports / annual_report_redflag_scanner 时触发。
 ---
 
 # 完整财报分析流程（Subagent 版）
@@ -11,12 +11,12 @@ description: 完整财报分析流程：按公司按年准备年报 PDF、Markdo
 
 当前 Agent **必须已挂载**以下两个 Subagent（否则步骤 1–4 无可用工具，应停止并提示用户挂载）：
 - `prepare_financial_reports`
-- `analyze_financial_report`
+- `annual_report_redflag_scanner`
 
 ## ⚠️ 核心规则（必须严格遵守）
 
 1. **步骤 1–3**：每个目标年份各调用一次 `prepare_financial_reports`。task 只写一个 `code` 和一个 `year`。多年时由父 Agent 拆开；互不依赖的年份可以同一轮并行。**禁止**把年份范围、`start`/`end` 或多家公司塞进一次 task。**禁止**父 Agent 亲自下载、转写或跑建索引脚本。
-2. **步骤 4**：必须调用 `analyze_financial_report`；**禁止**父 Agent 亲自通读年报做分析。`report_path` 用该年 prepare 交回的实际 Markdown 路径。
+2. **步骤 4**：必须调用 `annual_report_redflag_scanner`；**禁止**父 Agent 亲自通读年报做分析。`report_path` 用该年 prepare 交回的实际 Markdown 路径。
 3. **步骤 5**：仅**多年模式**执行；由本 Agent 亲自读取步骤 4 产出的各年 `.analysis.md`，按 `references/multi-year-synthesis-contract.md` 汇总并写出多年综合报告。单年需求跳过本步。**禁止**再委派 Subagent 重跑单年分析；**禁止**为汇总而全文通读原始年报。
 4. **禁止调试脚本**：Subagent / 脚本报错时不要亲自调试；反馈用户或按降级策略处理。
 5. **步骤预算**：每个步骤最多消耗父 Agent 5 步。超过后进入下一步。
@@ -72,7 +72,7 @@ index: data/reports/md/{code}/{stem}.sections.json
 
 ## 步骤 4：结构化财报分析（各年）
 
-调用 Subagent 工具 `analyze_financial_report`（禁止本 Agent 亲自通读分析）。
+调用 Subagent 工具 `annual_report_redflag_scanner`（禁止本 Agent 亲自通读分析）。
 
 - 每个年份各调用一次；互不依赖时可同 turn 并行
 - `task` 只写路径
@@ -92,7 +92,7 @@ output_path: data/reports/md/{code}/{stem}.analysis.md
 2. **第 2 次重试**：仍只最近一年，并注明「优先读索引与 P0，不做附注深挖」  
 3. **彻底失败**：汇总 PDF / Markdown / 索引路径汇报，注明分析未完成；**跳过步骤 5**
 
-降级仍须走 `analyze_financial_report` Subagent。
+降级仍须走 `annual_report_redflag_scanner` Subagent。
 
 ---
 
@@ -100,7 +100,7 @@ output_path: data/reports/md/{code}/{stem}.analysis.md
 
 **仅当本次任务为多年分析时执行。** 单年需求在步骤 4 结束后即完成，不要进入本步。
 
-本步是多年对比的唯一落点；`analyze-financial-report` 本身不做多年协议。
+本步是多年对比的唯一落点；`annual-report-redflag-scanner` 本身不做多年协议。
 
 ### 触发与跳过（按用户意图优先）
 
@@ -149,7 +149,7 @@ data/reports/md/{code}/{code}_{start_year}-{end_year}_多年综合财务分析.m
 ### 禁止
 
 - 禁止在单年模式下执行本步或“顺便”汇总目录里其他年份
-- 禁止重新委派 `analyze_financial_report` 做「多年模式」
+- 禁止重新委派 `annual_report_redflag_scanner` 做「多年模式」
 - 禁止把各年 `.analysis.md` 全文粘贴进综合报告
 - 禁止为补数而全文通读原始年报 Markdown
 - 禁止输出买卖建议
@@ -164,7 +164,7 @@ data/reports/md/{code}/{code}_{start_year}-{end_year}_多年综合财务分析.m
       → pdf/{code}/{stem}.pdf
       → md/{code}/{stem}.md
       → md/{code}/{stem}.sections.json
-        → 步骤4: analyze_financial_report → 同 stem 的 .analysis.md
+        → 步骤4: annual_report_redflag_scanner → 同 stem 的 .analysis.md
           → 步骤5（仅多年模式）: 读取本次各年 .analysis.md → {code}_{start}-{end}_多年综合财务分析.md
 ```
 

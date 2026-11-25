@@ -1,6 +1,6 @@
 # Output contract
 
-这个文件定义 analyze-financial-report skill 的输出结构。
+这个文件定义 annual-report-redflag-scanner skill 的输出结构。
 
 目标不是“把读到的内容复述一遍”，而是：
 **给出判断、说明证据、指出风险含义、保留待验证问题。**

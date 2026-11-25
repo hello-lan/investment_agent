@@ -1,6 +1,6 @@
 # Forensic rules (R001–R038)
 
-这个文件是 analyze-financial-report 的**排雷规则库**。
+这个文件是 annual-report-redflag-scanner 的**排雷规则库**。
 
 它负责：
 1. 提供可引用的规则编号、触发条件与严重度
