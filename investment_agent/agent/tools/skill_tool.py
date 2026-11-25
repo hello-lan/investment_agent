@@ -24,7 +24,7 @@ class SkillTool(BaseTool):
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": "要加载的技能名称，如 download-a-share-reports",
+                        "description": "要加载的技能名称，如 annual-report-prepare",
                     },
                 },
                 "required": ["name"],

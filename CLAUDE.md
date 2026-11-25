@@ -132,14 +132,14 @@ Optionally add a `scripts/` directory with a Python entry point. The script rece
 1. **数据采集** — 从 `data/agent.db` 提取该 session 的 trace_log、messages、agent 配置
 2. **轨迹重建** — 按时间线梳理每步的事件类型、耗时、委派、错误
 3. **问题识别** — 对照检查清单逐项排查：
-   - 死循环检测误杀（DelegateTask 被计入、子Agent 未继承阈值）
+   - 死循环检测误杀（挂载 Subagent 未并入白名单、子Agent 未继承阈值）
    - Token 预算耗尽（子Agent token 累加回父Agent、缺少委派前预算检查）
-   - 委派指令截断（_generate_task_instruction prompt 不完整、缺少 skill body、max_tokens 不足）
-   - 脚本路径试错（SUBAGENT_SYSTEM_PROMPT 缺少项目目录结构）
+   - 委派指令不完整（task 缺路径/缺 skill 约定、max_tokens 不足）
+   - 脚本路径试错（子 Agent 系统提示缺少项目目录结构）
    - 委派效率（同步骤内多文件独立处理、委派粒度是否合理）
    - 可观测性缺失（委派后无 budget_status 事件、子Agent 事件透传）
 4. **关联代码** — 定位 engine.py、config.py、对应 SKILL.md 中的根因
 5. **输出报告** — 会话概览 + 执行时间线 + 委派统计 + 问题列表（含 trace 证据）+ 改进方案
 6. **讨论实施** — 逐问题与用户确认，区分代码/skill/配置修改，按优先级执行
 
-关键文件：`agent/core/engine.py`（引擎+委派+死循环+token）、`agent/config.py`（SUBAGENT_SYSTEM_PROMPT+默认参数）、`extensions/skills/{skill}/SKILL.md`（编排流程）
+关键文件：`agent/core/engine.py`（引擎+委派+死循环+token）、`agent/config.py`（默认参数）、`extensions/skills/{skill}/SKILL.md`（编排流程）

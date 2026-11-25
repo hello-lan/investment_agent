@@ -8,6 +8,21 @@
 - 直接按行号回查关键章节
 - 在不同公司、不同年份标题略有差异时，仍然尽量使用报告里的真实标题
 
+## 书签优先、MD 目录补缺
+生成顺序约定：
+
+1. **主路径**：用 PDF 书签大纲（PyMuPDF `get_toc`）得到章节标题与页码提示，再在已转写的 Markdown 中定位真实 `line_start` / `line_end`
+2. **整份回退**：PDF 无书签或书签定位后顶层过少时，改用 Markdown 目录方案（`build_minimal_index.py`）
+3. **局部补缺**：主路径已出索引但目视仍缺关键章 / 缺 children / **标题错位**时，用 MD 目录方案生成对照索引，再合并缺漏（`fill_sections_index.py`）
+4. **补缺失败即停**：outline + fill 仍无法纠正时，该份标记 failed 并继续下一份；禁止对年报 Markdown 多轮搜读手修
+
+约束不变：
+
+- 行号**始终以 Markdown 为准**（不因书签页码改写正文）
+- Output shape、财务报告提升、最多两级、children 仅限指定父节点 —— 与下文规则相同
+- 转写引擎仍是 pdfplumber；书签读取与转写分离
+- 补缺阶段只允许跑索引脚本 + 读写 `.sections.json`；不得用正文搜索代替 `fill_sections_index.py`
+
 ## Output shape
 输出采用统一的 chapter 树结构：
 
@@ -79,7 +94,14 @@
 - 科目名称以报告原文识别到的实际名称为准，不预设固定清单
 
 ## How to locate titles
-### 顶层章节
+### 顶层章节（书签主路径）
+1. 从 PDF 书签读取标题与页码
+2. 优先在 Markdown 的 `## Page N` 窗口内用标题 alias 定位正文
+3. 窗口未命中再全文 alias 打分定位
+4. 命中多个候选时，读取前后窗口确认真实标题
+5. 用下一个已确认顶层节点的 `line_start - 1` 作为当前节点 `line_end`
+
+### 顶层章节（MD 目录回退）
 1. 先增量读取文件开头，抽出目录
 2. 用目录里的标题作为 strongest alias
 3. 搜索正文候选行号
@@ -127,15 +149,15 @@
 - `需要阅读`
 
 ## Quality checks
-生成后至少检查：
+生成后至少检查（只看索引 JSON，不读年报正文）：
 - 顶层 `chapters` 是否按 `line_start` 单调递增
 - 是否错误保留了原始 `财务报告` 父节点
 - `公司简介和主要财务指标`、`管理层讨论与分析` 是否有一层 `children`
 - `财务报告-合并报表附注` 是否有一层 `children`
 - 是否出现第三层结构
-- 标题所在行是否与输出标题一致或高度对应
 - `line_start <= line_end`
 - 子节点是否完全落在父节点区间内
+- **标题是否与 `chapter_id` 语义一致**：例如 `financial_report_consolidated_income_statement` 的 title 应像「合并利润表」，而不是会计政策长句或书签错位碎片；一旦错位，走脚本补缺，不要通读 Markdown 手改
 
 ## Guardrails
 - 不要默认读取整份年报
@@ -144,3 +166,5 @@
 - 不要预设附注科目固定名称清单
 - 不要把表格行、页码、页眉页脚识别成标题
 - 不要继续展开第三层结构
+- 发现标题错位或缺章时，只跑 `build_minimal_index` + `fill_sections_index`；禁止多轮正文搜索手修
+- 单份 failed 后继续其余报告，不要为修一张票耗尽 token 预算

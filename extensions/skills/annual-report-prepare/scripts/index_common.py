@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
+"""Shared rules and locate helpers for annual-report section indexes."""
 from __future__ import annotations
 
-import argparse
-import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -126,16 +125,18 @@ FINANCIAL_REPORT_SPECS = [
     },
 ]
 
-PUNCT_TRANSLATION = str.maketrans("", "", " \t\r\n　-—_()（）[]【】{}《》<>:：;；,.，。!?！？'\"“”‘’|/\\·•")
+PUNCT_TRANSLATION = str.maketrans(
+    "",
+    "",
+    " \t\r\n　-—_()（）[]【】{}《》<>:：;；,.，。!?！？'\"“”‘’|/\\·•",
+)
 TOP_LEVEL_TOC_PATTERN = re.compile(r"^(第[一二三四五六七八九十]+节)\s*(.+?)\s*(?:[.．·… ]+\d+)?$")
 FLEX_HEADING_PATTERN = re.compile(r"^(第[一二三四五六七八九十]+节|[一二三四五六七八九十百]+、|\d+、)")
-PAGE_HEADER_PATTERN = re.compile(r"^##\s*Page\s+\d+", re.IGNORECASE)
+PAGE_HEADER_PATTERN = re.compile(r"^##\s*Page\s+(\d+)\s*$", re.IGNORECASE)
 NOTE_ITEM_PATTERN = re.compile(r"^(\d+)、\s*(.+)$")
-# 常见变体：「（一）货币资金」「(一)货币资金」
-PAREN_NOTE_ITEM_PATTERN = re.compile(
-    r"^[（(]([一二三四五六七八九十百零〇]+)[）)]\s*(.+)$"
-)
+PAREN_NOTE_ITEM_PATTERN = re.compile(r"^[（(]([一二三四五六七八九十百零〇]+)[）)]\s*(.+)$")
 CN_CHILD_HEADING_PATTERN = re.compile(r"^([一二三四五六七八九十百]+、)\s*(.+)$")
+SECTION_PREFIX_PATTERN = re.compile(r"^(第[一二三四五六七八九十]+节)\s*(.*)$")
 
 CHINESE_NUMERAL_MAP = {
     "一": 1,
@@ -149,6 +150,14 @@ CHINESE_NUMERAL_MAP = {
     "九": 9,
     "十": 10,
 }
+
+_TOC_DOTTED_PAGE_RE = re.compile(r"[.．·…\s]{4,}\d+\s*$")
+_BOOKMARK_NOISE = re.compile(
+    r"[\s□■☑☒√✔✕×]*适用[\s□■☑☒√✔✕×]*不适用|"
+    r"[\s□■☑☒√✔✕×]*是[\s□■☑☒√✔✕×]*否|"
+    r"\s*无\s*$"
+)
+_BOOKMARK_CHECKBOX = re.compile(r"[□■☑☒√✔✕×]+")
 
 
 @dataclass
@@ -250,11 +259,7 @@ def chapter_order_from_prefix(prefix: str) -> int:
     return chinese_numeral_to_int(match.group(1)) or 0
 
 
-_TOC_DOTTED_PAGE_RE = re.compile(r"[.．·…\s]{4,}\d+\s*$")
-
-
 def _looks_like_toc_entry(line: str) -> re.Match[str] | None:
-    """目录行通常是「第X节 标题 …… 页码」；正文标题一般没有长串点号+页码。"""
     stripped = line.strip()
     if not stripped:
         return None
@@ -282,12 +287,9 @@ def detect_toc(lines: list[str], chunk_size: int = 200, max_chunks: int = 10) ->
                 if raw.strip() == "目录":
                     toc_start = idx
                     break
-            # 无独立「目录」标题时：用带点号页码的「第X节」簇作为目录起点
             if not toc_start:
                 dotted_hits = [
-                    idx
-                    for idx, raw in enumerate(chunk_lines, start=1)
-                    if _looks_like_toc_entry(raw)
+                    idx for idx, raw in enumerate(chunk_lines, start=1) if _looks_like_toc_entry(raw)
                 ]
                 if len(dotted_hits) >= 3:
                     toc_start = dotted_hits[0]
@@ -303,7 +305,6 @@ def detect_toc(lines: list[str], chunk_size: int = 200, max_chunks: int = 10) ->
             stripped = raw.strip()
             if not stripped:
                 continue
-            # 有「目录」标题时兼容无点号行；无标题时只收点号页码行，避免正文标题混入
             match = (
                 TOP_LEVEL_TOC_PATTERN.match(stripped)
                 if has_toc_heading
@@ -312,7 +313,6 @@ def detect_toc(lines: list[str], chunk_size: int = 200, max_chunks: int = 10) ->
             if not match:
                 continue
             name = match.group(2).strip()
-            # 去掉标题尾部残留的点号/页码
             name = _TOC_DOTTED_PAGE_RE.sub("", name).strip(" .．·…")
             if not name:
                 continue
@@ -332,7 +332,9 @@ def detect_toc(lines: list[str], chunk_size: int = 200, max_chunks: int = 10) ->
             )
             toc_end = idx
 
-        if entries and any("财务报告" in entry["title"] or "财务会计报告" in entry["title"] for entry in entries):
+        if entries and any(
+            "财务报告" in entry["title"] or "财务会计报告" in entry["title"] for entry in entries
+        ):
             break
 
         if len(entries) >= 6 and toc_end and chunk_end - toc_end >= 20:
@@ -355,15 +357,19 @@ def line_looks_like_heading(line: str) -> bool:
         return False
     if "......" in stripped or "……" in stripped:
         return False
-    if stripped.startswith((
-        "合并财务报表主要项目注释",
-        "合并财务报表项目注释",
-        "合并财务报表附注",
-        "合并报表附注",
-        "财务报表主要项目注释",
-    )):
+    if stripped.startswith(
+        (
+            "合并财务报表主要项目注释",
+            "合并财务报表项目注释",
+            "合并财务报表附注",
+            "合并报表附注",
+            "财务报表主要项目注释",
+        )
+    ):
         return True
-    return bool(FLEX_HEADING_PATTERN.match(stripped)) or stripped.startswith(("审计报告正文", "合并资产负债表", "合并利润表", "合并现金流量表"))
+    return bool(FLEX_HEADING_PATTERN.match(stripped)) or stripped.startswith(
+        ("审计报告正文", "合并资产负债表", "合并利润表", "合并现金流量表")
+    )
 
 
 def build_windows(lines: list[str], start_index: int, span: int = 3) -> list[tuple[int, str]]:
@@ -377,7 +383,9 @@ def build_windows(lines: list[str], start_index: int, span: int = 3) -> list[tup
     return windows
 
 
-def find_candidates(lines: list[str], aliases: list[str], search_start: int = 1, search_end: int | None = None) -> list[int]:
+def find_candidates(
+    lines: list[str], aliases: list[str], search_start: int = 1, search_end: int | None = None
+) -> list[int]:
     search_end = search_end or len(lines)
     alias_norms = [normalize(alias) for alias in aliases]
     candidates: list[int] = []
@@ -466,7 +474,9 @@ def parse_note_item_heading(line: str) -> tuple[str, str, str] | None:
     return item_no, normalized_title, display_title
 
 
-def score_candidate(lines: list[str], candidate_line: int, aliases: list[str], toc_start: int, toc_end: int) -> tuple[int, str]:
+def score_candidate(
+    lines: list[str], candidate_line: int, aliases: list[str], toc_start: int, toc_end: int
+) -> tuple[int, str]:
     if toc_start and toc_start <= candidate_line <= toc_end + 2:
         return -100, "inside_toc"
 
@@ -510,7 +520,9 @@ def score_candidate(lines: list[str], candidate_line: int, aliases: list[str], t
     return score, "ok" if score >= 7 else "weak"
 
 
-def canonical_title_from_window(lines: list[str], candidate_line: int, aliases: list[str]) -> tuple[int, str, str]:
+def canonical_title_from_window(
+    lines: list[str], candidate_line: int, aliases: list[str]
+) -> tuple[int, str, str]:
     alias_norms = [(alias, normalize(alias)) for alias in aliases]
     for offset in range(3):
         start = candidate_line - 1 + offset
@@ -527,7 +539,9 @@ def canonical_title_from_window(lines: list[str], candidate_line: int, aliases: 
                     candidate_title = lines[line_index].strip()
                     if candidate_title and alias_norm in normalize(candidate_title):
                         return line_index + 1, candidate_title, alias
-                first_non_empty_index = next((i for i in range(start, min(len(lines), start + 3)) if lines[i].strip()), start)
+                first_non_empty_index = next(
+                    (i for i in range(start, min(len(lines), start + 3)) if lines[i].strip()), start
+                )
                 return first_non_empty_index + 1, lines[first_non_empty_index].strip(), alias
     fallback_title = lines[candidate_line - 1].strip() or aliases[0]
     return candidate_line, fallback_title, aliases[0]
@@ -550,12 +564,16 @@ def locate_node(
     seen_lines: set[int] = set()
 
     for candidate_line in candidates:
-        resolved_line, title, matched_alias = canonical_title_from_window(lines, candidate_line, aliases)
+        resolved_line, title, matched_alias = canonical_title_from_window(
+            lines, candidate_line, aliases
+        )
         if resolved_line in seen_lines:
             continue
         seen_lines.add(resolved_line)
         score, _ = score_candidate(lines, resolved_line, aliases, toc_start, toc_end)
-        if best_match is None or score > best_match[0] or (score == best_match[0] and resolved_line < best_match[1]):
+        if best_match is None or score > best_match[0] or (
+            score == best_match[0] and resolved_line < best_match[1]
+        ):
             best_match = (score, resolved_line, title, matched_alias)
 
     if best_match is None or best_match[0] < 7:
@@ -598,7 +616,6 @@ def infer_ticker_and_year(report_path: Path, lines: list[str]) -> tuple[str, int
 
 
 def default_output_path(report_path: Path) -> Path:
-    """索引与 Markdown 同级：<stem>.sections.json。"""
     return report_path.with_name(f"{report_path.stem}.sections.json")
 
 
@@ -613,7 +630,9 @@ def report_file_value(report_path: Path) -> str:
     return str(report_path)
 
 
-def classify_title(title: str, rules: list[dict], default_priority: str, default_reason: str) -> tuple[str, str]:
+def classify_title(
+    title: str, rules: list[dict], default_priority: str, default_reason: str
+) -> tuple[str, str]:
     normalized_title = normalize(strip_heading_prefix(title))
     for rule in rules:
         if any(normalize(keyword) in normalized_title for keyword in rule["keywords"]):
@@ -742,7 +761,9 @@ def extract_chapter_children(parent: LocatedNode, lines: list[str]) -> list[Chap
     return children
 
 
-def locate_note_children(lines: list[str], notes_start: int, search_end: int) -> tuple[list[ChapterNode], int]:
+def locate_note_children(
+    lines: list[str], notes_start: int, search_end: int
+) -> tuple[list[ChapterNode], int]:
     children: list[ChapterNode] = []
     stop_line = search_end
     seen_titles: set[str] = set()
@@ -761,7 +782,6 @@ def locate_note_children(lines: list[str], notes_start: int, search_end: int) ->
         item_no, normalized_title, display_title = parsed
         if children and children[-1].line_start == index:
             continue
-        # 页眉/续页会重复同一科目标题；同标题只保留首次
         title_key = normalize(normalized_title)
         if title_key in seen_titles:
             continue
@@ -789,7 +809,9 @@ def locate_note_children(lines: list[str], notes_start: int, search_end: int) ->
     return children, parent_end
 
 
-def locate_financial_report_nodes(lines: list[str], toc_start: int, toc_end: int, finance_entry: dict | None) -> tuple[list[LocatedNode], list[str]]:
+def locate_financial_report_nodes(
+    lines: list[str], toc_start: int, toc_end: int, finance_entry: dict | None
+) -> tuple[list[LocatedNode], list[str]]:
     if finance_entry is None:
         return [], ["financial_report"]
 
@@ -829,151 +851,131 @@ def locate_financial_report_nodes(lines: list[str], toc_start: int, toc_end: int
     return located, missing
 
 
-def build_index(report_path: Path) -> tuple[dict, dict]:
-    lines = report_path.read_text(encoding="utf-8").splitlines()
-    company = infer_company(lines)
-    ticker, year = infer_ticker_and_year(report_path, lines)
-    toc_start, toc_end, toc_entries = detect_toc(lines)
-
-    top_level_specs, financial_entry = build_top_level_specs(toc_entries)
-    top_level_nodes: list[LocatedNode] = []
-    missing_top_level: list[str] = []
-
-    for spec in top_level_specs:
-        found = locate_node(
-            lines,
-            chapter_id=spec.chapter_id,
-            aliases=spec.aliases,
-            priority=spec.priority,
-            reason=spec.reason,
-            toc_start=toc_start,
-            toc_end=toc_end,
-        )
-        if found is None:
-            missing_top_level.append(spec.toc_title)
+def find_page_line_window(lines: list[str], page_1based: int) -> tuple[int, int] | None:
+    """Return 1-based [start, end) line window for `## Page N`, if present."""
+    if page_1based < 1:
+        return None
+    start: int | None = None
+    end = len(lines) + 1
+    for index, raw in enumerate(lines, start=1):
+        match = PAGE_HEADER_PATTERN.match(raw.strip())
+        if not match:
             continue
-        top_level_nodes.append(found)
-
-    financial_nodes, missing_financial = locate_financial_report_nodes(lines, toc_start, toc_end, financial_entry)
-    all_top_level = sorted(top_level_nodes + financial_nodes, key=lambda item: item.line_start)
-    assign_top_level_line_ends(all_top_level, len(lines))
-
-    for node in all_top_level:
-        core_title = strip_heading_prefix(node.title)
-        if "公司简介和主要财务指标" in core_title or "管理层讨论与分析" in core_title:
-            node.children = extract_chapter_children(node, lines)
-        if node.chapter_id == "financial_report_notes":
-            node.children, node.line_end = locate_note_children(lines, node.line_start, node.line_end)
-
-    chapters_json = [node.to_chapter().to_json() for node in all_top_level]
-    output = {
-        "report_file": report_file_value(report_path),
-        "company": company,
-        "ticker": ticker,
-        "year": year,
-        "index_version": 2,
-        "chapters": chapters_json,
-    }
-
-    summary = {
-        "report_path": str(report_path),
-        "toc": {
-            "line_start": toc_start,
-            "line_end": toc_end,
-            "entries": toc_entries,
-        },
-        "found_top_level_chapters": [node["title"] for node in chapters_json],
-        "missing_top_level_chapters": missing_top_level,
-        "missing_financial_report_nodes": missing_financial,
-    }
-    return output, summary
+        page_no = int(match.group(1))
+        if page_no == page_1based and start is None:
+            start = index
+        elif start is not None and page_no > page_1based:
+            end = index
+            break
+    if start is None:
+        return None
+    return start, end
 
 
-def validate_structure(index_data: dict) -> list[str]:
-    errors: list[str] = []
-    chapters = index_data.get("chapters", [])
-    if not isinstance(chapters, list):
-        return ["chapters must be a list"]
+def clean_bookmark_title(title: str) -> str:
+    text = (title or "").replace("\u3000", " ").strip()
+    text = _BOOKMARK_NOISE.sub("", text)
+    text = _BOOKMARK_CHECKBOX.sub("", text)
+    text = re.sub(r"\s+", " ", text).strip(" .-–—\t")
+    return text
 
-    last_end = 0
-    seen_ids: set[str] = set()
-    for chapter in chapters:
-        if not isinstance(chapter, dict):
-            errors.append(f"chapter is not an object: {chapter!r}")
-            continue
-        for field in ("chapter_id", "title", "line_start", "line_end", "priority", "reason"):
-            if field not in chapter:
-                errors.append(f"missing field {field} in chapter {chapter}")
-        chapter_id = chapter.get("chapter_id")
-        if chapter_id in seen_ids:
-            errors.append(f"duplicate chapter_id: {chapter_id}")
-        seen_ids.add(chapter_id)
-        line_start = chapter.get("line_start")
-        line_end = chapter.get("line_end")
-        if not isinstance(line_start, int) or not isinstance(line_end, int):
-            errors.append(f"{chapter_id}: line_start/line_end must be integers")
-            continue
-        if line_start > line_end:
-            errors.append(f"{chapter_id}: line_start > line_end")
-        if line_start <= last_end:
-            errors.append(f"{chapter_id}: overlaps previous top-level chapter")
-        last_end = line_end
+
+def split_section_title(title: str) -> tuple[str, str]:
+    """Return (第X节 prefix or '', name)."""
+    match = SECTION_PREFIX_PATTERN.match(title.strip())
+    if not match:
+        return "", title.strip()
+    return match.group(1), (match.group(2) or "").strip()
+
+
+def match_financial_spec(title: str) -> dict | None:
+    core = normalize(strip_heading_prefix(title))
+    if not core:
+        return None
+    for spec in FINANCIAL_REPORT_SPECS:
+        for alias in spec["aliases"]:
+            alias_norm = normalize(alias)
+            if core == alias_norm or core.startswith(alias_norm) or alias_norm in core:
+                return spec
+    return None
+
+
+def is_expandable_profile_or_mda(title: str) -> bool:
+    core = strip_heading_prefix(title)
+    return "公司简介和主要财务指标" in core or "管理层讨论与分析" in core
+
+
+def semantic_key_for_chapter(chapter: dict) -> str:
+    """Stable merge key across outline / MD-fallback indexes."""
+    chapter_id = str(chapter.get("chapter_id") or "")
+    if chapter_id.startswith("financial_report_"):
+        # Drop notes item suffixes; top-level financial ids are stable.
+        if chapter_id.startswith("financial_report_notes_item_"):
+            return chapter_id
+        return chapter_id
+
+    title = strip_heading_prefix(str(chapter.get("title") or ""))
+    normalized = normalize(title)
+    keyword_keys = [
+        ("管理层讨论与分析", "mda"),
+        ("主要财务指标", "profile"),
+        ("公司简介", "profile"),
+        ("重要事项", "material"),
+        ("重大事项", "material"),
+        ("股份变动", "shareholders"),
+        ("股东情况", "shareholders"),
+        ("债券相关", "bonds"),
+        ("优先股", "preferred"),
+        ("环境和社会", "esg"),
+        ("公司治理", "governance"),
+        ("重要提示", "notice"),
+        ("释义", "definitions"),
+        ("目录", "toc"),
+    ]
+    for keyword, key in keyword_keys:
+        if normalize(keyword) in normalized:
+            return key
+    return f"title:{normalized}" if normalized else f"id:{chapter_id}"
+
+
+def fix_top_level_ranges(chapters: list[dict], total_lines: int | None = None) -> list[dict]:
+    """Sort by line_start and make ranges contiguous / non-overlapping."""
+    cleaned = [ch for ch in chapters if isinstance(ch, dict)]
+    cleaned.sort(key=lambda item: int(item.get("line_start") or 0))
+    for index, chapter in enumerate(cleaned):
+        line_start = int(chapter.get("line_start") or 0)
+        if index < len(cleaned) - 1:
+            next_start = int(cleaned[index + 1].get("line_start") or line_start)
+            chapter["line_end"] = max(line_start, next_start - 1)
+        elif total_lines is not None:
+            chapter["line_end"] = max(line_start, total_lines)
+        else:
+            chapter["line_end"] = max(line_start, int(chapter.get("line_end") or line_start))
 
         children = chapter.get("children") or []
         if not isinstance(children, list):
-            errors.append(f"{chapter_id}: children must be a list")
             continue
-        child_last_end = 0
-        child_seen_ids: set[str] = set()
+        parent_end = int(chapter["line_end"])
+        kept: list[dict] = []
         for child in children:
             if not isinstance(child, dict):
-                errors.append(f"{chapter_id}: child is not an object: {child!r}")
                 continue
-            for field in ("chapter_id", "title", "line_start", "line_end", "priority", "reason"):
-                if field not in child:
-                    errors.append(f"{chapter_id}: child missing field {field}: {child}")
-            child_id = child.get("chapter_id")
-            if child_id in child_seen_ids:
-                errors.append(f"{chapter_id}: duplicate child chapter_id: {child_id}")
-            child_seen_ids.add(child_id)
-            child_start = child.get("line_start")
-            child_end = child.get("line_end")
-            if not isinstance(child_start, int) or not isinstance(child_end, int):
-                errors.append(f"{chapter_id}: child line_start/line_end must be integers: {child}")
+            child_start = int(child.get("line_start") or 0)
+            child_end = int(child.get("line_end") or child_start)
+            if child_start < line_start or child_start > parent_end:
                 continue
-            if child_start > child_end:
-                errors.append(f"{chapter_id}: child line_start > line_end at {child_id}")
-            if child_start < line_start or child_end > line_end:
-                errors.append(f"{chapter_id}: child range outside parent at {child_id}")
-            if child_start <= child_last_end:
-                errors.append(f"{chapter_id}: child overlaps previous child at {child_id}")
-            child_last_end = child_end
-            if child.get("children"):
-                errors.append(f"{chapter_id}: child {child_id} introduces a third level")
-
-    return errors
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate a hierarchical annual report chapter index without reading the full report into model context.")
-    parser.add_argument("report_path", type=Path)
-    parser.add_argument("--output", type=Path)
-    parser.add_argument("--pretty", action="store_true")
-    args = parser.parse_args()
-
-    output_data, summary = build_index(args.report_path)
-    errors = validate_structure(output_data)
-
-    output_path = args.output or default_output_path(args.report_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(output_data, ensure_ascii=False, indent=2 if args.pretty else None),
-        encoding="utf-8",
-    )
-
-    print(json.dumps({"output_path": str(output_path), "summary": summary, "validation_errors": errors}, ensure_ascii=False, indent=2))
-    return 1 if errors else 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+            child["line_end"] = min(max(child_start, child_end), parent_end)
+            kept.append(child)
+        kept.sort(key=lambda item: int(item.get("line_start") or 0))
+        for child_index, child in enumerate(kept):
+            child_start = int(child.get("line_start") or 0)
+            if child_index < len(kept) - 1:
+                next_start = int(kept[child_index + 1].get("line_start") or child_start)
+                child["line_end"] = max(child_start, next_start - 1)
+            else:
+                child["line_end"] = max(child_start, min(int(child.get("line_end") or child_start), parent_end))
+        if kept:
+            chapter["children"] = kept
+        elif "children" in chapter:
+            chapter.pop("children", None)
+    return cleaned

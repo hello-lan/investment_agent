@@ -59,7 +59,7 @@
 ### skill 应做的事
 1. 确认目标 `report_path` 存在
 2. 发现同级没有可用 `sections.json`
-3. 调用 `build-annual-report-index` skill 补建索引
+3. 调用 `annual-report-prepare` skill 补建索引
 4. 显式要求它把索引写到同级 `<report_stem>.sections.json`
 5. 索引就绪后，再开始分析
 6. 最终把分析写到 `output_path` 或默认同级 `<report_stem>.analysis.md`

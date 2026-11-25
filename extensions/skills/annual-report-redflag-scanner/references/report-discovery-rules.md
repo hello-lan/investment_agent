@@ -94,7 +94,7 @@
 ## Missing index rule
 
 若未找到可用索引：
-- 调用 `build-annual-report-index` skill
+- 调用 `annual-report-prepare` skill
 - 显式传入当前 `report_path`
 - 显式要求它把索引写到同级：`report_dir / <report_stem>.sections.json`
 - 只让它构建索引，不要顺带输出年报分析

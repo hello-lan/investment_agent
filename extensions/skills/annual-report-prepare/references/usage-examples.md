@@ -137,7 +137,7 @@
 - 不分析结论，先把 skill 所需产物搭起来
 
 ### skill 应做的事
-1. 先调用 `build-annual-report-index`，按 `index-generation-rules.md` 生成最小可用 `sections.json`
+1. 先调用 `annual-report-prepare` 建索引步骤，按 `index-generation-rules.md` 生成最小可用 `sections.json`
 2. 校验标题命中、区段顺序和行号范围
 3. 只在需要时再生成第一版 digest
 

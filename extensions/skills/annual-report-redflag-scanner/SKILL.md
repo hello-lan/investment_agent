@@ -68,7 +68,7 @@ description: 仅用于 A 股年报财报排雷与风险检测（造假/硬伤信
 - 其他同 stem 的 `*.sections.json`
 
 若仍没有可用索引：
-- 调用 `build-annual-report-index` skill
+- 调用 `annual-report-prepare` skill
 - 只让它构建索引，不要顺带生成摘要或分析结论
 - 显式传入当前 `report_path`
 - 显式要求把索引写到同级父目录下的 `<report_stem>.sections.json`
@@ -180,7 +180,7 @@ P0 读完后，固定按这个顺序取知识：
 ## Guardrails
 
 - 缺少 Markdown 时，不要硬做分析
-- 缺少索引时，不要退化成全文通读；优先复用 `build-annual-report-index`
+- 缺少索引时，不要退化成全文通读；优先复用 `annual-report-prepare`
 - 不要重造索引逻辑
 - 不要把附注整段全部读入上下文；只按异常项目定向回查
 - 不要只罗列数字，要解释数字之间是否闭环
@@ -216,4 +216,4 @@ P0 读完后，固定按这个顺序取知识：
 - `references/governance-and-fraud-signals.md`：治理异常、并购并表、关联交易、欺诈与包装信号
 - `references/output-contract.md`：输出结构、写法与报告落盘要求
 - `references/usage-examples.md`：典型场景与知识路由示例
-- 如需补建索引，调用 `build-annual-report-index` skill
+- 如需补建索引，调用 `annual-report-prepare` skill

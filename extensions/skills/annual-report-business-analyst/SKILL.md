@@ -24,7 +24,7 @@ base_dir = data/reports/result
 
 路径相对项目根，用 `/`。
 
-1. 确认年报同目录有 `<report>.sections.json`。没有就先跑 `build-annual-report-index`。禁止用 `read_file` / `search_text` 扫年报来找这三张表
+1. 确认年报同目录有 `<report>.sections.json`。没有就先跑 `annual-report-prepare`。禁止用 `read_file` / `search_text` 扫年报来找这三张表
 2. 在索引里找章节。标题含「合并资产负债表」「合并利润表」或「合并现金流量表」，且不含「母公司」。常见标题是 `财务报告-合并资产负债表`、`财务报告-合并利润表`、`财务报告-合并现金流量表`。节点在 `chapters` 里，也可能在子节点。取该节点的 `line_start`、`line_end`。行号从 1 计，闭区间
 3. 索引不大就直接 `read_file` 这份 JSON。索引很长时，只用 `search_text` 在这份 JSON 里搜当前任务要的标题，读命中附近的 `title`、`line_start`、`line_end`。同名多条时，用带「财务报告-」前缀、且行号落在正文而不是目录的那一条
 4. 用行号读年报正文。`max_lines` 取区间长度，单次不超过 400。返回头里 `has_more=true` 时，用 `next_start_line` 续读，直到 `line_end`

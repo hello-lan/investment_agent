@@ -4,8 +4,8 @@ description: 只读探查允许范围内的文件。适合目录不熟、文件�
 tools: list_files, read_file, search_text
 skills:
 model:
-token_budget: 150000
-max_single_turn_output_tokens: 4096
+token_budget: 300000
+max_single_turn_output_tokens: 5000
 runtime_context_compression_enabled: true
 context_trim_token_threshold: 70000
 offload_threshold: 800
