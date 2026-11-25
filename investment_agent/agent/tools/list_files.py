@@ -9,9 +9,37 @@ from .file_scope_policy import FileScopePolicy
 from .result_formatter import format_tool_result
 
 
+def _normalize_patterns(pattern: str | list[str] | None) -> list[str]:
+    if pattern is None:
+        return []
+    if isinstance(pattern, str):
+        items = [pattern]
+    else:
+        items = list(pattern)
+    return [p.strip() for p in items if isinstance(p, str) and p.strip()]
+
+
+def _path_matches(rel: str, patterns: list[str]) -> bool:
+    if not patterns:
+        return True
+    path = rel.rstrip("/")
+    return any(fnmatch(path, p) for p in patterns)
+
+
 class ListFilesTool(BaseTool):
     name = "list_files"
-    description = "列举授权范围内的文件或目录。支持递归列举和文件名模式过滤。"
+    description = (
+        "列举授权范围内的文件或目录。支持递归；pattern 对相对路径做 fnmatch"
+        "（可 string 或 string[]，多值 OR）。\n"
+        "\n"
+        "示例：\n"
+        '1) path="data/reports/md/600377", pattern="*.md"\n'
+        "   → data/reports/md/600377/600377_2024年年度报告_2024.md\n"
+        '2) path="data/reports/md/600377", pattern="*2024*年度*"\n'
+        "   → …/600377_2024年年度报告_2024.md（路径需同时含 2024 与「年度」）\n"
+        '3) path="data/reports/md/600377", pattern=["*2023*","*2024*"]\n'
+        "   → 同时列出含 2023 或 2024 的相对路径（多值 OR）"
+    )
     risk_level = 0
 
     def __init__(self, scope: FileScopePolicy):
@@ -30,8 +58,14 @@ class ListFilesTool(BaseTool):
                         "description": "要列举的授权目录或文件路径；留空则列举所有授权 targets",
                     },
                     "pattern": {
-                        "type": "string",
-                        "description": "文件名过滤模式，如 *.md、*.txt",
+                        "description": (
+                            "相对路径 fnmatch；string 或 string[]（多值 OR）。"
+                            '例："*.md"、"*2024*年度*"、["*2023*","*2024*"]'
+                        ),
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}},
+                        ],
                     },
                     "recursive": {
                         "type": "boolean",
@@ -52,13 +86,14 @@ class ListFilesTool(BaseTool):
     async def run(
         self,
         path: str | None = None,
-        pattern: str | None = None,
+        pattern: str | list[str] | None = None,
         recursive: bool = True,
         offset: int = 0,
         max_results: int = 200,
     ) -> str:
         offset = max(0, offset or 0)
         max_results = max(1, min(max_results or 200, 500))
+        patterns = _normalize_patterns(pattern)
 
         if path:
             roots = [self.scope.resolve_read_path(path, allow_dir=True)]
@@ -69,7 +104,7 @@ class ListFilesTool(BaseTool):
         for root in roots:
             if root.is_file():
                 rel = self.scope._to_rel(root)
-                if not pattern or fnmatch(root.name, pattern):
+                if _path_matches(rel, patterns):
                     entries.append(rel)
                 continue
 
@@ -77,10 +112,10 @@ class ListFilesTool(BaseTool):
             for item in iterator:
                 if not self.scope._is_within_read_scope(item):
                     continue
-                if pattern and not fnmatch(item.name, pattern):
-                    continue
                 rel = self.scope._to_rel(item)
                 suffix = "/" if item.is_dir() else ""
+                if not _path_matches(rel, patterns):
+                    continue
                 entries.append(rel + suffix)
 
         entries = sorted(set(entries))
@@ -100,7 +135,7 @@ class ListFilesTool(BaseTool):
             self.name,
             body,
             path=path or "(all_targets)",
-            pattern=pattern,
+            pattern=patterns if patterns else None,
             recursive=recursive,
             offset=offset,
             returned_entries=len(page),
